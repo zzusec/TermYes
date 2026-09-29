@@ -4,12 +4,12 @@
   <p><strong>终端统一管理，危险指令及时拦截。</strong></p>
   <p>面向系统 Terminal 与 Agent 命令守卫的原生 macOS 菜单栏工具。</p>
   <p>
-    <a href="https://github.com/zzusec/Termosaic/actions/workflows/build.yml"><img src="https://github.com/zzusec/Termosaic/actions/workflows/build.yml/badge.svg" alt="构建与测试"></a>
+    <a href="https://github.com/zzusec/TermYes/actions/workflows/build.yml"><img src="https://github.com/zzusec/TermYes/actions/workflows/build.yml/badge.svg" alt="构建与测试"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13 或更高版本">
     <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-universal-blue" alt="macOS 通用架构应用">
   </p>
   <p><a href="README.md">English</a> · <strong>简体中文</strong></p>
-  <p><a href="https://github.com/zzusec/Termosaic/releases/latest">下载安装</a> · <a href="RELEASE_NOTES.md">更新说明</a> · <a href="AgentGuard/README.md">守卫详细说明</a></p>
+  <p><a href="https://github.com/zzusec/TermYes/releases/latest">下载安装</a> · <a href="RELEASE_NOTES.md">更新说明</a> · <a href="AgentGuard/README.md">守卫详细说明</a></p>
 </div>
 
 TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整合到一个应用：集中查看现有 Terminal 会话，隐藏窗口但不中断进程，并在菜单栏统一安装或恢复各 Agent 的 Shell 守卫。
@@ -34,7 +34,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest) 下载 **`TermYes-v1.6.3-macOS.dmg`**。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载 **`TermYes-v1.6.4-macOS.dmg`**。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -46,10 +46,10 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 ### 从 Termosaic 升级
 
-TermYes 是新的产品名称；GitHub 仓库暂保留 **`zzusec/Termosaic`**，确保既有更新地址继续工作。
+GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- Release 同时提供主安装包与 **`Termosaic-v1.6.3-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期。
+- Release 同时提供主安装包与 **`Termosaic-v1.6.4-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 

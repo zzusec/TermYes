@@ -4,12 +4,12 @@
   <p><strong>Your terminals, together. Risky commands, stopped.</strong></p>
   <p>A native macOS menu-bar utility for Apple Terminal and Agent command guards.</p>
   <p>
-    <a href="https://github.com/zzusec/Termosaic/actions/workflows/build.yml"><img src="https://github.com/zzusec/Termosaic/actions/workflows/build.yml/badge.svg" alt="Build and tests"></a>
+    <a href="https://github.com/zzusec/TermYes/actions/workflows/build.yml"><img src="https://github.com/zzusec/TermYes/actions/workflows/build.yml/badge.svg" alt="Build and tests"></a>
     <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13 or later">
     <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-universal-blue" alt="Universal macOS application">
   </p>
-  <p><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
-  <p><a href="https://github.com/zzusec/Termosaic/releases/latest">Download</a> · <a href="RELEASE_NOTES.md">Release notes</a> · <a href="AgentGuard/README.md">Guard details</a></p>
+  <p><strong>English</strong> · <a href="README.zh-CN.md">Chinese</a></p>
+  <p><a href="https://github.com/zzusec/TermYes/releases/latest">Download</a> · <a href="RELEASE_NOTES.md">Release notes</a> · <a href="AgentGuard/README.md">Guard details</a></p>
 </div>
 
 TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards** into one application. Keep existing Terminal sessions visible together, hide them without stopping their processes, and manage per-Agent shell guards from the menu bar.
@@ -26,7 +26,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 - **Window-level Ctrl-C approval.** With Accessibility permission, TermYes can auto-confirm only a verified terminal-input prompt whose requested input is exactly Ctrl-C; Enter, text, passwords, and permission prompts remain manual.
 - **Less desktop clutter.** Show or hide the canvas together, including minimized windows, while processes keep running. No Dock icon, embedded shell, or permanent control window; other applications' windows are not rearranged.
 - **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘O`; change it if you need to preserve another application's Open command.
-- **Conservative task recovery.** Scheduled `继续` attempts recognize selected quota/network interruptions. Recognized confirmation prompts, guard denials, passwords, and unknown automatic-resume states are skipped. TermYes never automatically types `yes`.
+- **Conservative task recovery.** Scheduled resume attempts recognize selected quota/network interruptions. Recognized confirmation prompts, guard denials, passwords, and unknown automatic-resume states are skipped. TermYes never automatically types `yes`.
 - **One place for command guards.** Install/update or restore a client's guard from the menu, without changing its permission mode, model settings, shell aliases, or sandbox settings.
 - **In-app updates.** Download versioned release images, verify checksums and application signatures, then replace and relaunch with a backup for recovery.
 
@@ -34,7 +34,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download **`TermYes-v1.6.3-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest).
+1. Download **`TermYes-v1.6.4-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest).
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -46,10 +46,10 @@ Window management needs no Python or Node.js. The **optional guard module** need
 
 ### Upgrading from Termosaic
 
-TermYes is the new product name; the GitHub repository remains **`zzusec/Termosaic`** so existing update URLs continue working.
+The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- Releases include a **`Termosaic-v1.6.3-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
+- Releases include a **`Termosaic-v1.6.4-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -59,18 +59,18 @@ TermYes is the new product name; the GitHub repository remains **`zzusec/Termosa
 | --- | --- |
 | Show/hide terminal canvas | `⌥⌘1` |
 | Re-tile on the display under the pointer | `⌥⌘2` |
-| Attempt one manual `继续` pass | `⌥⌘3` |
+| Attempt one manual resume pass | `⌥⌘3` |
 | Show and re-tile globally | `⌘O` by default; configurable |
 
 Switching to another application hides the canvas. Hiding windows does not stop the processes inside them. TermYes manages **Apple's Terminal.app only**, not iTerm2 or other terminal emulators.
 
-Automatic continue is enabled by default at a 30-minute interval. The **自动“继续”** submenu offers intervals of 5–120 minutes, session scope, and an optional five-hour schedule anchored to a chosen time. The default scope matches `Codex`/`Claude` in the window title or process list.
+Automatic continue is enabled by default at a 30-minute interval. The **Auto Continue** submenu offers intervals of 5–120 minutes, session scope, and an optional five-hour schedule anchored to a chosen time. The default scope matches `Codex`/`Claude` in the window title or process list.
 
-Screen-text recognition is a heuristic, not a reliable session-state API. It can miss prompts or pause unnecessarily, and cannot guarantee recovery from crashes. Be especially careful with manual sends to **all Terminal windows**: an ordinary shell can interpret `继续` as a command.
+Screen-text recognition is a heuristic, not a reliable session-state API. It can miss prompts or pause unnecessarily, and cannot guarantee recovery from crashes. Be especially careful with manual sends to **all Terminal windows**: an ordinary shell can interpret the configured resume text as a command.
 
 ## Agent command guards
 
-Open **Agent 命令守卫 → 检测守卫配置**, then choose a client. **Quit that client before installing/updating or restoring its files**, and restart afterward. Codex also requires checking and trusting the new hooks in `/hooks`.
+Open **Agent Command Guard → Inspect Guard Configuration**, then choose a client. **Quit that client before installing/updating or restoring its files**, and restart afterward. Codex also requires checking and trusting the new hooks in `/hooks`.
 
 Bundled adapters cover Claude Code, Codex, CodeBuddy, zcode, pi, Qoder, Gemini CLI, Cursor, agy, OpenCode, Factory droid, Crush, and GitHub Copilot CLI.
 

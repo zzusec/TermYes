@@ -29,7 +29,9 @@ for spec in \
   name="${spec#* }"
   sips -z "$size" "$size" "$ROOT/Resources/TermYesIcon-1024.png" --out "$ICONSET/$name" >/dev/null
 done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/TermYesIcon.icns"
+if ! iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/TermYesIcon.icns"; then
+  cp "$ROOT/Resources/TermYesIcon.icns" "$APP/Contents/Resources/TermYesIcon.icns"
+fi
 
 sources=(
   "$ROOT/Sources/SemanticVersion.swift"

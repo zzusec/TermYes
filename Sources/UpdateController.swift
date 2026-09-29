@@ -38,7 +38,7 @@ final class UpdateController: NSObject, ObservableObject {
         }
     }
 
-    private let repository = "zzusec/Termosaic"
+    private let repository = "zzusec/TermYes"
     private let bundleIdentifier = "io.github.zzusec.termosaic"
     private let checkInterval: TimeInterval = 6 * 60 * 60
     private var timer: Timer?
