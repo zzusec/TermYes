@@ -54,6 +54,7 @@ class AIReviewTests(unittest.TestCase):
             "api_key_env": "",
             "require_high_confidence": True,
             "log_path": str(self.root / "review.log"),
+            "memory_path": str(self.root / "memory.json"),
         }))
         self.old_config = os.environ.get(ai_review.CONFIG_ENV)
         self.old_disable = os.environ.get(ai_review.DISABLE_ENV)
@@ -163,6 +164,30 @@ class AIReviewTests(unittest.TestCase):
         )
         self.assertIn("git status", previews[0]["content"])
         self.assertIsNone(ai_review._preflight("rm -rf /tmp/termosaic-build", str(ROOT)))
+
+    def test_allowed_command_is_learned_by_exact_context(self):
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(completion("allow")),
+        ) as request:
+            first = self.review("git status")
+        self.assertEqual(first["behavior"], "allow")
+        self.assertEqual(request.call_count, 1)
+
+        with mock.patch.object(ai_review.urllib.request, "urlopen") as second_request:
+            learned = self.review("git status")
+        self.assertEqual(learned["behavior"], "allow")
+        second_request.assert_not_called()
+
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(completion("allow")),
+        ) as changed_request:
+            changed = self.review("git status --short")
+        self.assertEqual(changed["behavior"], "allow")
+        changed_request.assert_called_once()
 
     def test_selected_model_overrides_flat_config(self):
         value = json.loads(self.config.read_text())

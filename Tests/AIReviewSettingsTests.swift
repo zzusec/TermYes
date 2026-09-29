@@ -22,6 +22,8 @@ struct AIReviewSettingsTests {
             "endpoint": "http://127.0.0.1:15722/v1/chat/completions",
             "model": "cline-pass/qwen3.8-max",
             "allowed_workspace_roots": ["/Users/hx10/Termosaic"],
+            "allowed_temp_roots": ["/tmp", "/private/tmp"],
+            "learning_enabled": true,
         ]
         try JSONSerialization.data(withJSONObject: legacy).write(to: configURL)
 
@@ -56,6 +58,11 @@ struct AIReviewSettingsTests {
         expect((saved?["models"] as? [[String: Any]])?.count == 1, "models array should be persisted")
         expect(saved?["model"] as? String == "model-second", "active flat model should be persisted")
         expect(saved?["enabled"] as? Bool == true, "enabled state should be persisted")
+        expect(saved?["learning_enabled"] as? Bool == true, "learning setting should be preserved")
+        expect(
+            (saved?["allowed_temp_roots"] as? [String])?.contains("/private/tmp") == true,
+            "temporary roots should be preserved"
+        )
 
         print("AI review settings tests passed.")
     }

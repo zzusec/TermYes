@@ -1,8 +1,8 @@
-# TermYes v1.5.1
+# TermYes v1.5.2
 
 ## 简体中文
 
-本版完善 AI 审批模型管理，并调整为“普通开发操作默认放行，只拒绝明确危险”。
+本版完善 AI 审批模型管理、精确命令学习和“普通开发操作默认放行”，只拒绝明确危险。
 
 ### 本次更新
 
@@ -10,6 +10,7 @@
 - 在菜单栏的 Agent 命令守卫中新增“AI 审批模型”，可添加、选择和删除多个模型配置。
 - AI reviewer 默认放行构建、测试、脚本、本地 Git 操作和软件包安装；明确危险仍拒绝。
 - 允许在 `/tmp` 和 `/private/tmp` 内写入及清理构建暂存，不会仅因路径在工作区外而拒绝。
+- 增加精确命令学习：只记忆“完整命令 + 工作目录”哈希，重复的同一命令可跳过模型，明文命令不落盘。
 - reviewer 超时、接口错误、无效响应、中低置信度、越界路径和无法核实的脚本均拒绝，不会退回无提示放行。
 - AI reviewer 不处理密码、终端输入、Computer Use、MCP 或其他应用级弹窗。
 - 增加本地时间 22:00–08:00 夜间静音配置；静音只跳过提示音，不改变命令拦截、AI 决策或审计日志。
@@ -17,8 +18,8 @@
 
 ### 下载与升级
 
-- **新安装：** `TermYes-v1.5.1-macOS.dmg`。
-- **旧版自动更新：** `Termosaic-v1.5.1-macOS.dmg`，为兼容包，不是另一个产品版本。
+- **新安装：** `TermYes-v1.5.2-macOS.dmg`。
+- **旧版自动更新：** `Termosaic-v1.5.2-macOS.dmg`，为兼容包，不是另一个产品版本。
 - 两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 `.sha256` 文件。
 - 保留原 Bundle ID 与配置路径；旧版自动升级后应用目录可能仍叫 `Termosaic.app`，但显示名称为 TermYes。
 - GitHub 仓库暂保留 `zzusec/Termosaic`。请勿同时运行新旧应用副本。
@@ -31,7 +32,7 @@
 
 ## English
 
-This release adds in-app AI approval model management and defaults ordinary development work to allow.
+This release adds in-app AI approval model management, exact-command learning, and defaults ordinary development work to allow.
 
 ### What's new
 
@@ -39,6 +40,7 @@ This release adds in-app AI approval model management and defaults ordinary deve
 - Adds an **AI approval models** menu with add, select, and delete controls.
 - Defaults builds, tests, scripts, local Git operations, and package installation to allow; explicit high-impact dangers still deny.
 - Allows build staging and cleanup under `/tmp` and `/private/tmp`.
+- Adds exact-context learning: the reviewer remembers a command/working-directory hash after a high-confidence allow, while deterministic danger rules always run first.
 - Reviewer timeouts, API errors, invalid responses, medium/low confidence, out-of-scope paths, and unverifiable scripts are denied without falling back to silent approval.
 - The reviewer does not handle passwords, terminal input, Computer Use, MCP, or other app-level prompts.
 - Adds a configurable 22:00–08:00 local quiet period that suppresses audible alerts without weakening blocking, AI decisions, or audit logging.
@@ -46,8 +48,8 @@ This release adds in-app AI approval model management and defaults ordinary deve
 
 ### Downloads and migration
 
-- **New installs:** `TermYes-v1.5.1-macOS.dmg`.
-- **Older automatic updaters:** `Termosaic-v1.5.1-macOS.dmg`, a compatibility image of the same application.
+- **New installs:** `TermYes-v1.5.2-macOS.dmg`.
+- **Older automatic updaters:** `Termosaic-v1.5.2-macOS.dmg`, a compatibility image of the same application.
 - Both support macOS 13+ on Apple Silicon and Intel, with matching `.sha256` files.
 - Existing bundle identity and configuration paths remain stable. Automatic upgrades may keep the installed folder named `Termosaic.app` while displaying TermYes.
 - The repository remains `zzusec/Termosaic`. Do not run old and new copies simultaneously.

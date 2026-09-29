@@ -7,6 +7,8 @@
   "max_response_tokens": 800,
   "max_command_chars": 12000,
   "max_script_preview_chars": 12000,
+  "learning_enabled": true,
+  "memory_path": "",
   "allowed_workspace_roots": [],
   "allowed_temp_roots": [
     "/tmp",
