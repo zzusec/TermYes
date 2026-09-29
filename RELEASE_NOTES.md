@@ -1,8 +1,8 @@
-# TermYes v1.6.2
+# TermYes v1.6.3
 
 ## 简体中文
 
-本版修复菜单打开后因后台状态刷新而消失的问题。
+本版加快窗口级 Ctrl-C 审批响应。
 
 ### 本次更新
 
@@ -24,6 +24,7 @@
 - 一级菜单仅保留画布操作、AI 审批、自动化、设置和退出。
 - 自动继续与 Agent 命令守卫并入“自动化”；快捷键与更新并入“设置”。
 - 菜单打开时暂停窗口审批状态发布，且只在状态真正变化时刷新，避免 SwiftUI 重建并关闭菜单。
+- 窗口标题每 0.25 秒检查一次，只有出现 `Action Required` 才读取正文；正文最多每 0.5 秒扫描一次。
 - 将 AI 审批提升为顶层菜单，直接显示当前模型；审批模型、启用状态和自动学习都集中在同一子菜单。
 - AI 审批菜单显示已学习的精确命令数量，并提供自动学习开关。
 - reviewer 超时、接口错误、无效响应、中低置信度、越界路径和无法核实的脚本均拒绝，不会退回无提示放行。
@@ -33,8 +34,8 @@
 
 ### 下载与升级
 
-- **新安装：** `TermYes-v1.6.2-macOS.dmg`。
-- **旧版自动更新：** `Termosaic-v1.6.2-macOS.dmg`，为兼容包，不是另一个产品版本。
+- **新安装：** `TermYes-v1.6.3-macOS.dmg`。
+- **旧版自动更新：** `Termosaic-v1.6.3-macOS.dmg`，为兼容包，不是另一个产品版本。
 - 两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 `.sha256` 文件。
 - 保留原 Bundle ID 与配置路径；旧版自动升级后应用目录可能仍叫 `Termosaic.app`，但显示名称为 TermYes。
 - GitHub 仓库暂保留 `zzusec/Termosaic`。请勿同时运行新旧应用副本。
@@ -47,7 +48,7 @@
 
 ## English
 
-This release fixes the menu closing while the pointer is over it.
+This release speeds up window-level Ctrl-C approval.
 
 ### What's new
 
@@ -69,6 +70,7 @@ This release fixes the menu closing while the pointer is over it.
 - Keeps the top level focused on canvas actions, AI approval, Automation, Settings, and Quit.
 - Moves auto-continue and Agent guard controls under Automation; moves shortcuts and updates under Settings.
 - Pauses window-approval status publishing while a menu is open and publishes only real changes, preventing SwiftUI from rebuilding and closing the menu.
+- Checks Terminal window titles every 0.25 seconds and reads full contents only for `Action Required`, with full scans capped at once per 0.5 seconds.
 - Promotes AI approval to a top-level menu showing the active model, enable state, model selection, and learning controls.
 - Shows the learned exact-command count and allows learning to be disabled without removing existing memory.
 - Reviewer timeouts, API errors, invalid responses, medium/low confidence, out-of-scope paths, and unverifiable scripts are denied without falling back to silent approval.
@@ -78,8 +80,8 @@ This release fixes the menu closing while the pointer is over it.
 
 ### Downloads and migration
 
-- **New installs:** `TermYes-v1.6.2-macOS.dmg`.
-- **Older automatic updaters:** `Termosaic-v1.6.2-macOS.dmg`, a compatibility image of the same application.
+- **New installs:** `TermYes-v1.6.3-macOS.dmg`.
+- **Older automatic updaters:** `Termosaic-v1.6.3-macOS.dmg`, a compatibility image of the same application.
 - Both support macOS 13+ on Apple Silicon and Intel, with matching `.sha256` files.
 - Existing bundle identity and configuration paths remain stable. Automatic upgrades may keep the installed folder named `Termosaic.app` while displaying TermYes.
 - The repository remains `zzusec/Termosaic`. Do not run old and new copies simultaneously.

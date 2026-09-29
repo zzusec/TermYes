@@ -234,6 +234,15 @@ final class TerminalManager: NSObject, ObservableObject {
             }
     }
 
+    func terminalWindowNeedsAttention() -> Bool {
+        let source = "tell application id \"com.apple.Terminal\" to get name of every window"
+        guard let result = executeAppleScript(source) else { return false }
+        guard result.numberOfItems > 0 else { return false }
+        return (1...result.numberOfItems).contains { index in
+            result.atIndex(index)?.stringValue?.contains("Action Required") == true
+        }
+    }
+
     func activateTerminalWindow(id: Int) -> Bool {
         let source = """
         tell application id "com.apple.Terminal"

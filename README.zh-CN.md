@@ -34,7 +34,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest) 下载 **`TermYes-v1.6.2-macOS.dmg`**。
+1. 从 [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest) 下载 **`TermYes-v1.6.3-macOS.dmg`**。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -49,7 +49,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 TermYes 是新的产品名称；GitHub 仓库暂保留 **`zzusec/Termosaic`**，确保既有更新地址继续工作。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- Release 同时提供主安装包与 **`Termosaic-v1.6.2-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期。
+- Release 同时提供主安装包与 **`Termosaic-v1.6.3-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 

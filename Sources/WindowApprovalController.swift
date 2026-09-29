@@ -18,6 +18,7 @@ final class WindowApprovalController: ObservableObject {
     private var menuTracking = false
     private var pendingStatusMessage: String?
     private var pendingAccessibilityTrust = false
+    private var lastFullScan = Date.distantPast
     private let defaultsKey = "windowApprovalEnabled"
 
     private init() {
@@ -27,7 +28,7 @@ final class WindowApprovalController: ObservableObject {
 
     func start() {
         timer?.invalidate()
-        let timer = Timer(timeInterval: 1.5, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+        let timer = Timer(timeInterval: 0.25, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .default)
         self.timer = timer
         observeMenuTracking()
@@ -66,6 +67,10 @@ final class WindowApprovalController: ObservableObject {
         refreshAccessibilityStatus()
         updateStatus()
         guard isEnabled, isAccessibilityTrusted, !processing else { return }
+        guard TerminalManager.shared.terminalWindowNeedsAttention() else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastFullScan) >= 0.5 else { return }
+        lastFullScan = now
         scan()
     }
 
