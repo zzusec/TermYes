@@ -9,6 +9,8 @@
   "max_script_preview_chars": 12000,
   "learning_enabled": true,
   "memory_path": "",
+  "sync_enabled": false,
+  "sync_path": "",
   "allowed_workspace_roots": [],
   "allowed_temp_roots": [
     "/tmp",

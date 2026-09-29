@@ -23,6 +23,8 @@ final class AIReviewController: ObservableObject {
     @Published private(set) var learningEnabled = true
     @Published private(set) var learnedCommandCount = 0
     @Published private(set) var learnedPatternCount = 0
+    @Published private(set) var syncEnabled = false
+    @Published private(set) var syncPath = ""
 
     private var document: [String: Any] = [:]
     private let configURL: URL
@@ -56,6 +58,8 @@ final class AIReviewController: ObservableObject {
                 learningEnabled = true
                 learnedCommandCount = 0
                 learnedPatternCount = 0
+                syncEnabled = false
+                syncPath = ""
                 errorMessage = nil
                 return
             }
@@ -73,6 +77,8 @@ final class AIReviewController: ObservableObject {
             learningEnabled = value["learning_enabled"] as? Bool ?? true
             learnedCommandCount = Self.learnedCommandCount(from: value, configURL: configURL)
             learnedPatternCount = Self.learnedPatternCount(from: value, configURL: configURL)
+            syncEnabled = value["sync_enabled"] as? Bool ?? false
+            syncPath = value["sync_path"] as? String ?? ""
             errorMessage = nil
         } catch {
             document = [:]
@@ -82,6 +88,8 @@ final class AIReviewController: ObservableObject {
             learningEnabled = true
             learnedCommandCount = 0
             learnedPatternCount = 0
+            syncEnabled = false
+            syncPath = ""
             errorMessage = "读取审批模型失败：\(error.localizedDescription)"
         }
     }
@@ -99,6 +107,14 @@ final class AIReviewController: ObservableObject {
 
     func setLearningEnabled(_ enabled: Bool) {
         learningEnabled = enabled
+        persist()
+    }
+
+    func setSyncEnabled(_ enabled: Bool) {
+        syncEnabled = enabled
+        if enabled && syncPath.isEmpty {
+            syncPath = Self.defaultSyncURL.path
+        }
         persist()
     }
 
@@ -157,6 +173,10 @@ final class AIReviewController: ObservableObject {
         var value = document
         value["enabled"] = isEnabled
         value["learning_enabled"] = learningEnabled
+        value["sync_enabled"] = syncEnabled
+        if !syncPath.isEmpty {
+            value["sync_path"] = syncPath
+        }
         value["models"] = models.map(Self.dictionary(from:))
         if let selectedModelID {
             value["selected_model_id"] = selectedModelID
@@ -257,18 +277,46 @@ final class AIReviewController: ObservableObject {
         configURL: URL,
         key: String
     ) -> Int {
-        let path: URL
+        var paths: [URL] = []
         if let override = document["memory_path"] as? String, !override.isEmpty {
-            path = URL(fileURLWithPath: override).standardizedFileURL
+            paths.append(URL(fileURLWithPath: override).standardizedFileURL)
         } else {
-            path = configURL.deletingLastPathComponent().appendingPathComponent("ai-review-memory.json")
+            paths.append(configURL.deletingLastPathComponent().appendingPathComponent("ai-review-memory.json"))
         }
-        guard let data = try? Data(contentsOf: path),
-              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let commands = value[key] as? [String: Any] else {
-            return 0
+        if document["sync_enabled"] as? Bool == true {
+            let sync: URL
+            if let override = document["sync_path"] as? String, !override.isEmpty {
+                sync = URL(fileURLWithPath: override).standardizedFileURL
+            } else {
+                sync = defaultSyncURL
+            }
+            paths.append(sync)
+            if let files = try? FileManager.default.contentsOfDirectory(
+                at: sync.deletingLastPathComponent(),
+                includingPropertiesForKeys: nil
+            ) {
+                paths.append(contentsOf: files.filter {
+                    $0.lastPathComponent.hasPrefix(sync.deletingPathExtension().lastPathComponent)
+                        && $0.pathExtension == "json"
+                        && $0 != sync
+                })
+            }
         }
-        return commands.count
+
+        var values = Set<String>()
+        for path in paths {
+            guard let data = try? Data(contentsOf: path),
+                  let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let entries = value[key] as? [String: Any] else { continue }
+            values.formUnion(entries.keys)
+        }
+        return values.count
+    }
+
+    private static var defaultSyncURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/TermYes", isDirectory: true)
+            .appendingPathComponent("ai-review-memory.json")
     }
 
     private enum SettingsError: LocalizedError {

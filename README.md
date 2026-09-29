@@ -21,6 +21,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 - **One terminal canvas.** Tile Apple's Terminal windows edge to edge: four windows form a 2×2 grid; six form a 3×2 grid; odd counts use two columns with the extra window on the left. New and closed windows trigger re-layout, with stable clockwise ordering.
 - **Optional AI approval and quiet hours.** Codex boundary approvals can use an independent reviewer configured from the Agent guard menu. Ordinary development commands default to allow, explicit high-impact dangers deny, and `/tmp` plus `/private/tmp` remain writable. A configurable 22:00–08:00 quiet period suppresses audible alerts without weakening command blocking.
 - **Self-iterating command learning.** High-confidence approvals are remembered by command and working-directory hash; repeated safe patterns can be promoted after three uses, while dangerous rules still run first.
+- **Optional iCloud memory sync.** Learned commands and patterns can merge through iCloud Drive so the same memory follows the user across Macs without a backend database.
 - **Less desktop clutter.** Show or hide the canvas together, including minimized windows, while processes keep running. No Dock icon, embedded shell, or permanent control window; other applications' windows are not rearranged.
 - **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘O`; change it if you need to preserve another application's Open command.
 - **Conservative task recovery.** Scheduled `继续` attempts recognize selected quota/network interruptions. Recognized confirmation prompts, guard denials, passwords, and unknown automatic-resume states are skipped. TermYes never automatically types `yes`.
@@ -31,7 +32,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download **`TermYes-v1.5.4-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest).
+1. Download **`TermYes-v1.5.5-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest).
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -46,7 +47,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 TermYes is the new product name; the GitHub repository remains **`zzusec/Termosaic`** so existing update URLs continue working.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- Releases include a **`Termosaic-v1.5.4-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
+- Releases include a **`Termosaic-v1.5.5-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 

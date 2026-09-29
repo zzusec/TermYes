@@ -18,11 +18,17 @@ struct AIReviewSettingsTests {
 
         let configURL = root.appendingPathComponent("ai-review.json")
         let memoryURL = root.appendingPathComponent("ai-review-memory.json")
+        let syncURL = root.appendingPathComponent("icloud-memory.json")
         try JSONSerialization.data(withJSONObject: [
             "version": 2,
             "commands": ["abc": ["count": 1, "last_seen": "2026-09-29T00:00:00Z"]],
             "patterns": ["git status": ["count": 3, "last_seen": "2026-09-29T00:00:00Z"]],
         ]).write(to: memoryURL)
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "commands": ["cloud": ["count": 1, "last_seen": "2026-09-29T01:00:00Z"]],
+            "patterns": [:],
+        ]).write(to: syncURL)
         let legacy: [String: Any] = [
             "enabled": true,
             "endpoint": "http://127.0.0.1:15722/v1/chat/completions",
@@ -31,6 +37,8 @@ struct AIReviewSettingsTests {
             "allowed_temp_roots": ["/tmp", "/private/tmp"],
             "learning_enabled": true,
             "memory_path": memoryURL.path,
+            "sync_enabled": true,
+            "sync_path": syncURL.path,
         ]
         try JSONSerialization.data(withJSONObject: legacy).write(to: configURL)
 
@@ -39,8 +47,9 @@ struct AIReviewSettingsTests {
         expect(controller.selectedModel?.model == "cline-pass/qwen3.8-max", "legacy model should be selected")
         expect(controller.isEnabled, "legacy enabled state should be preserved")
         expect(controller.learningEnabled, "learning state should be loaded")
-        expect(controller.learnedCommandCount == 1, "learned command count should be loaded")
+        expect(controller.learnedCommandCount == 2, "learned command count should merge local and cloud")
         expect(controller.learnedPatternCount == 1, "learned pattern count should be loaded")
+        expect(controller.syncEnabled, "cloud sync should be loaded")
 
         expect(
             controller.add(
@@ -65,12 +74,15 @@ struct AIReviewSettingsTests {
         expect(controller.selectedModel?.model == "model-second", "remaining model should become active")
         controller.setLearningEnabled(false)
         expect(!controller.learningEnabled, "learning should be disabled")
+        controller.setSyncEnabled(false)
+        expect(!controller.syncEnabled, "cloud sync should be disabled")
 
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any]
         expect((saved?["models"] as? [[String: Any]])?.count == 1, "models array should be persisted")
         expect(saved?["model"] as? String == "model-second", "active flat model should be persisted")
         expect(saved?["enabled"] as? Bool == true, "enabled state should be persisted")
         expect(saved?["learning_enabled"] as? Bool == false, "learning setting should be persisted")
+        expect(saved?["sync_enabled"] as? Bool == false, "sync setting should be persisted")
         expect(
             (saved?["allowed_temp_roots"] as? [String])?.contains("/private/tmp") == true,
             "temporary roots should be preserved"

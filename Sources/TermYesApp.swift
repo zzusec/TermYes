@@ -215,6 +215,13 @@ struct TermYesApp: App {
                         set: { aiReview.setLearningEnabled($0) }
                     )
                 )
+                Toggle(
+                    "同步记忆到 iCloud",
+                    isOn: Binding(
+                        get: { aiReview.syncEnabled },
+                        set: { aiReview.setSyncEnabled($0) }
+                    )
+                )
                 Text("已学习 \(aiReview.learnedCommandCount) 条命令、\(aiReview.learnedPatternCount) 个模式")
                 Text("危险规则优先；普通开发命令默认放行")
                 if let error = aiReview.errorMessage {

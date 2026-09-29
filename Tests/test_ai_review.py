@@ -55,6 +55,8 @@ class AIReviewTests(unittest.TestCase):
             "require_high_confidence": True,
             "log_path": str(self.root / "review.log"),
             "memory_path": str(self.root / "memory.json"),
+            "sync_enabled": True,
+            "sync_path": str(self.root / "cloud-memory.json"),
         }))
         self.old_config = os.environ.get(ai_review.CONFIG_ENV)
         self.old_disable = os.environ.get(ai_review.DISABLE_ENV)
@@ -208,6 +210,31 @@ class AIReviewTests(unittest.TestCase):
     def test_shell_composition_never_promotes_to_pattern(self):
         self.assertIsNone(ai_review._command_signature("git status && rm -rf /tmp/foo"))
         self.assertIsNone(ai_review._command_signature("git status; sudo reboot"))
+
+    def test_command_key_is_portable_across_working_directories(self):
+        first = ai_review._command_key("git status", "/Users/one/project")
+        second = ai_review._command_key("git status", "/Users/two/project")
+        legacy = ai_review._legacy_command_key("git status", "/Users/one/project")
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, legacy)
+
+    def test_local_and_cloud_memory_are_merged(self):
+        local = self.root / "memory.json"
+        cloud = self.root / "cloud-memory.json"
+        local.write_text(json.dumps({
+            "version": 2,
+            "commands": {"local": {"count": 1, "last_seen": "2026-09-29T00:00:00Z"}},
+            "patterns": {"git status": {"count": 3, "last_seen": "2026-09-29T00:00:00Z"}},
+        }))
+        cloud.write_text(json.dumps({
+            "version": 2,
+            "commands": {"cloud": {"count": 2, "last_seen": "2026-09-29T01:00:00Z"}},
+            "patterns": {"swift test": {"count": 3, "last_seen": "2026-09-29T01:00:00Z"}},
+        }))
+        config = json.loads(self.config.read_text())
+        merged = ai_review._load_merged_memory(config)
+        self.assertEqual(set(merged["commands"]), {"local", "cloud"})
+        self.assertEqual(set(merged["patterns"]), {"git status", "swift test"})
 
     def test_selected_model_overrides_flat_config(self):
         value = json.loads(self.config.read_text())

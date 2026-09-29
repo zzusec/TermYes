@@ -26,3 +26,4 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 
 - Guard controls distinguish installation records from verified protection. Show pending/known-gap states, never a green “protected” claim without real-client evidence; errors stay in the menu with copyable details.
 - AI approval has a dedicated top-level submenu: enable state, current model, model choices, exact-command learning, and a small floating add/manage panel.
+- AI approval memory remains local-first, with one optional iCloud Drive merge toggle shown alongside learning controls.
