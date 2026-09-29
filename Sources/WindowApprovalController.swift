@@ -14,6 +14,10 @@ final class WindowApprovalController: ObservableObject {
     private var timer: Timer?
     private var processing = false
     private var handled: [Int: (fingerprint: Int, date: Date)] = [:]
+    private var menuTrackingObservers: [NSObjectProtocol] = []
+    private var menuTracking = false
+    private var pendingStatusMessage: String?
+    private var pendingAccessibilityTrust = false
     private let defaultsKey = "windowApprovalEnabled"
 
     private init() {
@@ -24,8 +28,9 @@ final class WindowApprovalController: ObservableObject {
     func start() {
         timer?.invalidate()
         let timer = Timer(timeInterval: 1.5, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .default)
         self.timer = timer
+        observeMenuTracking()
         updateStatus()
     }
 
@@ -66,7 +71,7 @@ final class WindowApprovalController: ObservableObject {
 
     private func scan() {
         guard let snapshots = TerminalManager.shared.terminalWindowSnapshots() else {
-            statusMessage = "无法读取 Terminal 窗口"
+            setStatusMessage("无法读取 Terminal 窗口")
             return
         }
         let candidates = snapshots.compactMap { snapshot -> (TerminalWindowSnapshot, Int)? in
@@ -75,7 +80,7 @@ final class WindowApprovalController: ObservableObject {
         }
         guard candidates.count == 1, let candidate = candidates.first else {
             if candidates.count > 1 {
-                statusMessage = "检测到多个待确认窗口，未自动处理"
+                setStatusMessage("检测到多个待确认窗口，未自动处理")
             }
             return
         }
@@ -89,12 +94,12 @@ final class WindowApprovalController: ObservableObject {
             withExtension: "py",
             subdirectory: "AgentGuard"
         ) else {
-            statusMessage = "窗口 reviewer 资源缺失"
+            setStatusMessage("窗口 reviewer 资源缺失")
             return
         }
 
         processing = true
-        statusMessage = "正在审查 Ctrl-C 窗口输入…"
+        setStatusMessage("正在审查 Ctrl-C 窗口输入…")
         let snapshot = candidate.0
         let fingerprint = candidate.1
         Task {
@@ -104,7 +109,7 @@ final class WindowApprovalController: ObservableObject {
             defer { processing = false }
             markHandled(windowID: snapshot.id, fingerprint: fingerprint)
             guard decision.allowed else {
-                statusMessage = "未自动确认：\(decision.reason)"
+                setStatusMessage("未自动确认：\(decision.reason)")
                 appendHistory(snapshot: snapshot, allowed: false, reason: decision.reason)
                 return
             }
@@ -112,22 +117,22 @@ final class WindowApprovalController: ObservableObject {
                 .first(where: { $0.id == snapshot.id }),
                 Self.fingerprint(fresh.contents) == fingerprint,
                 Self.isCtrlCPrompt(fresh.contents) else {
-                statusMessage = "窗口内容已变化，取消自动确认"
+                setStatusMessage("窗口内容已变化，取消自动确认")
                 appendHistory(snapshot: snapshot, allowed: false, reason: "window changed")
                 return
             }
             guard TerminalManager.shared.activateTerminalWindow(id: snapshot.id) else {
-                statusMessage = "无法激活目标 Terminal 窗口"
+                setStatusMessage("无法激活目标 Terminal 窗口")
                 appendHistory(snapshot: snapshot, allowed: false, reason: "activation failed")
                 return
             }
             try? await Task.sleep(for: .milliseconds(150))
             guard Self.postReturnKey() else {
-                statusMessage = "无法发送确认键，请检查辅助功能权限"
+                setStatusMessage("无法发送确认键，请检查辅助功能权限")
                 appendHistory(snapshot: snapshot, allowed: false, reason: "key post failed")
                 return
             }
-            statusMessage = "已自动确认 Ctrl-C"
+            setStatusMessage("已自动确认 Ctrl-C")
             appendHistory(snapshot: snapshot, allowed: true, reason: decision.reason)
         }
     }
@@ -137,19 +142,61 @@ final class WindowApprovalController: ObservableObject {
     }
 
     private func refreshAccessibilityStatus() {
-        isAccessibilityTrusted = AXIsProcessTrusted()
+        setAccessibilityTrusted(AXIsProcessTrusted())
     }
 
     private func updateStatus() {
         if !isEnabled {
-            statusMessage = "窗口级 Ctrl-C 审批未启用"
+            setStatusMessage("窗口级 Ctrl-C 审批未启用")
         } else if !isAccessibilityTrusted {
-            statusMessage = "需要辅助功能权限"
+            setStatusMessage("需要辅助功能权限")
         } else if processing {
             return
         } else {
-            statusMessage = "正在监听 Ctrl-C 确认窗口"
+            setStatusMessage("正在监听 Ctrl-C 确认窗口")
         }
+    }
+
+    private func setStatusMessage(_ value: String) {
+        guard statusMessage != value else { return }
+        if menuTracking {
+            pendingStatusMessage = value
+            return
+        }
+        statusMessage = value
+    }
+
+    private func setAccessibilityTrusted(_ value: Bool) {
+        guard isAccessibilityTrusted != value else { return }
+        if menuTracking {
+            pendingAccessibilityTrust = value
+            return
+        }
+        isAccessibilityTrusted = value
+    }
+
+    private func observeMenuTracking() {
+        let center = NotificationCenter.default
+        menuTrackingObservers = [
+            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.menuTracking = true }
+            },
+            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.menuTracking = false
+                    if self.isAccessibilityTrusted != self.pendingAccessibilityTrust {
+                        self.isAccessibilityTrusted = self.pendingAccessibilityTrust
+                    }
+                    if let pendingStatusMessage = self.pendingStatusMessage {
+                        self.pendingStatusMessage = nil
+                        if self.statusMessage != pendingStatusMessage {
+                            self.statusMessage = pendingStatusMessage
+                        }
+                    }
+                }
+            }
+        ]
     }
 
     nonisolated private static func isCtrlCPrompt(_ text: String) -> Bool {
@@ -241,7 +288,7 @@ final class WindowApprovalController: ObservableObject {
                 ofItemAtPath: log.path
             )
         } catch {
-            statusMessage = "窗口审批日志写入失败"
+            setStatusMessage("窗口审批日志写入失败")
         }
     }
 }
