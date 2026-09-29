@@ -19,8 +19,9 @@ struct AIReviewSettingsTests {
         let configURL = root.appendingPathComponent("ai-review.json")
         let memoryURL = root.appendingPathComponent("ai-review-memory.json")
         try JSONSerialization.data(withJSONObject: [
-            "version": 1,
+            "version": 2,
             "commands": ["abc": ["count": 1, "last_seen": "2026-09-29T00:00:00Z"]],
+            "patterns": ["git status": ["count": 3, "last_seen": "2026-09-29T00:00:00Z"]],
         ]).write(to: memoryURL)
         let legacy: [String: Any] = [
             "enabled": true,
@@ -39,6 +40,7 @@ struct AIReviewSettingsTests {
         expect(controller.isEnabled, "legacy enabled state should be preserved")
         expect(controller.learningEnabled, "learning state should be loaded")
         expect(controller.learnedCommandCount == 1, "learned command count should be loaded")
+        expect(controller.learnedPatternCount == 1, "learned pattern count should be loaded")
 
         expect(
             controller.add(

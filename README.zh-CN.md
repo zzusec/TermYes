@@ -20,7 +20,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 - **一张终端画布。** 系统 Terminal 窗口无缝平铺：四个窗口组成 2×2，六个组成 3×2，奇数个窗口按左列多一个的两列排布；新增或关闭窗口后自动重排，保持稳定的顺时针顺序。
 - **可选 AI 审批与夜间静音。** Codex 的越界审批可交给独立 reviewer，并可在 Agent 命令守卫菜单中新增、切换审批模型。普通开发操作默认放行，明确高影响危险才拒绝，`/tmp` 与 `/private/tmp` 可写；22:00–08:00 静音时段只关闭提示音，不降低命令拦截强度。
-- **精确命令学习。** 高置信度放行的命令按“完整命令 + 工作目录”哈希记忆，完全相同的重复执行可跳过 reviewer；危险规则仍优先执行。
+- **自迭代命令学习。** 高置信度放行的命令先按“完整命令 + 工作目录”哈希记忆，受限制的安全模式累计 3 次后可自动提升；危险规则始终优先执行。
 - **减少桌面干扰。** 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。
 - **快捷键呼出。** 可配置全局快捷键，默认 `⌘O`；若要保留其他应用的“打开”命令，请修改它。
 - **保守恢复任务。** 定时识别部分额度或网络中断并尝试发送“继续”；识别出的确认提示、守卫拒绝、密码提示及未知自动恢复状态会跳过，**不再自动输入 `yes`**。
@@ -31,7 +31,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest) 下载 **`TermYes-v1.5.3-macOS.dmg`**。
+1. 从 [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest) 下载 **`TermYes-v1.5.4-macOS.dmg`**。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -46,7 +46,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 TermYes 是新的产品名称；GitHub 仓库暂保留 **`zzusec/Termosaic`**，确保既有更新地址继续工作。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- Release 同时提供主安装包与 **`Termosaic-v1.5.3-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期。
+- Release 同时提供主安装包与 **`Termosaic-v1.5.4-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 

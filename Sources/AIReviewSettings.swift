@@ -22,6 +22,7 @@ final class AIReviewController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var learningEnabled = true
     @Published private(set) var learnedCommandCount = 0
+    @Published private(set) var learnedPatternCount = 0
 
     private var document: [String: Any] = [:]
     private let configURL: URL
@@ -54,6 +55,7 @@ final class AIReviewController: ObservableObject {
                 selectedModelID = nil
                 learningEnabled = true
                 learnedCommandCount = 0
+                learnedPatternCount = 0
                 errorMessage = nil
                 return
             }
@@ -70,6 +72,7 @@ final class AIReviewController: ObservableObject {
             isEnabled = value["enabled"] as? Bool ?? false
             learningEnabled = value["learning_enabled"] as? Bool ?? true
             learnedCommandCount = Self.learnedCommandCount(from: value, configURL: configURL)
+            learnedPatternCount = Self.learnedPatternCount(from: value, configURL: configURL)
             errorMessage = nil
         } catch {
             document = [:]
@@ -78,6 +81,7 @@ final class AIReviewController: ObservableObject {
             isEnabled = false
             learningEnabled = true
             learnedCommandCount = 0
+            learnedPatternCount = 0
             errorMessage = "读取审批模型失败：\(error.localizedDescription)"
         }
     }
@@ -241,6 +245,18 @@ final class AIReviewController: ObservableObject {
     }
 
     private static func learnedCommandCount(from document: [String: Any], configURL: URL) -> Int {
+        learnedMemoryCount(from: document, configURL: configURL, key: "commands")
+    }
+
+    private static func learnedPatternCount(from document: [String: Any], configURL: URL) -> Int {
+        learnedMemoryCount(from: document, configURL: configURL, key: "patterns")
+    }
+
+    private static func learnedMemoryCount(
+        from document: [String: Any],
+        configURL: URL,
+        key: String
+    ) -> Int {
         let path: URL
         if let override = document["memory_path"] as? String, !override.isEmpty {
             path = URL(fileURLWithPath: override).standardizedFileURL
@@ -249,7 +265,7 @@ final class AIReviewController: ObservableObject {
         }
         guard let data = try? Data(contentsOf: path),
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let commands = value["commands"] as? [String: Any] else {
+              let commands = value[key] as? [String: Any] else {
             return 0
         }
         return commands.count

@@ -189,6 +189,26 @@ class AIReviewTests(unittest.TestCase):
         self.assertEqual(changed["behavior"], "allow")
         changed_request.assert_called_once()
 
+    def test_repeated_allows_promote_to_bounded_pattern(self):
+        for _ in range(3):
+            with mock.patch.object(
+                ai_review.urllib.request,
+                "urlopen",
+                return_value=FakeResponse(completion("allow")),
+            ):
+                decision = self.review("git status")
+            self.assertEqual(decision["behavior"], "allow")
+
+        with mock.patch.object(ai_review.urllib.request, "urlopen") as request:
+            promoted = self.review("git status --short")
+        self.assertEqual(promoted["behavior"], "allow")
+        self.assertIn("命令模式", promoted["reason"])
+        request.assert_not_called()
+
+    def test_shell_composition_never_promotes_to_pattern(self):
+        self.assertIsNone(ai_review._command_signature("git status && rm -rf /tmp/foo"))
+        self.assertIsNone(ai_review._command_signature("git status; sudo reboot"))
+
     def test_selected_model_overrides_flat_config(self):
         value = json.loads(self.config.read_text())
         value["models"] = [

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import time
 import urllib.error
 import urllib.request
@@ -368,7 +369,35 @@ def _load_memory(path):
             return value
     except Exception:
         pass
-    return {"version": 1, "commands": {}}
+    return {"version": 2, "commands": {}, "patterns": {}}
+
+
+def _command_signature(command):
+    """Return a narrow, non-shell command pattern suitable for learned promotion."""
+    if re.search(r"[\n;|&<>`]|\$\(|\$\{|\$[A-Za-z_]", command):
+        return None
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    executable = os.path.basename(tokens[0])
+    if executable in {
+        "bash", "zsh", "sh", "fish", "python", "python3", "node", "ruby", "perl",
+        "php", "osascript", "rm", "sudo", "doas", "su", "curl", "wget", "ssh",
+        "scp", "sftp", "docker", "kubectl", "helm", "terraform", "aws", "gcloud", "az",
+    }:
+        return None
+    if len(tokens) == 1:
+        return executable
+    if executable in {"npm", "pnpm", "yarn"}:
+        if tokens[1] == "run" and len(tokens) > 2 and not tokens[2].startswith("-"):
+            return executable + " run " + tokens[2]
+        return executable + " " + tokens[1]
+    if tokens[1].startswith("-"):
+        return executable
+    return executable + " " + tokens[1]
 
 
 def _remember_allow(config, command, cwd):
@@ -383,6 +412,15 @@ def _remember_allow(config, command, cwd):
     entry["count"] = entry.get("count", 0) + 1
     entry["last_seen"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     memory["commands"][key] = entry
+    signature = _command_signature(command)
+    if signature:
+        patterns = memory.setdefault("patterns", {})
+        pattern = patterns.get(signature)
+        if not isinstance(pattern, dict):
+            pattern = {"count": 0, "last_seen": ""}
+        pattern["count"] = pattern.get("count", 0) + 1
+        pattern["last_seen"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        patterns[signature] = pattern
     if len(memory["commands"]) > 500:
         ordered = sorted(
             memory["commands"].items(),
@@ -390,6 +428,13 @@ def _remember_allow(config, command, cwd):
             reverse=True,
         )
         memory["commands"] = dict(ordered[:500])
+    if len(memory.get("patterns", {})) > 200:
+        ordered = sorted(
+            memory["patterns"].items(),
+            key=lambda item: item[1].get("last_seen", ""),
+            reverse=True,
+        )
+        memory["patterns"] = dict(ordered[:200])
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(memory, handle, ensure_ascii=False, sort_keys=True)
@@ -400,7 +445,13 @@ def _is_learned_allow(config, command, cwd):
     if config.get("learning_enabled", True) is False:
         return False
     memory = _load_memory(_memory_path(config))
-    return _command_key(command, cwd) in memory["commands"]
+    if _command_key(command, cwd) in memory["commands"]:
+        return "已学习的同一条命令"
+    signature = _command_signature(command)
+    pattern = memory.get("patterns", {}).get(signature)
+    if isinstance(pattern, dict) and pattern.get("count", 0) >= 3:
+        return "已学习的命令模式：" + signature
+    return None
 
 
 def review(command, cwd, description=None):
@@ -448,11 +499,16 @@ def review(command, cwd, description=None):
             pass
         return decision
 
-    if _is_learned_allow(config, command, effective_cwd):
+    learned_reason = _is_learned_allow(config, command, effective_cwd)
+    if learned_reason:
         decision = {
             "behavior": "allow",
-            "reason": "AI 审查允许：已学习的同一条命令",
+            "reason": "AI 审查允许：" + learned_reason,
         }
+        try:
+            _remember_allow(config, command, effective_cwd)
+        except Exception:
+            pass
         try:
             _log(config, {"command": command, "cwd": effective_cwd}, decision)
         except Exception:
