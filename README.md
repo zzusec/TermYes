@@ -34,7 +34,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download **`TermYes-v1.6.0-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest).
+1. Download **`TermYes-v1.6.1-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/Termosaic/releases/latest).
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -49,7 +49,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 TermYes is the new product name; the GitHub repository remains **`zzusec/Termosaic`** so existing update URLs continue working.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- Releases include a **`Termosaic-v1.6.0-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
+- Releases include a **`Termosaic-v1.6.1-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 

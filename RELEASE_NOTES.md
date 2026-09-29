@@ -1,8 +1,8 @@
-# TermYes v1.6.0
+# TermYes v1.6.1
 
 ## 简体中文
 
-本版增加全量本地判断历史与复审自迭代，修复 reviewer 超时造成的普通命令误拦。
+本版重新布局菜单栏，降低一级菜单密度。
 
 ### 本次更新
 
@@ -21,6 +21,8 @@
 - 原始命令历史只存本机；iCloud 只同步命令哈希和受限模式，不上传命令明文。
 - 新增窗口级 Ctrl-C 审批：获得辅助功能权限后，只自动确认输入严格为 `\u{3}` 的终端输入弹窗。
 - 回车、普通文本、未知控制序列、密码和权限弹窗不会自动处理；发送前会再次核对窗口内容。
+- 一级菜单仅保留画布操作、AI 审批、自动化、设置和退出。
+- 自动继续与 Agent 命令守卫并入“自动化”；快捷键与更新并入“设置”。
 - 将 AI 审批提升为顶层菜单，直接显示当前模型；审批模型、启用状态和自动学习都集中在同一子菜单。
 - AI 审批菜单显示已学习的精确命令数量，并提供自动学习开关。
 - reviewer 超时、接口错误、无效响应、中低置信度、越界路径和无法核实的脚本均拒绝，不会退回无提示放行。
@@ -30,8 +32,8 @@
 
 ### 下载与升级
 
-- **新安装：** `TermYes-v1.6.0-macOS.dmg`。
-- **旧版自动更新：** `Termosaic-v1.6.0-macOS.dmg`，为兼容包，不是另一个产品版本。
+- **新安装：** `TermYes-v1.6.1-macOS.dmg`。
+- **旧版自动更新：** `Termosaic-v1.6.1-macOS.dmg`，为兼容包，不是另一个产品版本。
 - 两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 `.sha256` 文件。
 - 保留原 Bundle ID 与配置路径；旧版自动升级后应用目录可能仍叫 `Termosaic.app`，但显示名称为 TermYes。
 - GitHub 仓库暂保留 `zzusec/Termosaic`。请勿同时运行新旧应用副本。
@@ -44,7 +46,7 @@
 
 ## English
 
-This release adds complete local decision history and review-based self-iteration, and fixes false blocking when the AI reviewer times out.
+This release reorganizes the menu bar and reduces top-level menu density.
 
 ### What's new
 
@@ -63,6 +65,8 @@ This release adds complete local decision history and review-based self-iteratio
 - Keeps raw command history local; iCloud sync stores only command hashes and bounded patterns.
 - Adds window-level Ctrl-C approval: with Accessibility permission, only terminal-input prompts whose requested input is exactly `\u{3}` can be confirmed automatically.
 - Enter, ordinary text, unknown control sequences, password prompts, and permission prompts remain manual; window contents are rechecked before sending Return.
+- Keeps the top level focused on canvas actions, AI approval, Automation, Settings, and Quit.
+- Moves auto-continue and Agent guard controls under Automation; moves shortcuts and updates under Settings.
 - Promotes AI approval to a top-level menu showing the active model, enable state, model selection, and learning controls.
 - Shows the learned exact-command count and allows learning to be disabled without removing existing memory.
 - Reviewer timeouts, API errors, invalid responses, medium/low confidence, out-of-scope paths, and unverifiable scripts are denied without falling back to silent approval.
@@ -72,8 +76,8 @@ This release adds complete local decision history and review-based self-iteratio
 
 ### Downloads and migration
 
-- **New installs:** `TermYes-v1.6.0-macOS.dmg`.
-- **Older automatic updaters:** `Termosaic-v1.6.0-macOS.dmg`, a compatibility image of the same application.
+- **New installs:** `TermYes-v1.6.1-macOS.dmg`.
+- **Older automatic updaters:** `Termosaic-v1.6.1-macOS.dmg`, a compatibility image of the same application.
 - Both support macOS 13+ on Apple Silicon and Intel, with matching `.sha256` files.
 - Existing bundle identity and configuration paths remain stable. Automatic upgrades may keep the installed folder named `Termosaic.app` while displaying TermYes.
 - The repository remains `zzusec/Termosaic`. Do not run old and new copies simultaneously.

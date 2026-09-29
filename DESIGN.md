@@ -19,7 +19,7 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 
 - The main action is one toggle, “显示终端画布”, and its state is the canvas state.
 - “重新排列” uses the display under the pointer; hiding the canvas when another application becomes active is always on, not a setting.
-- The top level stays short and stays about the core job: canvas toggle, re-tile, and sending `继续` once, each with its own menu shortcut, followed by the global shortcut. Auto-continue and Agent command guards each get one named submenu; update state is one quiet line plus one action.
+- The top level stays short: canvas toggle, re-tile, and sending `继续` once stay direct; AI approval is one top-level submenu; auto-continue and Agent command guards live under one Automation submenu; shortcuts and updates live under Settings.
 - Submenus stay short. Start times are picked in a small floating panel, never as a 24-row clock inside the menu.
 - Automation permission failures explain both the problem and the exact recovery path in System Settings.
 - The menu-bar control is the sole interface and holds every action, auto-continue status, and online-update state.
