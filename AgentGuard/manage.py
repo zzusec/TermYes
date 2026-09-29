@@ -149,7 +149,7 @@ def merge_hooks(container, event, desired, paths, nested=True):
 def desired_files(home, client):
     root, config, runtime, adapter = locations(home, client)
     files = {runtime / name: (SOURCE / name).read_bytes()
-             for name in ("core.py", "rules.py", adapter, "chime.wav")}
+             for name in ("core.py", "rules.py", "ai_review.py", adapter, "chime.wav")}
     script = runtime / adapter
     legacy = root / ("guard" if client == "pi" else "hooks") / adapter
     paths = {str(script), str(legacy)}
@@ -194,7 +194,11 @@ def desired_files(home, client):
         if client == "codex":
             # A pending adapter may deny a PermissionRequest, never grant it automatically.
             for event in ("PreToolUse", "PermissionRequest"):
-                native = {**hook, "command": command + " " + event}
+                native = {
+                    **hook,
+                    "command": command + " " + event,
+                    "timeout": 30 if event == "PermissionRequest" else hook["timeout"],
+                }
                 merge_hooks(events, event, {"matcher": "Bash", "hooks": [native]}, paths)
     files[config] = raw if raw is not None and before == json.dumps(data, sort_keys=True) else json_bytes(data)
     return files

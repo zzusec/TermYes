@@ -26,6 +26,8 @@ jobs:
       - name: Test Agent guards and resume policy
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_ai_review.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
           node Tests/test_guard_plugins.mjs

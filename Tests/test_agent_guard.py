@@ -15,7 +15,13 @@ sys.path.insert(0, str(SOURCE))
 import core
 import manage
 
-ENV = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", DANGER_GUARD_SILENT="1", DANGER_GUARD_ASK="0")
+ENV = dict(
+    os.environ,
+    PYTHONDONTWRITEBYTECODE="1",
+    DANGER_GUARD_SILENT="1",
+    DANGER_GUARD_ASK="0",
+    TERMOSAIC_AI_REVIEW_DISABLE="1",
+)
 checks = 0
 
 

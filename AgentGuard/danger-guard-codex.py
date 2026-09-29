@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """TermYes shell hook adapter. Normal calls retain native permissions.
 Warnings/errors deny; no ask/force_ask and no silent error fallback.
+PermissionRequest can optionally use an independent, opt-in AI reviewer.
 Host hook loading, trust and timeout behavior still require client validation.
 """
 
@@ -55,6 +56,20 @@ def main():
         if level == "block":
             core.play_sound()
             out_permission("deny", reason)
+        else:
+            try:
+                import ai_review
+                decision = ai_review.review(
+                    cmd,
+                    data.get("cwd") or os.getcwd(),
+                    (data.get("tool_input") or {}).get("description"),
+                )
+            except Exception:
+                decision = None
+            if decision:
+                if decision["behavior"] == "deny":
+                    core.play_sound()
+                out_permission(decision["behavior"], decision["reason"])
         return
 
     if level == "block":

@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "endpoint": "http://127.0.0.1:15722/v1/chat/completions",
+  "model": "your-model-name",
+  "timeout_seconds": 10,
+  "attempts": 2,
+  "max_response_tokens": 800,
+  "max_command_chars": 12000,
+  "max_script_preview_chars": 12000,
+  "allowed_workspace_roots": [],
+  "api_key_env": "",
+  "require_high_confidence": true,
+  "log_path": ""
+}

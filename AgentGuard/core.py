@@ -6,6 +6,8 @@ classify(command, absolute_cwd) returns block or safe. Internal warn becomes blo
 "safe" means no rule matched, not a guarantee of safety. Client hooks decide protocol.
 """
 
+import datetime
+import json
 import os
 import re
 import shlex
@@ -21,6 +23,10 @@ TOOL_NAMES = ("Bash", "shell", "local_shell", "run_shell_command", "Execute")
 
 SOUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chime.wav")
 SOUND_VOLUME = "0.5"  # afplay 相对系统音量的比例(0~1)
+QUIET_HOURS_CONFIG_ENV = "TERMOSAIC_QUIET_HOURS_CONFIG"
+DEFAULT_QUIET_HOURS_CONFIG = os.path.expanduser(
+    "~/Library/Application Support/Termosaic/AgentGuard/quiet-hours.json"
+)
 
 
 # ============================================================
@@ -123,6 +129,8 @@ def play_sound():
     """后台异步播放提示音,不阻塞决策返回。"""
     if os.environ.get("DANGER_GUARD_SILENT"):   # 回归测试批量跑用例时静音
         return
+    if in_quiet_hours():
+        return
     try:
         subprocess.Popen(
             ["afplay", "-v", SOUND_VOLUME, SOUND_FILE],
@@ -131,6 +139,39 @@ def play_sound():
         )
     except Exception:
         pass
+
+
+def _parse_clock(value):
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", value.strip())
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def in_quiet_hours(now=None):
+    """Return True when the configured local-time quiet period is active."""
+    path = os.environ.get(QUIET_HOURS_CONFIG_ENV) or DEFAULT_QUIET_HOURS_CONFIG
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        if not isinstance(config, dict) or config.get("enabled") is not True:
+            return False
+        start = _parse_clock(config.get("start"))
+        end = _parse_clock(config.get("end"))
+        if start is None or end is None or start == end:
+            return False
+        current = now or datetime.datetime.now()
+        minute = current.hour * 60 + current.minute
+        if start < end:
+            return start <= minute < end
+        return minute >= start or minute < end
+    except Exception:
+        return False
 
 
 def _osa_quote(s):

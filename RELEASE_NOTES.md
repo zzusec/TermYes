@@ -1,19 +1,21 @@
-# TermYes v1.4.1
+# TermYes v1.5.0
 
 ## 简体中文
 
-本版调整奇数个 Terminal 窗口的排列方式。
+本版新增可选的 Codex AI 审批和夜间静音，并保留奇数窗口的两列布局。
 
 ### 本次更新
 
-- 奇数个窗口改为两列布局，左列比右列多一个；三个窗口为左侧上下两个、右侧一个，五个窗口为左侧三个、右侧两个。
-- 偶数个窗口继续使用原有平衡网格，窗口仍按顺时针顺序稳定分配。
-- 同步发布旧版更新兼容包，修复 1.3.8 等旧版本检查更新后没有可见结果的问题。
+- 增加可选的 Codex `PermissionRequest` 独立 AI reviewer。危险命令仍由确定性规则先行拒绝；仅高置信度、可验证且局限于批准工作区的命令可自动放行。
+- reviewer 超时、接口错误、无效响应、中低置信度、越界路径和无法核实的脚本均拒绝，不会退回无提示放行。
+- AI reviewer 不处理密码、终端输入、Computer Use、MCP 或其他应用级弹窗。
+- 增加本地时间 22:00–08:00 夜间静音配置；静音只跳过提示音，不改变命令拦截、AI 决策或审计日志。
+- 保留奇数窗口左列多一个的两列布局，以及旧版更新兼容包。
 
 ### 下载与升级
 
-- **新安装：** `TermYes-v1.4.1-macOS.dmg`。
-- **旧版自动更新：** `Termosaic-v1.4.1-macOS.dmg`，为兼容包，不是另一个产品版本。
+- **新安装：** `TermYes-v1.5.0-macOS.dmg`。
+- **旧版自动更新：** `Termosaic-v1.5.0-macOS.dmg`，为兼容包，不是另一个产品版本。
 - 两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 `.sha256` 文件。
 - 保留原 Bundle ID 与配置路径；旧版自动升级后应用目录可能仍叫 `Termosaic.app`，但显示名称为 TermYes。
 - GitHub 仓库暂保留 `zzusec/Termosaic`。请勿同时运行新旧应用副本。
@@ -26,18 +28,20 @@
 
 ## English
 
-This release changes how odd-numbered Terminal window sets are arranged.
+This release adds optional Codex AI approval and quiet hours while retaining the two-column odd-window layout.
 
 ### What's new
 
-- Odd window counts now use two columns, with one extra window on the left: three windows become two stacked on the left and one on the right; five become three on the left and two on the right.
-- Even window counts retain the balanced grid, with stable clockwise window assignment.
-- Publishes the legacy-updater compatibility image so older versions such as 1.3.8 can detect and install the update.
+- Adds an optional independent AI reviewer for Codex `PermissionRequest` events. Deterministic rules still block dangerous commands first; only high-confidence, verifiable actions within approved workspace roots can be auto-approved.
+- Reviewer timeouts, API errors, invalid responses, medium/low confidence, out-of-scope paths, and unverifiable scripts are denied without falling back to silent approval.
+- The reviewer does not handle passwords, terminal input, Computer Use, MCP, or other app-level prompts.
+- Adds a configurable 22:00–08:00 local quiet period that suppresses audible alerts without weakening blocking, AI decisions, or audit logging.
+- Retains the two-column odd-window layout and the legacy-updater compatibility image.
 
 ### Downloads and migration
 
-- **New installs:** `TermYes-v1.4.1-macOS.dmg`.
-- **Older automatic updaters:** `Termosaic-v1.4.1-macOS.dmg`, a compatibility image of the same application.
+- **New installs:** `TermYes-v1.5.0-macOS.dmg`.
+- **Older automatic updaters:** `Termosaic-v1.5.0-macOS.dmg`, a compatibility image of the same application.
 - Both support macOS 13+ on Apple Silicon and Intel, with matching `.sha256` files.
 - Existing bundle identity and configuration paths remain stable. Automatic upgrades may keep the installed folder named `Termosaic.app` while displaying TermYes.
 - The repository remains `zzusec/Termosaic`. Do not run old and new copies simultaneously.
