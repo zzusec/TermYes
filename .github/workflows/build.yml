@@ -23,6 +23,10 @@ jobs:
         run: |
           swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termosaic-version-tests
           /tmp/termosaic-version-tests
+      - name: Test AI review settings
+        run: |
+          swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termosaic-ai-settings-tests
+          /tmp/termosaic-ai-settings-tests
       - name: Test Agent guards and resume policy
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py

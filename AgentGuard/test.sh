@@ -4,6 +4,7 @@
 set -u
 export DANGER_GUARD_SILENT=1   # 批量跑用例时不响铃
 export DANGER_GUARD_ASK=0      # 且不弹确认框:回归测试只验证分级,不验证交互
+export TERMOSAIC_AI_REVIEW_DISABLE=1
 
 # Never use the real home or a fixed /tmp fixture for destructive test cleanup.
 TEST_HOME="$(mktemp -d "${TMPDIR:-/tmp}/termosaic-guard-home.XXXXXX")"

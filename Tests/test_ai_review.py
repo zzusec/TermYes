@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -149,6 +150,49 @@ class AIReviewTests(unittest.TestCase):
             [str(project)],
         )
         self.assertIn("git status", previews[0]["content"])
+
+    def test_temp_root_is_allowed_context(self):
+        temp_script = Path(tempfile.mkdtemp(prefix="termosaic-review-temp-")) / "check.sh"
+        temp_script.write_text("git status --short\n")
+        self.addCleanup(lambda: shutil.rmtree(temp_script.parent, ignore_errors=True))
+        previews = ai_review._script_previews(
+            f"bash {temp_script}",
+            str(ROOT),
+            12000,
+            [str(temp_script.parent)],
+        )
+        self.assertIn("git status", previews[0]["content"])
+        self.assertIsNone(ai_review._preflight("rm -rf /tmp/termosaic-build", str(ROOT)))
+
+    def test_selected_model_overrides_flat_config(self):
+        value = json.loads(self.config.read_text())
+        value["models"] = [
+            {
+                "id": "first",
+                "name": "First",
+                "endpoint": "http://127.0.0.1:1111/v1/chat/completions",
+                "model": "model-first",
+            },
+            {
+                "id": "second",
+                "name": "Second",
+                "endpoint": "http://127.0.0.1:2222/v1/chat/completions",
+                "model": "model-second",
+            },
+        ]
+        value["selected_model_id"] = "second"
+        self.config.write_text(json.dumps(value))
+
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(completion("allow")),
+        ) as request:
+            decision = self.review()
+
+        self.assertEqual(decision["behavior"], "allow")
+        sent = json.loads(request.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(sent["model"], "model-second")
 
 
 if __name__ == "__main__":

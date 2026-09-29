@@ -43,6 +43,7 @@ struct TermYesApp: App {
     @StateObject private var autoContinue = AutoContinueController.shared
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
+    @StateObject private var aiReview = AIReviewController.shared
 
     private var statusText: String {
         switch manager.phase {
@@ -164,6 +165,43 @@ struct TermYesApp: App {
                             .disabled(agentGuard.isWorking)
                         Button("恢复安装前状态") { agentGuard.uninstall(client) }
                             .disabled(agentGuard.isWorking || !client.installed)
+                    }
+                }
+                Divider()
+                Menu("AI 审批模型：\(aiReview.selectedModel?.name ?? "未配置")") {
+                    Toggle(
+                        "启用 AI 审批",
+                        isOn: Binding(
+                            get: { aiReview.isEnabled && aiReview.selectedModel != nil },
+                            set: { enabled in
+                                if enabled && aiReview.models.isEmpty {
+                                    AIReviewModelPicker.shared.show()
+                                } else {
+                                    aiReview.setEnabled(enabled && aiReview.selectedModel != nil)
+                                }
+                            }
+                        )
+                    )
+                    .disabled(aiReview.models.isEmpty)
+
+                    ForEach(aiReview.models) { model in
+                        Toggle(
+                            model.name,
+                            isOn: Binding(
+                                get: { aiReview.selectedModelID == model.id },
+                                set: { selected in
+                                    if selected { aiReview.select(model.id) }
+                                }
+                            )
+                        )
+                    }
+
+                    Divider()
+                    Button("添加或管理模型…") {
+                        AIReviewModelPicker.shared.show()
+                    }
+                    if let error = aiReview.errorMessage {
+                        Text(error)
                     }
                 }
                 Divider()

@@ -8,6 +8,10 @@
   "max_command_chars": 12000,
   "max_script_preview_chars": 12000,
   "allowed_workspace_roots": [],
+  "allowed_temp_roots": [
+    "/tmp",
+    "/private/tmp"
+  ],
   "api_key_env": "",
   "require_high_confidence": true,
   "log_path": ""

@@ -33,6 +33,7 @@ Show every existing Terminal.app shell window as one balanced wall on the curren
 - Optionally attempt “继续” for recognized quota/network interruptions in matching Codex/Claude Terminal sessions; skip recognized confirmation/guard-denial prompts and unknown automatic-resume states. Never automatically answer `yes`.
 - Bundle thirteen shell-guard adapters from bypass-yes with per-client installation and exact restore; dangerous/warning rules and captured input/bridge errors deny.
 - Keep automatic-approval capability closed for all clients pending real-client validation; preserve existing user permission settings. Installed files alone are not proof of runtime protection.
+- Configure multiple independent approval models from the Agent guard menu for Codex Bash permission requests; ordinary development actions default to allow while explicit high-impact dangers deny.
 
 ## Durable Constraints
 

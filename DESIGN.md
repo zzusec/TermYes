@@ -25,3 +25,4 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 - The menu-bar control is the sole interface and holds every action, auto-continue status, and online-update state.
 
 - Guard controls distinguish installation records from verified protection. Show pending/known-gap states, never a green “protected” claim without real-client evidence; errors stay in the menu with copyable details.
+- The Agent guard submenu keeps AI approval model selection compact: enable state, model choices, and a small floating add/manage panel.

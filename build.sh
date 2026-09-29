@@ -36,6 +36,8 @@ sources=(
   "$ROOT/Sources/GridLayout.swift"
   "$ROOT/Sources/TerminalResumePolicy.swift"
   "$ROOT/Sources/AgentGuardController.swift"
+  "$ROOT/Sources/AIReviewSettings.swift"
+  "$ROOT/Sources/AIReviewModelPicker.swift"
   "$ROOT/Sources/TerminalManager.swift"
   "$ROOT/Sources/GlobalHotKeyController.swift"
   "$ROOT/Sources/AutoContinueController.swift"

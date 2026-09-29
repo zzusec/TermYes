@@ -4,6 +4,7 @@
 set -u
 export PYTHONDONTWRITEBYTECODE=1
 export DANGER_GUARD_SILENT=1   # 批量跑用例时不响铃
+export TERMOSAIC_AI_REVIEW_DISABLE=1
 
 GUARD="$(cd "$(dirname "$0")" && pwd)/danger-guard-codex.py"
 PY="${PYTHON:-/usr/bin/python3}"
