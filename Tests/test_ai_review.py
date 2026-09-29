@@ -57,6 +57,8 @@ class AIReviewTests(unittest.TestCase):
             "memory_path": str(self.root / "memory.json"),
             "sync_enabled": True,
             "sync_path": str(self.root / "cloud-memory.json"),
+            "history_enabled": True,
+            "history_path": str(self.root / "history.jsonl"),
         }))
         self.old_config = os.environ.get(ai_review.CONFIG_ENV)
         self.old_disable = os.environ.get(ai_review.DISABLE_ENV)
@@ -109,6 +111,16 @@ class AIReviewTests(unittest.TestCase):
         ):
             decision = self.review()
         self.assertEqual(decision["behavior"], "deny")
+
+    def test_timeout_retries_once_before_denying(self):
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            side_effect=[TimeoutError("slow"), FakeResponse(completion("allow"))],
+        ) as request:
+            decision = self.review()
+        self.assertEqual(decision["behavior"], "allow")
+        self.assertEqual(request.call_count, 2)
 
     def test_deterministic_preflight_skips_model(self):
         with mock.patch.object(ai_review.urllib.request, "urlopen") as request:
@@ -235,6 +247,64 @@ class AIReviewTests(unittest.TestCase):
         merged = ai_review._load_merged_memory(config)
         self.assertEqual(set(merged["commands"]), {"local", "cloud"})
         self.assertEqual(set(merged["patterns"]), {"git status", "swift test"})
+
+    def test_all_decisions_are_stored_locally(self):
+        decision = self.review("sudo git status")
+        self.assertEqual(decision["behavior"], "deny")
+        history = (self.root / "history.jsonl").read_text().strip().splitlines()
+        record = json.loads(history[-1])
+        self.assertEqual(record["command"], "sudo git status")
+        self.assertEqual(record["stage"], "preflight")
+
+    def test_previous_decision_is_sent_back_for_review(self):
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(completion("deny", reason="stale denial")),
+        ):
+            first = self.review()
+        self.assertEqual(first["behavior"], "deny")
+
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(completion("allow")),
+        ) as request:
+            second = self.review()
+        self.assertEqual(second["behavior"], "allow")
+        body = json.loads(request.call_args.args[0].data.decode("utf-8"))
+        payload = json.loads(body["messages"][1]["content"])
+        self.assertTrue(payload["prior_decisions"])
+        self.assertIn("stale denial", payload["prior_decisions"][-1]["reason"])
+
+    def test_window_level_ctrl_c_can_be_reviewed(self):
+        prompt = "\n".join([
+            "Would you like to send input to terminal 85856?",
+            "1. Yes, proceed",
+            "2. No",
+            'Input: "\\u{3}"',
+        ])
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(completion("allow")),
+        ):
+            decision = ai_review.review_terminal_input(prompt, "\\u{3}")
+        self.assertEqual(decision["behavior"], "allow")
+
+    def test_window_level_enter_and_text_are_denied_without_model(self):
+        prompt = "\n".join([
+            "Would you like to send input to terminal 85856?",
+            "1. Yes, proceed",
+            "2. No",
+            'Input: "\\n"',
+        ])
+        with mock.patch.object(ai_review.urllib.request, "urlopen") as request:
+            newline = ai_review.review_terminal_input(prompt, "\\n")
+            text = ai_review.review_terminal_input(prompt, "rm -rf /")
+        self.assertEqual(newline["behavior"], "deny")
+        self.assertEqual(text["behavior"], "deny")
+        request.assert_not_called()
 
     def test_selected_model_overrides_flat_config(self):
         value = json.loads(self.config.read_text())

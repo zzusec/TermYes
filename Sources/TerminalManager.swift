@@ -2,6 +2,12 @@
 import Combine
 import os
 
+struct TerminalWindowSnapshot {
+    let id: Int
+    let name: String
+    let contents: String
+}
+
 @MainActor
 final class TerminalManager: NSObject, ObservableObject {
     static let shared = TerminalManager()
@@ -192,6 +198,51 @@ final class TerminalManager: NSObject, ObservableObject {
               let busyCount = result.atIndex(2)?.int32Value,
               let blockedCount = result.atIndex(3)?.int32Value else { return nil }
         return (sent: Int(sentCount), busy: Int(busyCount), blocked: Int(blockedCount))
+    }
+
+    func terminalWindowSnapshots() -> [TerminalWindowSnapshot]? {
+        let source = """
+        set fieldSeparator to ASCII character 31
+        set recordSeparator to ASCII character 30
+        set output to ""
+        tell application id "com.apple.Terminal"
+            repeat with windowRef in every window
+                try
+                    set currentWindow to contents of windowRef
+                    set currentID to id of currentWindow
+                    set currentName to name of currentWindow as text
+                    set currentText to contents of selected tab of currentWindow
+                    set output to output & currentID & fieldSeparator & currentName & fieldSeparator & currentText & recordSeparator
+                end try
+            end repeat
+        end tell
+        return output
+        """
+        guard let result = executeAppleScript(source) else { return nil }
+        let recordSeparator = Character(UnicodeScalar(30))
+        let fieldSeparator = Character(UnicodeScalar(31))
+        return result.stringValue?
+            .split(separator: recordSeparator, omittingEmptySubsequences: true)
+            .compactMap { record in
+                let fields = record.split(separator: fieldSeparator, maxSplits: 2)
+                guard fields.count == 3, let id = Int(fields[0]) else { return nil }
+                return TerminalWindowSnapshot(
+                    id: id,
+                    name: String(fields[1]),
+                    contents: String(fields[2])
+                )
+            }
+    }
+
+    func activateTerminalWindow(id: Int) -> Bool {
+        let source = """
+        tell application id "com.apple.Terminal"
+            set targetWindow to first window whose id is \(id)
+            set frontmost of targetWindow to true
+            activate
+        end tell
+        """
+        return executeAppleScript(source) != nil
     }
 
     func prepareForTermination() {

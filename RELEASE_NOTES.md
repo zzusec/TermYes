@@ -1,8 +1,8 @@
-# TermYes v1.5.5
+# TermYes v1.6.0
 
 ## 简体中文
 
-本版增加 iCloud Drive 记忆同步，让学习结果可以跟随用户跨 Mac 使用。
+本版增加全量本地判断历史与复审自迭代，修复 reviewer 超时造成的普通命令误拦。
 
 ### 本次更新
 
@@ -15,6 +15,12 @@
 - 含管道、重定向、变量和内联解释器的命令不会生成模式；危险规则始终先执行并覆盖学习结果。
 - 新增“同步记忆到 iCloud”开关，本机记忆与 iCloud Drive 文件自动合并。
 - 命令记忆改为跨电脑哈希，不再绑定本机绝对工作目录；每次放行仍按当前电脑的路径执行危险规则。
+- reviewer 请求超时或网络中断时会自动重试一次；只有重试仍失败才拒绝。
+- 每次允许、拒绝、规则拦截和超时都会写入本地 `0600` 历史文件，记录命令、目录、原因和时间。
+- 同一条命令再次出现时，最近的拒绝原因会随审批请求交给 reviewer 复审；确认安全后再学习放行。
+- 原始命令历史只存本机；iCloud 只同步命令哈希和受限模式，不上传命令明文。
+- 新增窗口级 Ctrl-C 审批：获得辅助功能权限后，只自动确认输入严格为 `\u{3}` 的终端输入弹窗。
+- 回车、普通文本、未知控制序列、密码和权限弹窗不会自动处理；发送前会再次核对窗口内容。
 - 将 AI 审批提升为顶层菜单，直接显示当前模型；审批模型、启用状态和自动学习都集中在同一子菜单。
 - AI 审批菜单显示已学习的精确命令数量，并提供自动学习开关。
 - reviewer 超时、接口错误、无效响应、中低置信度、越界路径和无法核实的脚本均拒绝，不会退回无提示放行。
@@ -24,8 +30,8 @@
 
 ### 下载与升级
 
-- **新安装：** `TermYes-v1.5.5-macOS.dmg`。
-- **旧版自动更新：** `Termosaic-v1.5.5-macOS.dmg`，为兼容包，不是另一个产品版本。
+- **新安装：** `TermYes-v1.6.0-macOS.dmg`。
+- **旧版自动更新：** `Termosaic-v1.6.0-macOS.dmg`，为兼容包，不是另一个产品版本。
 - 两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 `.sha256` 文件。
 - 保留原 Bundle ID 与配置路径；旧版自动升级后应用目录可能仍叫 `Termosaic.app`，但显示名称为 TermYes。
 - GitHub 仓库暂保留 `zzusec/Termosaic`。请勿同时运行新旧应用副本。
@@ -38,7 +44,7 @@
 
 ## English
 
-This release adds iCloud Drive memory sync so learned approvals can follow the user across Macs.
+This release adds complete local decision history and review-based self-iteration, and fixes false blocking when the AI reviewer times out.
 
 ### What's new
 
@@ -51,6 +57,12 @@ This release adds iCloud Drive memory sync so learned approvals can follow the u
 - Shell composition, redirection, variables, and inline interpreters never produce learned patterns; danger rules always override learning.
 - Adds a **Sync memory to iCloud** toggle that merges local and iCloud Drive memory.
 - Makes command memory portable across Macs while still evaluating each approval against the current local paths and danger rules.
+- Retries reviewer timeouts and network failures once before denying.
+- Stores every allow, deny, rule block, and timeout in a local `0600` history with command, directory, reason, and time.
+- Feeds recent denial reasons back into the reviewer when the same command appears again; only a safe re-review can learn and allow it.
+- Keeps raw command history local; iCloud sync stores only command hashes and bounded patterns.
+- Adds window-level Ctrl-C approval: with Accessibility permission, only terminal-input prompts whose requested input is exactly `\u{3}` can be confirmed automatically.
+- Enter, ordinary text, unknown control sequences, password prompts, and permission prompts remain manual; window contents are rechecked before sending Return.
 - Promotes AI approval to a top-level menu showing the active model, enable state, model selection, and learning controls.
 - Shows the learned exact-command count and allows learning to be disabled without removing existing memory.
 - Reviewer timeouts, API errors, invalid responses, medium/low confidence, out-of-scope paths, and unverifiable scripts are denied without falling back to silent approval.
@@ -60,8 +72,8 @@ This release adds iCloud Drive memory sync so learned approvals can follow the u
 
 ### Downloads and migration
 
-- **New installs:** `TermYes-v1.5.5-macOS.dmg`.
-- **Older automatic updaters:** `Termosaic-v1.5.5-macOS.dmg`, a compatibility image of the same application.
+- **New installs:** `TermYes-v1.6.0-macOS.dmg`.
+- **Older automatic updaters:** `Termosaic-v1.6.0-macOS.dmg`, a compatibility image of the same application.
 - Both support macOS 13+ on Apple Silicon and Intel, with matching `.sha256` files.
 - Existing bundle identity and configuration paths remain stable. Automatic upgrades may keep the installed folder named `Termosaic.app` while displaying TermYes.
 - The repository remains `zzusec/Termosaic`. Do not run old and new copies simultaneously.

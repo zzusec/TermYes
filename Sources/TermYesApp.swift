@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalHotKeyController.shared.activateSavedShortcut()
         TerminalManager.shared.start()
         AutoContinueController.shared.start()
+        WindowApprovalController.shared.start()
         UpdateController.shared.start()
     }
 
@@ -44,6 +45,7 @@ struct TermYesApp: App {
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
     @StateObject private var aiReview = AIReviewController.shared
+    @StateObject private var windowApproval = WindowApprovalController.shared
 
     private var statusText: String {
         switch manager.phase {
@@ -222,6 +224,20 @@ struct TermYesApp: App {
                         set: { aiReview.setSyncEnabled($0) }
                     )
                 )
+                Toggle(
+                    "自动确认 Ctrl-C 窗口输入",
+                    isOn: Binding(
+                        get: { windowApproval.isEnabled },
+                        set: { windowApproval.setEnabled($0) }
+                    )
+                )
+                if !windowApproval.isAccessibilityTrusted {
+                    Button("打开辅助功能设置…") {
+                        windowApproval.requestAccessibility()
+                        windowApproval.openAccessibilitySettings()
+                    }
+                }
+                Text(windowApproval.statusMessage)
                 Text("已学习 \(aiReview.learnedCommandCount) 条命令、\(aiReview.learnedPatternCount) 个模式")
                 Text("危险规则优先；普通开发命令默认放行")
                 if let error = aiReview.errorMessage {

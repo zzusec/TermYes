@@ -11,6 +11,8 @@
   "memory_path": "",
   "sync_enabled": false,
   "sync_path": "",
+  "history_enabled": true,
+  "history_path": "",
   "allowed_workspace_roots": [],
   "allowed_temp_roots": [
     "/tmp",

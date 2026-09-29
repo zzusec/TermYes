@@ -35,6 +35,7 @@ Show every existing Terminal.app shell window as one balanced wall on the curren
 - Keep automatic-approval capability closed for all clients pending real-client validation; preserve existing user permission settings. Installed files alone are not proof of runtime protection.
 - Configure multiple independent approval models from a dedicated AI approval menu for Codex Bash permission requests; ordinary development actions default to allow, explicit high-impact dangers deny, and exact repeated commands can be learned.
 - Optionally merge learned approval memory through iCloud Drive so the same command and pattern memory follows the user across Macs without a backend database.
+- With Accessibility permission, auto-confirm only verified terminal-input prompts whose requested input is exactly Ctrl-C; all text, Enter, credentials, and permission prompts remain manual.
 
 ## Durable Constraints
 
