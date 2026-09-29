@@ -20,6 +20,8 @@ final class AIReviewController: ObservableObject {
     @Published private(set) var models: [AIReviewModel] = []
     @Published private(set) var selectedModelID: String?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var learningEnabled = true
+    @Published private(set) var learnedCommandCount = 0
 
     private var document: [String: Any] = [:]
     private let configURL: URL
@@ -50,6 +52,8 @@ final class AIReviewController: ObservableObject {
                 isEnabled = false
                 models = []
                 selectedModelID = nil
+                learningEnabled = true
+                learnedCommandCount = 0
                 errorMessage = nil
                 return
             }
@@ -64,12 +68,16 @@ final class AIReviewController: ObservableObject {
                 selectedModelID = models.first?.id
             }
             isEnabled = value["enabled"] as? Bool ?? false
+            learningEnabled = value["learning_enabled"] as? Bool ?? true
+            learnedCommandCount = Self.learnedCommandCount(from: value, configURL: configURL)
             errorMessage = nil
         } catch {
             document = [:]
             models = []
             selectedModelID = nil
             isEnabled = false
+            learningEnabled = true
+            learnedCommandCount = 0
             errorMessage = "读取审批模型失败：\(error.localizedDescription)"
         }
     }
@@ -82,6 +90,11 @@ final class AIReviewController: ObservableObject {
     func select(_ modelID: String) {
         guard models.contains(where: { $0.id == modelID }) else { return }
         selectedModelID = modelID
+        persist()
+    }
+
+    func setLearningEnabled(_ enabled: Bool) {
+        learningEnabled = enabled
         persist()
     }
 
@@ -139,6 +152,7 @@ final class AIReviewController: ObservableObject {
     private func persist() {
         var value = document
         value["enabled"] = isEnabled
+        value["learning_enabled"] = learningEnabled
         value["models"] = models.map(Self.dictionary(from:))
         if let selectedModelID {
             value["selected_model_id"] = selectedModelID
@@ -224,6 +238,21 @@ final class AIReviewController: ObservableObject {
             "attempts": model.attempts,
             "max_response_tokens": model.maxResponseTokens,
         ]
+    }
+
+    private static func learnedCommandCount(from document: [String: Any], configURL: URL) -> Int {
+        let path: URL
+        if let override = document["memory_path"] as? String, !override.isEmpty {
+            path = URL(fileURLWithPath: override).standardizedFileURL
+        } else {
+            path = configURL.deletingLastPathComponent().appendingPathComponent("ai-review-memory.json")
+        }
+        guard let data = try? Data(contentsOf: path),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let commands = value["commands"] as? [String: Any] else {
+            return 0
+        }
+        return commands.count
     }
 
     private enum SettingsError: LocalizedError {

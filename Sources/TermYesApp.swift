@@ -168,22 +168,29 @@ struct TermYesApp: App {
                     }
                 }
                 Divider()
-                Menu("AI 审批模型：\(aiReview.selectedModel?.name ?? "未配置")") {
-                    Toggle(
-                        "启用 AI 审批",
-                        isOn: Binding(
-                            get: { aiReview.isEnabled && aiReview.selectedModel != nil },
-                            set: { enabled in
-                                if enabled && aiReview.models.isEmpty {
-                                    AIReviewModelPicker.shared.show()
-                                } else {
-                                    aiReview.setEnabled(enabled && aiReview.selectedModel != nil)
-                                }
-                            }
-                        )
-                    )
-                    .disabled(aiReview.models.isEmpty)
+                Text(agentGuard.message)
+                Button("复制操作详情") { agentGuard.copyDetails() }
+                Text("仅管理默认用户目录；既有权限不变")
+                Text("只检查 Shell 命令，不是安全沙箱")
+            }
 
+            Menu("AI 审批：\(aiReview.selectedModel?.name ?? "未配置")") {
+                Toggle(
+                    "启用 AI 审批",
+                    isOn: Binding(
+                        get: { aiReview.isEnabled && aiReview.selectedModel != nil },
+                        set: { enabled in
+                            if enabled && aiReview.models.isEmpty {
+                                AIReviewModelPicker.shared.show()
+                            } else {
+                                aiReview.setEnabled(enabled && aiReview.selectedModel != nil)
+                            }
+                        }
+                    )
+                )
+                .disabled(aiReview.models.isEmpty)
+
+                Menu("审批模型：\(aiReview.selectedModel?.name ?? "未配置")") {
                     ForEach(aiReview.models) { model in
                         Toggle(
                             model.name,
@@ -195,20 +202,24 @@ struct TermYesApp: App {
                             )
                         )
                     }
-
                     Divider()
                     Button("添加或管理模型…") {
                         AIReviewModelPicker.shared.show()
                     }
-                    if let error = aiReview.errorMessage {
-                        Text(error)
-                    }
                 }
-                Divider()
-                Text(agentGuard.message)
-                Button("复制操作详情") { agentGuard.copyDetails() }
-                Text("仅管理默认用户目录；既有权限不变")
-                Text("只检查 Shell 命令，不是安全沙箱")
+
+                Toggle(
+                    "自动学习已放行命令",
+                    isOn: Binding(
+                        get: { aiReview.learningEnabled },
+                        set: { aiReview.setLearningEnabled($0) }
+                    )
+                )
+                Text("已学习 \(aiReview.learnedCommandCount) 条精确命令")
+                Text("危险规则优先；普通开发命令默认放行")
+                if let error = aiReview.errorMessage {
+                    Text(error)
+                }
             }
 
             Menu("自动“继续”") {
