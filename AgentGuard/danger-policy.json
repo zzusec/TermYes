@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "block": [
+    ["\\bmkfs(\\.\\w+)?\\b", "mkfs 格式化文件系统"],
+    ["\\bdd\\b[^\\n]*\\bof=/dev/r?(disk|sd|hd|nvme)", "dd 写入物理磁盘"],
+    [">\\s*/dev/r?(disk|sd|hd|nvme)", "重定向覆写物理磁盘"],
+    [":\\s*\\(\\s*\\)\\s*\\{\\s*:\\s*\\|\\s*:&\\s*\\}\\s*;\\s*:", "fork bomb 炸弹"],
+    ["\\bdiskutil\\b[^\\n]*\\beraseDisk\\b", "diskutil 抹掉整盘"]
+  ],
+  "warn": [
+    ["\\bdiskutil\\b[^\\n]*\\b(erase|partition|reformat|eraseVolume|eraseDisk)\\b", "diskutil 抹盘/分区"],
+    ["\\bfdisk\\b", "fdisk 分区"],
+    ["\\bshutdown\\b", "shutdown 关机"],
+    ["\\breboot\\b", "reboot 重启"],
+    ["\\bhalt\\b", "halt 停机"],
+    ["\\bpoweroff\\b", "poweroff 断电"],
+    ["\\bchmod\\b[^\\n]*(?:-R|--recursive)[^\\n]*(?:/(?:etc|usr|bin|sbin|var|lib|lib64|boot|opt|root|System|Library|Applications)\\b|\\s/\\s|\\s/$|\\s/\\*)", "chmod -R 改系统目录权限"],
+    ["\\bchown\\b[^\\n]*(?:-R|--recursive)[^\\n]*(?:/(?:etc|usr|bin|sbin|var|lib|lib64|boot|opt|root|System|Library|Applications)\\b|\\s/\\s|\\s/$|\\s/\\*)", "chown -R 改系统目录属主"],
+    [">\\s*/etc/", "写入 /etc 系统文件"],
+    ["\\bcurl\\b[^|]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b", "curl 管道执行远程脚本"],
+    ["\\bwget\\b[^|]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b", "wget 管道执行远程脚本"],
+    ["\\bgit\\s+push\\b[^;&|\\n]*(--force\\b|--force-with-lease\\b|\\s-f\\b)", "git 强制推送"],
+    ["\\bgit\\s+reset\\b[^;&|\\n]*--hard\\b", "git reset --hard 丢弃改动"],
+    ["\\bgit\\s+clean\\b[^;&|\\n]*\\s-\\w*f", "git clean -f 删未跟踪文件"],
+    ["\\bnpm\\s+publish\\b", "npm publish 发布包"],
+    ["\\bcrontab\\b[^\\n]*\\s-r\\b", "crontab -r 清空定时任务"],
+    ["\\bdocker\\b[^\\n]*\\bprune\\b[^\\n]*(--volumes|--all|\\s-a\\b)", "docker prune 清理(含数据卷/全部)"]
+  ]
+}
