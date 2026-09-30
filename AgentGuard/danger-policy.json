@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "block": [
     ["\\bmkfs(\\.\\w+)?\\b", "mkfs 格式化文件系统"],
     ["\\bdd\\b[^\\n]*\\bof=/dev/r?(disk|sd|hd|nvme)", "dd 写入物理磁盘"],
