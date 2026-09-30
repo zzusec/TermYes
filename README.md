@@ -14,7 +14,7 @@
 
 TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards** into one application. Keep existing Terminal sessions visible together, hide them without stopping their processes, and manage per-Agent shell guards from the menu bar.
 
-> **“Yes” is not unconditional approval.** This release hard-denies commands matching danger/warning rules, but does **not** enable YOLO or auto-approve native permission requests. All thirteen adapters still require real-client end-to-end validation. Existing client permission settings remain unchanged.
+> **YOLO first, then hard-deny danger.** TermYes detects installed agents, repairs supported permission modes to YOLO or an equivalent auto-approval mode, and keeps the command guard as a fail-closed layer for dangerous operations. Adapter hook behavior still requires real-client validation.
 
 ## What it does
 
@@ -27,14 +27,15 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 - **Less desktop clutter.** Show or hide the canvas together, including minimized windows, while processes keep running. No Dock icon, embedded shell, or permanent control window; other applications' windows are not rearranged.
 - **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘O`; change it if you need to preserve another application's Open command.
 - **Conservative task recovery.** Scheduled resume attempts recognize selected quota/network interruptions. Recognized confirmation prompts, guard denials, passwords, and unknown automatic-resume states are skipped. TermYes never automatically types `yes`.
-- **One place for command guards.** Install/update or restore a client's guard from the menu, without changing its permission mode, model settings, shell aliases, or sandbox settings.
+- **One place for Agent safety.** Detect and repair YOLO-equivalent modes when TermYes starts, install/update guards from the menu, and keep dangerous shell commands blocked even when the client itself will not ask.
+- **YOLO loaded before each launch.** New zsh terminals install a lightweight agent launcher that repairs the selected client's YOLO mode before starting it; failures are reported without silently falling back.
 - **In-app updates.** Download versioned release images, verify checksums and application signatures, then replace and relaunch with a backup for recovery.
 
 ## Install
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download **`TermYes-v1.6.4-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest).
+1. Download **`TermYes-v1.6.5-macOS.dmg`** from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest).
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -49,7 +50,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- Releases include a **`Termosaic-v1.6.4-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
+- Releases include a **`Termosaic-v1.6.5-macOS.dmg` compatibility image** for older updaters, alongside the main TermYes image. Both contain the same signed TermYes application under the bundle name that the corresponding updater expects.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -88,7 +89,7 @@ Bundled adapters cover Claude Code, Codex, CodeBuddy, zcode, pi, Qoder, Gemini C
 
 These are **shell-text accident guards, not a sandbox**. They do not fully understand arbitrary Python, SQL, remote programs, aliases, or script contents, and do not intercept separate file-editing or MCP tools. A `safe` result means “no rule matched,” not “proved safe.”
 
-Installation merges default user-level client configurations, preserves unrelated hooks, and keeps private restore records. Existing YOLO settings are neither enabled nor disabled. Custom configuration roots and project-level configurations are not managed. See [guard documentation](AgentGuard/README.md) for paths, failure behavior, and CLI usage.
+Installation merges default user-level client configurations, preserves unrelated hooks, and keeps private restore records. Startup reconciliation enables supported YOLO-equivalent modes; clients that only support launch flags use managed wrappers. Custom configuration roots and project-level configurations are not managed. See [guard documentation](AgentGuard/README.md) for paths, failure behavior, and CLI usage.
 
 ## Build and test
 

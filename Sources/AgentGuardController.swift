@@ -7,6 +7,10 @@ struct AgentGuardClient: Decodable, Identifiable {
     let name: String
     let installed: Bool
     let approvalReason: String
+    let detected: Bool
+    let permissionMode: String
+    let permissionReady: Bool
+    let permissionReason: String
 }
 
 @MainActor
@@ -14,10 +18,11 @@ final class AgentGuardController: ObservableObject {
     static let shared = AgentGuardController()
     @Published private(set) var clients: [AgentGuardClient] = []
     @Published private(set) var isWorking = false
-    @Published private(set) var message = "检测后可安装守卫；不自动开启免确认"
+    @Published private(set) var message = "启动时自动检测并修复 Agent YOLO 模式"
     private var details = ""
 
     func refresh() { run("status") }
+    func reconcile() { run("reconcile") }
     func install(_ client: AgentGuardClient) { run("install", client: client.id) }
     func uninstall(_ client: AgentGuardClient) { run("uninstall", client: client.id) }
 
@@ -33,19 +38,27 @@ final class AgentGuardController: ObservableObject {
             return
         }
         isWorking = true
-        message = action == "status" ? "正在检测守卫配置…" : "正在处理守卫文件，请稍候…"
+        message = action == "status"
+            ? "正在检测 Agent 权限模式…"
+            : action == "reconcile"
+                ? "正在自动修复 Agent YOLO 模式…"
+                : "正在处理守卫文件，请稍候…"
         let arguments = [script.path, action] + (client.map { [$0] } ?? [])
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 Self.execute(arguments)
             }.value
             details = String(decoding: result.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            if result.0 == 0, action == "status" {
+            if action == "status" || action == "reconcile" {
                 do {
                     clients = try JSONDecoder().decode([AgentGuardClient].self, from: result.1)
-                    message = "安装状态不代表客户端已加载；免确认均待实测"
+                    let detected = clients.filter(\.detected)
+                    let ready = detected.filter(\.permissionReady).count
+                    message = result.0 == 0
+                        ? "已检测 \(detected.count) 个 Agent，\(ready) 个处于 YOLO/等效模式"
+                        : "已检测 \(detected.count) 个 Agent，\(ready) 个就绪；部分修复失败"
                 } catch {
-                    message = "守卫状态无法解析；请复制详情检查"
+                    message = "Agent 权限状态无法解析；请复制详情检查"
                 }
             } else {
                 message = String(details.prefix(120))

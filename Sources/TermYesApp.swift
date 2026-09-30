@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalManager.shared.start()
         AutoContinueController.shared.start()
         WindowApprovalController.shared.start()
+        AgentGuardController.shared.reconcile()
         UpdateController.shared.start()
     }
 
@@ -223,14 +224,26 @@ struct TermYesApp: App {
 
     @ViewBuilder
     private var agentGuardMenuContent: some View {
-        Button(agentGuard.isWorking ? "正在处理…" : "检测守卫配置") {
+        Button(agentGuard.isWorking ? "正在处理…" : "自动检测并修复 YOLO") {
+            agentGuard.reconcile()
+        }
+        .disabled(agentGuard.isWorking)
+        Button("刷新检测结果") {
             agentGuard.refresh()
         }
         .disabled(agentGuard.isWorking)
 
         ForEach(agentGuard.clients) { client in
             Menu(client.name) {
-                Text(client.installed ? "已安装，运行状态未验证" : "未安装")
+                Text(
+                    client.detected
+                        ? (client.permissionReady
+                            ? "YOLO：\(client.permissionMode)"
+                            : "未就绪：\(client.permissionMode)")
+                        : "未检测到"
+                )
+                Text(client.permissionReason)
+                Text(client.installed ? "TermYes 守卫已安装" : "TermYes 守卫未安装")
                 Button("安装 / 更新守卫") { agentGuard.install(client) }
                     .disabled(agentGuard.isWorking)
                 Button("恢复安装前状态") { agentGuard.uninstall(client) }

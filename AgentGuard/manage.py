@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install only shell guards. No YOLO setting, shell alias, or model setting is changed."""
+"""Install shell guards and reconcile supported agents to YOLO-equivalent modes."""
 import argparse
 import base64
 import fcntl
@@ -11,9 +11,10 @@ import stat
 import sys
 import tempfile
 
+import permission_modes
+
 SOURCE = Path(__file__).resolve().parent
-# ponytail: no client is enabled for automatic approval until real-client evidence exists.
-# Protocol unit tests are deliberately not an approval-mode capability certificate.
+
 CLIENTS = {
     "claude": ("Claude Code", ".claude", "settings.json", "danger-guard.py"),
     "codex": ("Codex", ".codex", "hooks.json", "danger-guard-codex.py"),
@@ -32,11 +33,9 @@ CLIENTS = {
 
 
 def reason(client):
-    if client == "copilot":
-        return "已知 Hook 超时放行缺口；不启用免确认"
-    if client == "agy":
-        return "原生 turbo 存在绕过风险；等效免确认待实测"
-    return "客户端端到端行为待验证；不启用免确认"
+    if client == "pi":
+        return "客户端本身不进行命令审批"
+    return "启动时自动检测并修复 YOLO/等效免确认模式"
 
 
 def mapping(value):
@@ -205,6 +204,7 @@ def desired_files(home, client):
 
 
 def install(home, client):
+    permission_modes.repair(home, client)
     files = desired_files(home, client)  # Validate all config before writing anything.
     receipt = receipt_path(home, client)
     previous = read_file(receipt)
@@ -233,7 +233,7 @@ def install(home, client):
         for p in reversed(changed):
             restore_file(p, snapshots[str(p)])
         raise
-    return "守卫已安装；未更改权限模式。重启客户端，Codex 需在 /hooks 检查并信任。"
+    return "守卫已安装，Agent 权限模式已检测/修复；重启客户端，Codex 需在 /hooks 检查并信任。"
 
 
 def uninstall(home, client):
@@ -260,7 +260,7 @@ def uninstall(home, client):
         for name in restored:
             restore_file(Path(name), record["installed"][name])
         raise
-    return "已恢复安装前文件；原有权限设置及旧守卫保持原样。"
+    return "已恢复守卫安装前文件；YOLO/等效权限模式保持不变。"
 
 
 def status(home):
@@ -268,14 +268,22 @@ def status(home):
     for client, (name, _, _, _) in CLIENTS.items():
         receipt = receipt_path(home, client)
         installed = receipt.is_file() and not receipt.is_symlink()
-        result.append({"id": client, "name": name, "installed": installed,
-                       "approvalReason": reason(client)})
+        result.append({
+            "id": client,
+            "name": name,
+            "installed": installed,
+            "approvalReason": reason(client),
+            **permission_modes.inspect(home, client),
+        })
     return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("status", "install", "uninstall", "enable-yolo"))
+    parser.add_argument(
+        "action",
+        choices=("status", "install", "uninstall", "reconcile", "enable-yolo"),
+    )
     parser.add_argument("client", nargs="?", choices=CLIENTS)
     parser.add_argument("--home", type=Path, default=Path.home(), help="User root; tests use a temporary home")
     args = parser.parse_args()
@@ -283,10 +291,24 @@ def main():
         parser.error("--home must be absolute")
     if args.action == "status":
         print(json.dumps(status(args.home), ensure_ascii=False)); return
-    if not args.client:
+    if args.action != "reconcile" and not args.client:
         parser.error("client required")
     if args.action == "enable-yolo":
-        raise ValueError(reason(args.client))
+        if not args.client:
+            parser.error("client required")
+        permission_modes.repair(args.home, args.client)
+        print(json.dumps(status(args.home), ensure_ascii=False))
+        return
+    if args.action == "reconcile":
+        results = permission_modes.reconcile(
+            args.home,
+            [args.client] if args.client else None,
+        )
+        failures = [item for item in results if item["detected"] and not item["permissionReady"]]
+        print(json.dumps(status(args.home), ensure_ascii=False))
+        if failures:
+            sys.exit(1)
+        return
     # ponytail: one local install lock; configuration mutations are rare and short.
     lock = receipt_path(args.home, args.client).parent / ".install.lock"
     checked_path(lock)

@@ -67,21 +67,26 @@ AI reviewer 默认启用安全学习。模型高置信度放行某条命令后�
 }
 ```
 
-## 首版能力门槛
+## 自动检测与 YOLO 修复
 
-**当前没有客户端被标为已完成真实客户端端到端验证，所以 TermYes 不会为任何客户端开启 YOLO，也不会通过 Hook 自动批准普通权限请求。** 可以安装加固后的守卫，正常操作继续由客户端原有权限流程决定。
+TermYes 启动时会检测本机已安装的 Agent，并在需要时自动修复权限模式：
 
-这不会关闭用户已有的免确认配置。若客户端原来已处于 YOLO，安装/恢复守卫不改变它，也不代表 TermYes 已验证或认可该状态。
+- Codex → `approval_policy=never`、`sandbox_mode=danger-full-access`
+- Claude Code / CodeBuddy → `permissions.defaultMode=bypassPermissions`
+- Qoder → `general.defaultPermissionMode=bypass_permissions`
+- zcode → `permission.mode=yolo`
+- pi → 本身不进行命令审批
+- Gemini / Cursor / agy / OpenCode / droid / Crush / Copilot → `~/.local/bin` 下的受管启动 wrapper
 
-- Copilot：已知宿主 Hook 超时会回到正常权限流程，保留已知缺口状态。
-- agy：原项目对 turbo 行为记录存在冲突，禁用原生 turbo 启用入口；等效免确认模式亦待真实客户端验证。
-- 其余客户端：待验证，不能仅靠脚本单测或已安装可执行文件放行能力门槛。
+自动修复是幂等的，只处理检测到的客户端。wrapper 会强制附加对应免确认参数并设置 `DANGER_GUARD_BYPASS=1`，使没有确认框的客户端仍由守卫硬拒危险命令。菜单栏 **Agent 命令守卫 → 自动检测并修复 YOLO** 可手动重跑。
 
-以后开放某个版本的免确认入口，至少需要真实客户端的 Hook 加载/信任、安全调用、危险调用、错误/超时、免确认模式下拒绝效果及版本记录。本次没有发起需要账号或付费请求的 Agent 测试。
+新开的 zsh 终端会加载 `~/.local/bin/termyes-agent-yolo-shell`。每个已安装 Agent 在启动前都会先调用 `enable-yolo <client>`：已就绪则直接启动，配置缺失则先修复再启动；修复失败会明确提示。这样不需要为了加载 YOLO 而重启客户端。无论客户端是否自动批准命令，TermYes 的 `danger-guard` 都会在命令执行前硬拒绝危险操作。
+
+Hook 是否被真实客户端加载、信任和调用仍需逐客户端验证；脚本单测通过不等于客户端端到端已验证。Copilot 宿主超时、agy turbo 等兼容性边界仍需实际取证。
 
 ## 使用
 
-菜单栏 → **Agent 命令守卫** → **检测守卫配置** → 对应客户端 → **安装 / 更新守卫（不改权限）**。
+菜单栏 → **Agent 命令守卫** → **自动检测并修复 YOLO**，再按客户端 **安装 / 更新守卫**。
 
 安装与恢复前请退出对应客户端。安装后重新打开，Codex 还需在 `/hooks` 中检查和信任新 Hook。菜单显示安装记录，不是进程实时受保护的证明。
 
@@ -91,18 +96,19 @@ AI reviewer 默认启用安全学习。模型高置信度放行某条命令后�
 
 ```sh
 /usr/bin/python3 -B AgentGuard/manage.py status
+/usr/bin/python3 -B AgentGuard/manage.py reconcile
 /usr/bin/python3 -B AgentGuard/manage.py install claude
 /usr/bin/python3 -B AgentGuard/manage.py uninstall claude
 ```
 
-- 管理默认用户级配置目录；不接管自定义 `CODEX_HOME`、`XDG_CONFIG_HOME` 等配置根或项目级配置，不改 Shell alias/PATH。
-- 不改变权限模式、沙箱、模型、自动压缩配置，也不增加全局 allow 规则。旧 `install-all.sh` 等自动开启 bypass 的安装器未迁入。
+- 管理默认用户级配置目录；不接管自定义 `CODEX_HOME`、`XDG_CONFIG_HOME` 等配置根或项目级配置。参数型客户端会写入受管 wrapper，并确保 `~/.local/bin` 位于路径前部。
+- `reconcile` 会改变已检测客户端的权限模式或启动 wrapper；模型、自动压缩配置和全局 allow 规则保持不变。
 - CLI 安装/恢复使用本地互斥锁，防止两个 TermYes 操作同时改写配置。
 - 配置合并保留其他 Hook，混合组也仅替换旧守卫；重复安装保持内容不变。配置结构无效或路径为符号链接则拒绝写入。
 - `~/Library/Application Support/Termosaic/AgentGuard/` 保存权限为 0600 的安装记录及原文件内容。备份可能包含原配置中的敏感信息，不要分享。
 - 恢复只处理本客户端记录；如果文件被外部修改，拒绝覆盖。不会整目录删除其他 Hook，也不会删除用户原有 bypass-yes 文件。
 - Hook 路径迁到各客户端独立的 `hooks/termosaic/<client>/`（pi 为 `guard/termosaic/pi/`）；插件入口保留旧文件名避免重复加载。
-- 不承诺进程被强杀或断电时跨多个文件的事务原子性；正常写入错误会回滚已写文件。安装后先验证客户端，切勿仅凭安装成功启用 YOLO。
+- 不承诺进程被强杀或断电时跨多个文件的事务原子性；正常写入错误会回滚已写文件。权限修复与守卫安装分离，安装后仍应先验证客户端。
 
 ## 本地测试
 

@@ -14,6 +14,7 @@ SOURCE = ROOT / "AgentGuard"
 sys.path.insert(0, str(SOURCE))
 import core
 import manage
+import permission_modes
 
 ENV = dict(
     os.environ,
@@ -99,6 +100,12 @@ for client in manage.CLIENTS:
         home.mkdir()
         root, config, runtime, adapter = manage.locations(home, client)
         originals = {}
+        toolbin = home / ".opencode/bin"
+        toolbin.mkdir(parents=True, exist_ok=True)
+        for name in permission_modes.COMMANDS[client]:
+            command = toolbin / name
+            command.write_text("#!/bin/sh\nexit 0\n")
+            command.chmod(0o755)
         # Keep a real unrelated hook and an unrelated permission setting in every JSON config.
         if config:
             config.parent.mkdir(parents=True, exist_ok=True)
@@ -115,15 +122,37 @@ for client in manage.CLIENTS:
         check((runtime / adapter).is_file(), client + " copied standalone adapter")
         check(denied(hook(client, payload(client), source=runtime)), client + " installed standalone adapter denies")
         check(manage.receipt_path(home, client).stat().st_mode & 0o777 == 0o600, client + " private backup mode")
+        check(permission_modes.inspect(home, client)["permissionReady"], client + " install repairs YOLO mode")
+        check((home / ".local/bin/termyes-agent-yolo-shell").is_file(),
+              client + " installs terminal startup loader")
+        check(
+            "TermYes Agent YOLO shell v1" in (home / ".zshrc").read_text(),
+            client + " sources terminal startup loader",
+        )
+        if client in permission_modes.WRAPPER_FLAGS:
+            for name in permission_modes._wrapper_names(client):
+                check((home / ".local/bin" / name).exists(), client + " wrapper installed: " + name)
+            check(
+                "TermYes Agent YOLO PATH v1" in (home / ".zshrc").read_text(),
+                client + " ensures local wrapper path",
+            )
         if config:
             value = json.loads(config.read_bytes())
             check(value["custom"]["keep"] == "untouched", client + " preserves config")
-            check(value["permissions"]["defaultMode"] == "default", client + " no YOLO setting")
         manage.install(home, client)
         check(first == {p: p.read_bytes() for p in home.rglob("*") if p.is_file()}, client + " idempotent bytes and receipt")
-        result = subprocess.run([sys.executable, "-B", str(SOURCE / "manage.py"), "enable-yolo", client, "--home", str(home)], capture_output=True, env=ENV)
-        check(result.returncode != 0, client + " capability gate cannot be bypassed")
-        check(first == {p: p.read_bytes() for p in home.rglob("*") if p.is_file()}, client + " rejected YOLO writes nothing")
+        result = subprocess.run(
+            [sys.executable, "-B", str(SOURCE / "manage.py"), "reconcile", client, "--home", str(home)],
+            capture_output=True,
+            env=ENV,
+            text=True,
+        )
+        check(result.returncode == 0, client + " reconcile succeeds: " + result.stderr)
+        state = json.loads(result.stdout)
+        check(any(item["id"] == client and item["permissionReady"] for item in state),
+              client + " reconcile reports YOLO mode")
+        check(first == {p: p.read_bytes() for p in home.rglob("*") if p.is_file()},
+              client + " reconcile is idempotent after install")
         (runtime / "rules.py").write_text("# external edit\n")
         try:
             manage.uninstall(home, client)
@@ -134,8 +163,17 @@ for client in manage.CLIENTS:
         check((runtime / "rules.py").read_text() == "# external edit\n", client + " protects edits")
         (runtime / "rules.py").write_bytes(first[runtime / "rules.py"])
         manage.uninstall(home, client)
-        remaining = {p: p.read_bytes() for p in home.rglob("*") if p.is_file()}
-        check(remaining == originals, client + " exact restore without deleting unrelated files")
+        check(not (runtime / adapter).exists(), client + " uninstall removes guard runtime")
+        check(permission_modes.inspect(home, client)["permissionReady"],
+              client + " uninstall keeps YOLO mode")
+        if client in ("pi", "opencode"):
+            old = root / ("extensions" if client == "pi" else "plugin") / (
+                "bypass-yes-guard.ts" if client == "pi" else "bypass-yes-opencode.js"
+            )
+            check(old.read_bytes() == originals[old], client + " restores original plugin")
+        elif config:
+            check(json.loads(config.read_bytes())["custom"]["keep"] == "untouched",
+                  client + " restores pre-hook config while keeping permission mode")
 
 # Mixed legacy group: replacing our old hook must retain the user's other subhook.
 with tempfile.TemporaryDirectory(prefix="termosaic-merge-") as tmp:
@@ -150,7 +188,11 @@ with tempfile.TemporaryDirectory(prefix="termosaic-merge-") as tmp:
     groups = json.loads(config.read_bytes())["hooks"]["PreToolUse"]
     check(any(other in g["hooks"] for g in groups), "mixed custom hook preserved")
     manage.uninstall(home, "claude")
-    check(config.read_bytes() == original, "original config bytes restored")
+    restored = json.loads(config.read_bytes())
+    original_hooks = json.loads(original)["hooks"]
+    check(restored["hooks"] == original_hooks, "original hooks restored")
+    check(restored["permissions"]["defaultMode"] == "bypassPermissions",
+          "guard restore keeps Claude YOLO mode")
     config.write_text("{broken")
     try:
         manage.install(home, "claude")
@@ -193,7 +235,11 @@ with tempfile.TemporaryDirectory(prefix="termosaic-rollback-") as tmp:
             raise AssertionError("Expected write failure")
     finally:
         manage.atomic_write = real_write
-    check(not any(p.is_file() for p in home.rglob("*")), "failed installation rolled back")
+    _, _, runtime, _ = manage.locations(home, "claude")
+    check(not runtime.exists() or not any(runtime.iterdir()), "failed guard installation rolled back")
+    check(not manage.receipt_path(home, "claude").exists(), "failed installation wrote no receipt")
+    check(permission_modes.inspect(home, "claude")["permissionReady"],
+          "permission repair survives guard rollback")
 
 # Receipt shape and concurrent CLI mutation must not permit arbitrary file writes.
 with tempfile.TemporaryDirectory(prefix="termosaic-lock-") as tmp:
@@ -232,6 +278,47 @@ with tempfile.TemporaryDirectory(prefix="termosaic-event-error-") as tmp:
     target = Path(tmp)
     shutil.copy2(SOURCE / "danger-guard-codex.py", target)
     output = hook("codex", {**payload("codex"), "hook_event_name": "PermissionRequest"}, source=target)
-    check(output["hookSpecificOutput"]["decision"]["behavior"] == "deny", "missing core retains permission channel")
+check(output["hookSpecificOutput"]["decision"]["behavior"] == "deny", "missing core retains permission channel")
+
+# The terminal startup loader must repair the selected client before launching it.
+with tempfile.TemporaryDirectory(prefix="termosaic-shell-yolo-") as tmp:
+    home = Path(tmp).resolve()
+    local_bin = home / ".local/bin"
+    local_bin.mkdir(parents=True)
+    permission_modes._ensure_zsh_path(home)
+    manage_log = home / "manage.log"
+    fake_manage = home / "manage.py"
+    fake_manage.write_text(
+        "#!/usr/bin/python3\n"
+        "import pathlib, sys\n"
+        f"pathlib.Path({str(manage_log)!r}).write_text(' '.join(sys.argv[1:]))\n"
+    )
+    fake_manage.chmod(0o755)
+    fake_codex = home / "codex"
+    fake_codex.write_text("#!/bin/sh\nprintf 'agent:%s\\n' \"$*\"\n")
+    fake_codex.chmod(0o755)
+    command = (
+        "source \"$HOME/.local/bin/termyes-agent-yolo-shell\"; "
+        "codex hello"
+    )
+    result = subprocess.run(
+        ["/bin/zsh", "-c", command],
+        capture_output=True,
+        text=True,
+        env={
+            **ENV,
+            "HOME": str(home),
+            "PATH": str(home) + ":" + ENV["PATH"],
+            "TERMYES_MANAGE_PY": str(fake_manage),
+            "TERMYES_SKIP_STARTUP_RECONCILE": "1",
+        },
+        timeout=5,
+    )
+    check(result.returncode == 0, "terminal loader launches command")
+    check(result.stdout.strip() == "agent:hello", "terminal loader preserves arguments")
+    check(manage_log.read_text().strip() == "enable-yolo codex",
+          "terminal loader repairs YOLO before launch")
+    check(core.classify("rm -rf /", str(ROOT), bypass=True)[0] == "block",
+          "TermYes guard still blocks danger under YOLO")
 
 print(f"Agent guard checks passed: {checks}; 13 adapters; real client/YOLO validation NOT performed.")

@@ -1,3 +1,57 @@
+# TermYes v1.6.5
+
+## 简体中文
+
+本版新增 Agent 权限模式的自动检测、修复和启动前加载。
+
+### 本次更新
+
+- TermYes 启动时自动检测本机已安装的 Agent，并在菜单中显示权限模式与修复状态。
+- Codex、Claude Code、CodeBuddy、Qoder、zcode 会直接修复为 YOLO 或等效免确认配置；pi 默认无需审批。
+- Gemini、Cursor、agy、OpenCode、Factory droid、Crush、Copilot 使用 `~/.local/bin` 下的幂等启动 wrapper 强制附加免确认参数。
+- 新开的 zsh 终端加载 `termyes-agent-yolo-shell`；每次启动已安装 Agent 前先调用 `enable-yolo <client>`，无需为加载 YOLO 重启客户端。
+- 启动前修复失败会明确提示；TermYes `danger-guard` 仍是独立的失败关闭安全层，危险命令即使在 YOLO/`bypassPermissions` 下也硬拒绝。
+- 安装守卫前先协调权限模式，恢复守卫时不会把 YOLO 配置一起回退。
+- 菜单新增“自动检测并修复 YOLO”，并展示每个客户端的检测结果、权限模式和守卫安装状态。
+
+### 下载与升级
+
+- **新安装：** `TermYes-v1.6.5-macOS.dmg`。
+- **旧版自动更新：** `Termosaic-v1.6.5-macOS.dmg`，为兼容包，不是另一个产品版本。
+- 两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 `.sha256` 文件。
+
+### 重要限制
+
+本次修改的是 Agent 权限模式和启动参数，不等于已完成十三类客户端 Hook 的真实端到端验证。Hook 未加载、未信任、被宿主超时或客户端自身绕过仍可能使守卫失效；守卫不是沙箱，也不覆盖全部危险语义、独立文件编辑或 MCP 工具。
+
+窗口管理无需 Python；可选守卫需要可用的 `/usr/bin/python3`。社区构建为 ad-hoc 签名，尚未 Apple 公证。
+
+## English
+
+This release adds automatic detection, repair, and pre-launch loading of Agent YOLO-equivalent permission modes.
+
+### What's new
+
+- TermYes scans installed agents at startup and shows each client's permission mode and repair state in the menu.
+- Codex, Claude Code, CodeBuddy, Qoder, and zcode are repaired directly to YOLO or equivalent no-confirmation settings; pi requires no approval configuration.
+- Gemini, Cursor, agy, OpenCode, Factory droid, Crush, and Copilot use idempotent launchers under `~/.local/bin` that add their no-confirmation flags.
+- New zsh terminals load `termyes-agent-yolo-shell`. Each installed agent runs `enable-yolo <client>` before its real command, so YOLO can load without restarting the client.
+- Repair failures are reported explicitly. The TermYes `danger-guard` remains an independent fail-closed safety layer and hard-denies dangerous commands even under YOLO or `bypassPermissions`.
+- Guard installation reconciles permissions first, and restoring a guard no longer rolls back YOLO configuration.
+- Adds a **Detect and repair YOLO** menu action with per-client detection, permission, and guard-install status.
+
+### Downloads and migration
+
+- **New installs:** `TermYes-v1.6.5-macOS.dmg`.
+- **Older automatic updaters:** `Termosaic-v1.6.5-macOS.dmg`, a compatibility image of the same application.
+- Both support macOS 13+ on Apple Silicon and Intel, with matching `.sha256` files.
+
+### Important limitations
+
+This change covers permission modes and launch parameters, not real-client end-to-end certification of all thirteen hook adapters. Missing or untrusted hooks, host timeouts, or client-specific bypasses can still prevent interception. The guard is not a sandbox and does not cover every dangerous operation, independent file editing, or MCP calls.
+
+Window management does not require Python; optional guards require a working `/usr/bin/python3`. Community builds are ad-hoc signed and not Apple-notarized.
+
 # TermYes v1.6.4
 
 ## 简体中文
