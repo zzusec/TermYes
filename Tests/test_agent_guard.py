@@ -185,6 +185,10 @@ with tempfile.TemporaryDirectory(prefix="termosaic-merge-") as tmp:
     home = Path(tmp).resolve()
     root, config, runtime, adapter = manage.locations(home, "claude")
     root.mkdir()
+    claude_cli = home / ".local/bin/claude"
+    claude_cli.parent.mkdir(parents=True)
+    claude_cli.write_text("#!/bin/sh\nexit 0\n")
+    claude_cli.chmod(0o755)
     other = {"type": "command", "command": "echo my-own-audit"}
     config.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
         {"type": "command", "command": "/usr/bin/python3 " + str(root / "hooks" / adapter)}, other]}]}}))
@@ -222,6 +226,10 @@ with tempfile.TemporaryDirectory(prefix="termosaic-merge-") as tmp:
 # A mid-transaction write failure restores every already-written file.
 with tempfile.TemporaryDirectory(prefix="termosaic-rollback-") as tmp:
     home = Path(tmp).resolve()
+    claude_cli = home / ".local/bin/claude"
+    claude_cli.parent.mkdir(parents=True)
+    claude_cli.write_text("#!/bin/sh\nexit 0\n")
+    claude_cli.chmod(0o755)
     real_write = manage.atomic_write
     calls = 0
     def fail_once(path, content, mode=0o600):
