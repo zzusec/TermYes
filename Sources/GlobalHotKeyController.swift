@@ -10,8 +10,8 @@ private let termosaicHotKeyEventHandler: EventHandlerUPP = { _, _, _ in
 }
 
 enum GlobalShortcut: String, CaseIterable, Identifiable {
-    case commandP
     case commandO
+    case commandP
     case commandOptionO
     case commandShiftO
     case controlOptionCommandO
@@ -56,7 +56,7 @@ enum GlobalShortcut: String, CaseIterable, Identifiable {
     static var saved: GlobalShortcut {
         guard let raw = UserDefaults.standard.string(forKey: "globalShortcut"),
               let shortcut = GlobalShortcut(rawValue: raw) else {
-            return .commandP
+            return .commandO
         }
         return shortcut
     }

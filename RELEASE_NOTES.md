@@ -1,3 +1,13 @@
+# TermYes v1.6.20
+
+## 简体中文
+
+- 恢复全局“显示并排列”快捷键默认值为 `⌘O`；已保存的自定义快捷键保持不变。
+
+## English
+
+- Restore `⌘O` as the default global show-and-arrange shortcut; keep saved custom shortcuts unchanged.
+
 # TermYes v1.6.19
 
 ## 简体中文

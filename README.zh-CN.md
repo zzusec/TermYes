@@ -23,7 +23,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 - **独立的 Ctrl-C 窗口审核。** 可以为严格识别的终端 Ctrl-C 确认框单独配置模型；不会影响 Shell 命令的放行。
 - **窗口级 Ctrl-C 审批。** 这是与 Agent 免确认不同的可选功能。开启它但尚未授权时，菜单才显示「Ctrl-C 辅助功能权限」；获得权限后只会在明确匹配的终端输入确认框中选择 Ctrl-C，回车、文本、密码和权限弹窗仍保持人工处理。
 - **减少桌面干扰。** 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。
-- **快捷键呼出。** 可配置全局快捷键，默认 `⌘P`；若要保留其他应用的“打印”命令，请修改它。
+- **快捷键呼出。** 可配置全局快捷键，默认 `⌘O`；若要保留其他应用的“打开”命令，请修改它。
 - **统一管理 Agent 安全。** TermYes 启动时及此后每 5 分钟检查已检测到的 Agent，维护 YOLO/等效权限模式并安装、更新危险 Shell 命令守卫；被外部修改的守卫不会自动覆盖。
 - **菜单栏可见状态。** 菜单栏仅显示状态图标；展开「自动审批」可查看已检测 Agent 的免确认勾/叉状态，点击待修复项单独修复，或一键修复所有未就绪项。单独修复会显示结果；诊断详情可复制。守卫文件就绪不等于客户端 Hook 已加载。
 - **启动前双重检查。** 新开的 zsh 终端会在启动 Agent 前检查守卫配置与 YOLO；检查失败会拒绝启动。守卫文件就绪不等于客户端实际加载并信任 Hook。
@@ -33,7 +33,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.19 构建产物位于 `dist/TermYes-v1.6.19-macOS.dmg`。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.20 构建产物位于 `dist/TermYes-v1.6.20-macOS.dmg`。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -48,7 +48,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- v1.6.19 另有 **`Termosaic-v1.6.19-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
+- v1.6.20 另有 **`Termosaic-v1.6.20-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 
@@ -56,7 +56,7 @@ GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重�
 
 | 菜单操作 | 快捷键 |
 | --- | --- |
-| 全局呼出并重新平铺 | 默认 `⌘P`，可修改 |
+| 全局呼出并重新平铺 | 默认 `⌘O`，可修改 |
 
 切换到其他应用时会隐藏画布；隐藏窗口不会停止窗口内的进程。TermYes **只管理 Apple 系统 Terminal.app**，不管理 iTerm2 或其他终端模拟器。
 

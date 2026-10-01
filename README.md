@@ -24,7 +24,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 - **Separate Ctrl-C window review.** An optional configured model can review the narrowly recognized Ctrl-C terminal-input prompt; it does not control Shell commands.
 - **Window-level Ctrl-C approval.** With Accessibility permission, TermYes can auto-confirm only a verified terminal-input prompt whose requested input is exactly Ctrl-C; Enter, text, passwords, and permission prompts remain manual.
 - **Less desktop clutter.** Show or hide the canvas together, including minimized windows, while processes keep running. No Dock icon, embedded shell, or permanent control window; other applications' windows are not rearranged.
-- **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘P`; change it if you need to preserve another application's Print command.
+- **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘O`; change it if you need to preserve another application's Open command.
 - **One place for Agent safety.** Detect and repair YOLO-equivalent modes when TermYes starts, install/update guards from the menu, and keep dangerous shell commands blocked even when the client itself will not ask.
 - **YOLO loaded before each launch.** New zsh terminals install a lightweight agent launcher that repairs the selected client's YOLO mode before starting it; failures are reported without silently falling back.
 - **In-app updates.** Check the public GitHub Release redirect without using the anonymous API quota, then download versioned images, verify checksums and application signatures, and replace and relaunch with a backup for recovery.
@@ -33,7 +33,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The local v1.6.19 build is at `dist/TermYes-v1.6.19-macOS.dmg`.
+1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The local v1.6.20 build is at `dist/TermYes-v1.6.20-macOS.dmg`.
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -48,7 +48,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- v1.6.19 includes a **`Termosaic-v1.6.19-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
+- v1.6.20 includes a **`Termosaic-v1.6.20-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -56,7 +56,7 @@ The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redi
 
 | Menu action | Shortcut |
 | --- | --- |
-| Show and re-tile globally | `⌘P` by default; configurable |
+| Show and re-tile globally | `⌘O` by default; configurable |
 
 Switching to another application hides the canvas. Hiding windows does not stop the processes inside them. TermYes manages **Apple's Terminal.app only**, not iTerm2 or other terminal emulators.
 
