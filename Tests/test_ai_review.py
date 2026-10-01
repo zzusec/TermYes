@@ -40,6 +40,17 @@ def completion(decision, confidence="high", reason="test"):
     return {"choices": [{"message": {"content": content}}]}
 
 
+def responses(decision, confidence="high", reason="test"):
+    content = json.dumps({
+        "decision": decision,
+        "confidence": confidence,
+        "reason": reason,
+    })
+    return {"output": [{"type": "message", "content": [
+        {"type": "output_text", "text": content},
+    ]}]}
+
+
 class AIReviewTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="termosaic-ai-review-")
@@ -78,6 +89,115 @@ class AIReviewTests(unittest.TestCase):
 
     def review(self, command="git status"):
         return ai_review.review(command, str(ROOT), "test request")
+
+    def codex_config(self):
+        home = self.root / "codex-home"
+        home.mkdir(exist_ok=True)
+        (home / "config.toml").write_text(
+            'model = "synthetic-codex-model"\n'
+            'model_provider = "synthetic"\n'
+            '[model_providers.synthetic]\n'
+            'base_url = "http://127.0.0.1:15722/v1"\n'
+            'wire_api = "responses"\n',
+            encoding="utf-8",
+        )
+        (home / "auth.json").write_text(
+            json.dumps({"OPENAI_API_KEY": "synthetic-review-token-do-not-use"}),
+            encoding="utf-8",
+        )
+        environment = mock.patch.dict(os.environ, {"CODEX_HOME": str(home)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        history = mock.patch.object(ai_review, "DEFAULT_HISTORY", self.root / "auto-history.jsonl")
+        history.start()
+        self.addCleanup(history.stop)
+        return home
+
+    def test_unconfigured_reviewer_follows_codex_responses(self):
+        self.codex_config()
+        self.config.unlink()
+        with mock.patch.object(
+            ai_review.urllib.request, "urlopen", return_value=FakeResponse(responses("allow")),
+        ) as request:
+            decision = self.review()
+            repeated = self.review()
+
+        self.assertEqual(decision["behavior"], "allow")
+        self.assertEqual(repeated["behavior"], "allow")
+        self.assertEqual(request.call_count, 2)
+        sent = request.call_args.args[0]
+        body = json.loads(sent.data.decode("utf-8"))
+        self.assertEqual(sent.full_url, "http://127.0.0.1:15722/v1/responses")
+        self.assertEqual(sent.get_method(), "POST")
+        self.assertEqual(body["model"], "synthetic-codex-model")
+        self.assertEqual(json.loads(body["input"])["command"], "git status")
+        self.assertFalse(body["store"])
+        self.assertNotIn("messages", body)
+        self.assertEqual(sent.get_header("Authorization"), "Bearer synthetic-review-token-do-not-use")
+        self.assertNotIn("synthetic-review-token-do-not-use", sent.data.decode("utf-8"))
+
+    def test_empty_manual_models_fall_back_to_codex(self):
+        self.codex_config()
+        self.config.write_text(json.dumps({"enabled": True, "models": []}))
+        with mock.patch.object(
+            ai_review.urllib.request, "urlopen", return_value=FakeResponse(responses("allow")),
+        ) as request:
+            decision = self.review()
+        self.assertEqual(decision["behavior"], "allow")
+        self.assertEqual(json.loads(request.call_args.args[0].data)["model"], "synthetic-codex-model")
+
+    def test_auto_reviewer_denial_and_secrets_stay_out_of_records(self):
+        self.codex_config()
+        self.config.unlink()
+        with mock.patch.object(
+            ai_review.urllib.request, "urlopen", return_value=FakeResponse(responses("deny", reason="risky")),
+        ):
+            decision = self.review()
+        self.assertEqual(decision["behavior"], "deny")
+        records = (self.root / "auto-history.jsonl").read_text() + (self.root / "ai-review.log").read_text()
+        self.assertNotIn("synthetic-review-token-do-not-use", json.dumps(decision) + records)
+
+    def test_auto_reviewer_error_does_not_expose_bearer_token(self):
+        self.codex_config()
+        self.config.unlink()
+        with mock.patch.object(
+            ai_review.urllib.request, "urlopen",
+            side_effect=urllib.error.URLError("transport: synthetic-review-token-do-not-use"),
+        ):
+            decision = self.review()
+        self.assertEqual(decision["behavior"], "deny")
+        records = (self.root / "auto-history.jsonl").read_text() + (self.root / "ai-review.log").read_text()
+        self.assertNotIn("synthetic-review-token-do-not-use", json.dumps(decision) + records)
+
+    def test_auto_reviewer_offline_or_invalid_response_fails_closed(self):
+        self.codex_config()
+        self.config.unlink()
+        cases = (
+            ("offline", urllib.error.URLError("offline")),
+            ("missing output", FakeResponse({"output": []})),
+            ("low confidence", FakeResponse(responses("allow", confidence="medium"))),
+        )
+        for name, response in cases:
+            with self.subTest(case=name):
+                with mock.patch.object(
+                    ai_review.urllib.request, "urlopen",
+                    side_effect=response if isinstance(response, Exception) else None,
+                    return_value=None if isinstance(response, Exception) else response,
+                ) as request:
+                    decision = self.review()
+                self.assertEqual(decision["behavior"], "deny")
+                request.assert_called_once()
+
+    def test_missing_codex_model_fails_closed_without_request(self):
+        home = self.root / "no-codex-model"
+        home.mkdir()
+        self.config.unlink()
+        with mock.patch.dict(os.environ, {"CODEX_HOME": str(home)}), mock.patch.object(
+            ai_review.urllib.request, "urlopen",
+        ) as request:
+            decision = self.review()
+        self.assertEqual(decision["behavior"], "deny")
+        request.assert_not_called()
 
     def test_high_confidence_allow(self):
         with mock.patch.object(ai_review.urllib.request, "urlopen", return_value=FakeResponse(completion("allow"))):

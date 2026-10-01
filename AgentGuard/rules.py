@@ -3,6 +3,9 @@
 Both BLOCK and WARN become deny. This is not a sandbox or a complete threat model.
 Native-client permission settings and old prefix rules are intentionally untouched.
 """
+import json
+from pathlib import Path
+import re
 
 # 系统关键目录(chmod/chown 等仅当作用于这些目录时才视为危险)
 SYS = r"(?:/(?:etc|usr|bin|sbin|var|lib|lib64|boot|opt|root|System|Library|Applications)\b|\s/\s|\s/$|\s/\*)"
@@ -53,3 +56,49 @@ TEMP_ROOTS = ("/tmp", "/private/tmp")
 RM_BLOCK_REASON = "rm 递归删除根目录/家目录/整个用户目录/一级系统目录"
 RM_WARN_REASON = "rm -rf 删除整个项目/系统路径或目标不明"
 RM_SAFE_REASON = "rm -rf 目标为普通目录，未命中删除保护规则"
+
+BUILTIN_VERSION = 1
+MAX_POLICY_BYTES = 32768
+
+
+def policy_path(home=None):
+    return (home or Path.home()) / "Library/Application Support/Termosaic/AgentGuard/danger-policy.json"
+
+
+def validate_policy(data):
+    if len(data) > MAX_POLICY_BYTES:
+        raise ValueError("危险清单超过大小上限")
+    value = json.loads(data)
+    if not isinstance(value, dict) or set(value) != {"version", "block", "warn"}:
+        raise ValueError("危险清单结构无效")
+    version = value["version"]
+    if type(version) is not int or not 1 <= version <= 2147483647:
+        raise ValueError("危险清单版本无效")
+    for group in ("block", "warn"):
+        entries = value[group]
+        if not isinstance(entries, list) or len(entries) > 128:
+            raise ValueError("危险清单条目数无效")
+        for entry in entries:
+            if (not isinstance(entry, list) or len(entry) != 2
+                    or any(not isinstance(text, str) or not 1 <= len(text) <= 512 for text in entry)):
+                raise ValueError("危险清单条目无效")
+            re.compile(entry[0])
+    if not value["block"] and not value["warn"]:
+        raise ValueError("危险清单不能清空")
+    return value
+
+
+def active_policy(home=None):
+    path = policy_path(home)
+    if not path.exists() and not path.is_symlink():
+        return {"version": BUILTIN_VERSION, "block": BLOCK, "warn": WARN}, None
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("危险清单路径不是普通文件")
+        with path.open("rb") as file:
+            value = validate_policy(file.read(MAX_POLICY_BYTES + 1))
+        if value["version"] <= BUILTIN_VERSION:
+            return {"version": BUILTIN_VERSION, "block": BLOCK, "warn": WARN}, None
+        return value, None
+    except (OSError, ValueError, re.error) as error:
+        return {"version": BUILTIN_VERSION, "block": BLOCK, "warn": WARN}, str(error)

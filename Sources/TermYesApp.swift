@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalManager.shared.start()
         AutoContinueController.shared.start()
         WindowApprovalController.shared.start()
-        AgentGuardController.shared.reconcile()
+        AgentGuardController.shared.start()
         UpdateController.shared.start()
     }
 
@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AgentGuardController.shared.stop()
         if !UpdateController.shared.isInstallingUpdate {
             TerminalManager.shared.prepareForTermination()
         }
@@ -47,23 +48,6 @@ struct TermYesApp: App {
     @StateObject private var agentGuard = AgentGuardController.shared
     @StateObject private var aiReview = AIReviewController.shared
     @StateObject private var windowApproval = WindowApprovalController.shared
-
-    private var statusText: String {
-        switch manager.phase {
-        case .starting:
-            return "正在连接 Terminal…"
-        case .needsAutomationPermission:
-            return "需要允许控制 Terminal"
-        case .hidden:
-            return "终端已隐藏 · \(manager.terminalWindowCount) 个窗口"
-        case .visible:
-            return "终端已显示 · \(manager.terminalWindowCount) 个窗口"
-        case .terminalNotRunning:
-            return "Terminal 尚未运行"
-        case .error(let message):
-            return message
-        }
-    }
 
     private var updateVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -87,66 +71,60 @@ struct TermYesApp: App {
         return updater.statusMessage
     }
 
-    private var menuBarSymbol: String {
-        switch manager.phase {
-        case .visible:
-            return "rectangle.grid.2x2.fill"
-        case .needsAutomationPermission, .error:
-            return "exclamationmark.triangle.fill"
-        case .hidden, .terminalNotRunning, .starting:
-            return "rectangle.grid.2x2"
-        }
+    private var detectedAgents: [AgentGuardClient] {
+        agentGuard.clients.filter(\.detected)
+    }
+
+    private func isAgentReady(_ client: AgentGuardClient) -> Bool {
+        client.permissionReady && client.guardReady && client.serviceError == nil
+    }
+
+    private var readyAgentCount: Int {
+        detectedAgents.filter(isAgentReady).count
+    }
+
+    private var orderedDetectedAgents: [AgentGuardClient] {
+        detectedAgents.filter { !isAgentReady($0) } + detectedAgents.filter(isAgentReady)
+    }
+
+    private var agentSafetyText: String {
+        guard !detectedAgents.isEmpty else { return "检测中…" }
+        return "已开启 \(detectedAgents.filter(\.permissionReady).count)/\(detectedAgents.count)"
+    }
+
+    private var agentMenuStatus: String {
+        if agentGuard.isWorking { return "正在检查…" }
+        let message = agentGuard.message
+        return message.count > 24 ? String(message.prefix(24)) + "…" : message
     }
 
     @ViewBuilder
     private var aiApprovalMenuContent: some View {
-        Toggle(
-            "启用 AI 审批",
-            isOn: Binding(
-                get: { aiReview.isEnabled && aiReview.selectedModel != nil },
-                set: { enabled in
-                    if enabled && aiReview.models.isEmpty {
-                        AIReviewModelPicker.shared.show()
-                    } else {
-                        aiReview.setEnabled(enabled && aiReview.selectedModel != nil)
-                    }
-                }
-            )
-        )
+        Toggle("启用 Ctrl-C 模型审核", isOn: Binding(
+            get: { aiReview.isEnabled && aiReview.selectedModel != nil },
+            set: { aiReview.setEnabled($0 && aiReview.selectedModel != nil) }
+        ))
         .disabled(aiReview.models.isEmpty)
 
-        Menu("审批模型：\(aiReview.selectedModel?.name ?? "未配置")") {
-            ForEach(aiReview.models) { model in
-                Toggle(
-                    model.name,
-                    isOn: Binding(
-                        get: { aiReview.selectedModelID == model.id },
-                        set: { selected in
-                            if selected { aiReview.select(model.id) }
-                        }
-                    )
+        Divider()
+        Text("审核模型")
+        ForEach(aiReview.models) { model in
+            Toggle(
+                model.name,
+                isOn: Binding(
+                    get: { aiReview.selectedModelID == model.id },
+                    set: { selected in
+                        if selected { aiReview.select(model.id) }
+                    }
                 )
-            }
-            Divider()
-            Button("添加或管理模型…") {
-                AIReviewModelPicker.shared.show()
-            }
+            )
         }
-
-        Toggle(
-            "自动学习已放行命令",
-            isOn: Binding(
-                get: { aiReview.learningEnabled },
-                set: { aiReview.setLearningEnabled($0) }
-            )
-        )
-        Toggle(
-            "同步记忆到 iCloud",
-            isOn: Binding(
-                get: { aiReview.syncEnabled },
-                set: { aiReview.setSyncEnabled($0) }
-            )
-        )
+        Button("添加或管理模型…") {
+            AIReviewModelPicker.shared.show()
+        }
+        if aiReview.models.isEmpty {
+            Text("窗口审核需配置模型")
+        }
         Toggle(
             "自动确认 Ctrl-C 窗口输入",
             isOn: Binding(
@@ -154,149 +132,96 @@ struct TermYesApp: App {
                 set: { windowApproval.setEnabled($0) }
             )
         )
-        if !windowApproval.isAccessibilityTrusted {
-            Button("打开辅助功能设置…") {
+        if windowApproval.isEnabled && !windowApproval.isAccessibilityTrusted {
+            Button("Ctrl-C 辅助功能权限…") {
                 windowApproval.requestAccessibility()
                 windowApproval.openAccessibilitySettings()
             }
         }
         Text(windowApproval.statusMessage)
-        Text("已学习 \(aiReview.learnedCommandCount) 条命令、\(aiReview.learnedPatternCount) 个模式")
         if let error = aiReview.errorMessage {
-            Text(error)
-        }
-    }
-
-    @ViewBuilder
-    private var autoContinueMenuContent: some View {
-        Toggle(
-            "自动发送“继续”",
-            isOn: Binding(
-                get: { autoContinue.isEnabled },
-                set: { autoContinue.setEnabled($0) }
-            )
-        )
-
-        Menu("间隔：\(autoContinue.interval.displayName)") {
-            ForEach(AutoContinueInterval.allCases) { interval in
-                Toggle(
-                    interval.displayName,
-                    isOn: Binding(
-                        get: { autoContinue.interval == interval },
-                        set: { selected in
-                            if selected { autoContinue.setInterval(interval) }
-                        }
-                    )
-                )
+            Text("模型审核异常")
+            Button("复制审核错误") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(error, forType: .string)
             }
         }
-        .disabled(!autoContinue.isEnabled)
-
-        Menu("范围：\(autoContinue.target.displayName)") {
-            ForEach(AutoContinueTarget.allCases) { target in
-                Toggle(
-                    target.displayName,
-                    isOn: Binding(
-                        get: { autoContinue.target == target },
-                        set: { selected in
-                            if selected { autoContinue.setTarget(target) }
-                        }
-                    )
-                )
-            }
-        }
-        .disabled(!autoContinue.isEnabled)
-
-        Button("激活 5h 窗口：\(autoContinue.windowScheduleDescription)") {
-            WindowSchedulePicker.shared.show()
-        }
-        .disabled(!autoContinue.isEnabled)
-
-        if let nextAttempt = autoContinue.nextAttemptDescription {
-            Text("下次：\(nextAttempt)")
-        }
-        if let statusMessage = autoContinue.lastStatusMessage {
-            Text(statusMessage)
-        } else if let sentCount = autoContinue.lastSentCount {
-            Text("上次已发送到 \(sentCount) 个会话")
-        }
-    }
-
-    @ViewBuilder
-    private var agentGuardMenuContent: some View {
-        Button(agentGuard.isWorking ? "正在处理…" : "自动检测并修复 YOLO") {
-            agentGuard.reconcile()
-        }
-        .disabled(agentGuard.isWorking)
-        Button("刷新检测结果") {
-            agentGuard.refresh()
-        }
-        .disabled(agentGuard.isWorking)
-
-        ForEach(agentGuard.clients) { client in
-            Menu(client.name) {
-                Text(
-                    client.detected
-                        ? (client.permissionReady
-                            ? "YOLO：\(client.permissionMode)"
-                            : "未就绪：\(client.permissionMode)")
-                        : "未检测到"
-                )
-                Text(client.permissionReason)
-                Text(client.installed ? "TermYes 守卫已安装" : "TermYes 守卫未安装")
-                Button("安装 / 更新守卫") { agentGuard.install(client) }
-                    .disabled(agentGuard.isWorking)
-                Button("恢复安装前状态") { agentGuard.uninstall(client) }
-                    .disabled(agentGuard.isWorking || !client.installed)
-            }
-        }
-
-        Divider()
-        Text(agentGuard.message)
-        Button("复制操作详情") { agentGuard.copyDetails() }
     }
 
     @ViewBuilder
     private var settingsMenuContent: some View {
-        Menu("全局快捷键：\(hotKeys.selectedShortcut.displayName)") {
-            ForEach(GlobalShortcut.allCases) { shortcut in
-                Toggle(
-                    shortcut.menuTitle,
-                    isOn: Binding(
-                        get: { hotKeys.selectedShortcut == shortcut },
-                        set: { selected in
-                            if selected { hotKeys.setShortcut(shortcut) }
-                        }
-                    )
+        Text("快捷键")
+        ForEach(GlobalShortcut.allCases) { shortcut in
+            Toggle(
+                shortcut.menuTitle,
+                isOn: Binding(
+                    get: { hotKeys.selectedShortcut == shortcut },
+                    set: { selected in
+                        if selected { hotKeys.setShortcut(shortcut) }
+                    }
                 )
-            }
+            )
         }
 
         if hotKeys.selectedShortcut == .commandO {
-            Text("⌘O 会覆盖其他应用的“打开”快捷键")
+            Text("⌘O 占用“打开”快捷键")
         }
         if let error = hotKeys.registrationError {
-            Text(error)
+            Text("快捷键设置失败")
+            Button("复制快捷键错误") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(error, forType: .string)
+            }
         }
 
-        Divider()
-        Text(updateVersionText)
-        Button(updater.isChecking ? "正在检查…" : "检查更新") {
-            updater.checkForUpdates()
-        }
-        .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
-        if let detail = updateDetailText {
-            Text(detail)
-        }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            Text(statusText)
+            if case .error(let error) = manager.phase {
+                Text("终端连接异常")
+                Button("复制终端错误") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(error, forType: .string)
+                }
+            }
+            Menu("自动审批") {
+                Text(agentSafetyText)
+                Button(agentGuard.isWorking ? "正在修复…" : "修复未就绪（\(detectedAgents.count - readyAgentCount)）") {
+                    agentGuard.repairUnready()
+                }
+                .disabled(agentGuard.isWorking || readyAgentCount == detectedAgents.count)
+                Button("刷新状态") { agentGuard.refresh() }
+                    .disabled(agentGuard.isWorking)
+                Divider()
+                ForEach(orderedDetectedAgents) { client in
+                    if isAgentReady(client) {
+                        Label(client.name, systemImage: "checkmark.square.fill")
+                    } else {
+                        Button {
+                            agentGuard.repair(client)
+                        } label: {
+                            Label("\(client.name)\(client.permissionReady ? " · 待修复" : "")",
+                                  systemImage: client.permissionReady ? "checkmark.square.fill" : "xmark.square")
+                        }
+                        .disabled(agentGuard.isWorking)
+                    }
+                }
+                Divider()
+                Text("危险清单 v\(agentGuard.clients.first?.policyVersion ?? 0)\(agentGuard.clients.first?.policyError == true ? " · 检查失败" : "")")
+                Button("检查危险清单") { agentGuard.checkPolicy() }
+                    .disabled(agentGuard.isWorking)
+                if agentGuard.clients.first?.policyError == true {
+                    Button("复制清单错误") { agentGuard.copyPolicyStatus() }
+                }
+                Divider()
+                Text(agentMenuStatus)
+                Button("复制诊断详情") { agentGuard.copyDetails() }
+            }
             Divider()
 
             Toggle(
-                "显示终端画布",
+                "显示终端",
                 isOn: Binding(
                     get: { manager.phase == .visible },
                     set: { $0 ? manager.showDashboard() : manager.hideDashboard() }
@@ -304,17 +229,20 @@ struct TermYesApp: App {
             )
             .keyboardShortcut("1", modifiers: [.command, .option])
 
-            Button("重新排列到鼠标所在显示器") {
+            Button("在鼠标屏幕重排") {
                 manager.useDisplayUnderPointerAndRetile()
             }
             .keyboardShortcut("2", modifiers: [.command, .option])
             .disabled(!manager.automationAuthorized)
 
-            Button("发送一次“继续”") {
+            Button("发送“继续”") {
                 autoContinue.sendNow()
             }
             .keyboardShortcut("3", modifiers: [.command, .option])
             .disabled(!manager.automationAuthorized)
+            if let status = autoContinue.lastStatusMessage {
+                Text(status)
+            }
 
             if !manager.automationAuthorized {
                 Button("打开自动化设置…") {
@@ -323,15 +251,22 @@ struct TermYesApp: App {
             }
 
             Divider()
-            Menu("AI 审批：\(aiReview.selectedModel?.name ?? "未配置")") {
+            Menu("AI自动审核") {
+                Text(aiReview.isEnabled ? "已开启" : "未开启")
                 aiApprovalMenuContent
             }
-            Menu("自动化") {
-                Menu("自动“继续”") {
-                    autoContinueMenuContent
+            Menu("定时激活5h窗口") {
+                Button("设置时间：\(autoContinue.windowScheduleDescription)") {
+                    WindowSchedulePicker.shared.show()
                 }
-                Menu("Agent 命令守卫") {
-                    agentGuardMenuContent
+                if let status = autoContinue.lastActivationStatus {
+                    Text(status)
+                }
+                if let detail = autoContinue.lastActivationDetail {
+                    Button("复制请求错误") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(detail, forType: .string)
+                    }
                 }
             }
             Menu("设置") {
@@ -339,11 +274,26 @@ struct TermYesApp: App {
             }
 
             Divider()
+            Text(updateVersionText)
+            Button(updater.isChecking ? "正在检查…" : "检查更新") {
+                updater.checkForUpdates()
+            }
+            .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
+            if let detail = updateDetailText {
+                Text(detail.contains("失败") || detail.contains("无法") ? "更新检查异常" : detail)
+                if detail.contains("失败") || detail.contains("无法") {
+                    Button("复制更新错误") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(detail, forType: .string)
+                    }
+                }
+            }
+            Divider()
             Button("退出 TermYes") {
                 NSApplication.shared.terminate(nil)
             }
         } label: {
-            Label("TermYes", systemImage: menuBarSymbol)
+            Image(systemName: "rectangle.grid.2x2")
         }
         .menuBarExtraStyle(.menu)
     }

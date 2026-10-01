@@ -92,6 +92,7 @@ def _atomic_write(path, content, mode=0o600):
 def _search_dirs(home):
     values = [
         home / ".local/bin",
+        home / ".local/share/Termosaic/vendor/bin",
         home / ".opencode/bin",
         home / ".qoder/entry",
         home / ".pi/agent/bin",
@@ -113,7 +114,8 @@ def _is_managed_wrapper(path):
     if path.is_symlink():
         return Path(os.readlink(path)).name == WRAPPER_NAME
     try:
-        return MANAGED_MARKER in path.read_text(encoding="utf-8", errors="ignore")
+        with path.open("rb") as handle:
+            return MANAGED_MARKER.encode() in handle.read(256)
     except OSError:
         return False
 
@@ -252,10 +254,17 @@ case "$command_name" in
     ;;
 esac
 
-for dir in ${{(s/:/)PATH}}; do
+for dir in "$HOME/.local/share/Termosaic/vendor/bin" ${{(s/:/)PATH}}; do
   [[ "$dir" == "$HOME/.local/bin" ]] && continue
   candidate="$dir/$command_name"
   if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+    manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
+    client="$command_name"
+    [[ "$client" == "cursor-agent" ]] && client="cursor"
+    if [[ ! -r "$manage_path" ]] || ! /usr/bin/python3 -B "$manage_path" ensure "$client" >/dev/null; then
+      print -u2 "[TermYes] $command_name 的命令守卫或 YOLO 未就绪，已阻止启动。"
+      exit 1
+    fi
     export DANGER_GUARD_BYPASS=1
     exec "$candidate" "${{flags[@]}}" "$@"
   fi
@@ -270,18 +279,16 @@ def _shell_wrapper_content():
     return """{marker}
 _termyes_manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
 
-if [[ -r "$_termyes_manage_path" && "${{TERMYES_SKIP_STARTUP_RECONCILE:-0}}" != "1" ]]; then
-  /usr/bin/python3 -B "$_termyes_manage_path" reconcile >/dev/null 2>&1 &!
-fi
-
 _termyes_agent_yolo() {{
   emulate -L zsh
   local client="$1"
   shift
   if [[ ! -r "$_termyes_manage_path" ]]; then
     print -u2 "[TermYes] 缺少权限协调器：$_termyes_manage_path"
-  elif ! /usr/bin/python3 -B "$_termyes_manage_path" enable-yolo "$client" >/dev/null 2>&1; then
-    print -u2 "[TermYes] 无法自动启用 $client 的 YOLO 模式；请打开 TermYes 修复后重新启动该 Agent。"
+    return 1
+  elif ! /usr/bin/python3 -B "$_termyes_manage_path" ensure "$client" >/dev/null; then
+    print -u2 "[TermYes] $client 的命令守卫或 YOLO 未就绪，已阻止启动。"
+    return 1
   fi
   command "$@"
 }}
@@ -324,7 +331,7 @@ def _ensure_wrapper(home, client):
     for name in _wrapper_names(client):
         link = local_bin / name
         if link.exists() and not link.is_symlink():
-            if MANAGED_MARKER in link.read_text(encoding="utf-8", errors="ignore"):
+            if _is_managed_wrapper(link):
                 _atomic_write(link, content, 0o755)
                 continue
             raise ValueError("已有非 TermYes 命令，未覆盖：" + str(link))
@@ -332,6 +339,36 @@ def _ensure_wrapper(home, client):
             raise ValueError("已有其他符号链接，未覆盖：" + str(link))
         if not link.exists():
             link.symlink_to(WRAPPER_NAME)
+
+
+def adopt_local_command(home, client):
+    if client not in WRAPPER_FLAGS or len(_wrapper_names(client)) != 1:
+        return None
+    name = _wrapper_names(client)[0]
+    original = home / ".local/bin" / name
+    destination = home / ".local/share/Termosaic/vendor/bin" / name
+    _checked_path(original.parent)
+    _checked_path(destination)
+    if original.is_symlink():
+        if os.readlink(original) == WRAPPER_NAME:
+            return None
+        raise ValueError("不自动修改符号链接：" + str(original))
+    if not original.is_file() or _is_managed_wrapper(original):
+        return None
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("已有同名命令备份，未移动原文件：" + str(destination))
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    original.rename(destination)
+    return original, destination
+
+
+def restore_adopted_command(migration):
+    original, destination = migration
+    if original.is_symlink() and os.readlink(original) == WRAPPER_NAME:
+        original.unlink()
+    if original.exists() or original.is_symlink():
+        raise ValueError("原命令路径已被其他程序占用，原文件仍保留在：" + str(destination))
+    destination.rename(original)
 
 
 def _ensure_zsh_path(home):

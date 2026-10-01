@@ -19,10 +19,10 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 
 - The main action is one toggle, “显示终端画布”, and its state is the canvas state.
 - “重新排列” uses the display under the pointer; hiding the canvas when another application becomes active is always on, not a setting.
-- The top level stays short: canvas toggle, re-tile, and sending `继续` once stay direct; AI approval is one top-level submenu; auto-continue and Agent command guards live under one Automation submenu; shortcuts and updates live under Settings.
+- The top level stays short: canvas toggle, re-tile, and sending `继续` once stay direct; AI approval is one top-level submenu; scheduled 5h activation has its own clearly named submenu; shortcuts and updates live under Settings.
 - Submenus stay short. Start times are picked in a small floating panel, never as a 24-row clock inside the menu.
 - Automation permission failures explain both the problem and the exact recovery path in System Settings.
-- The menu-bar control is the sole interface and holds every action, auto-continue status, and online-update state.
+- The menu-bar control is the sole interface and holds every action, manual-send feedback, and online-update state.
 
 - Guard controls distinguish installation records from verified protection. Show pending/known-gap states, never a green “protected” claim without real-client evidence; errors stay in the menu with copyable details.
 - AI approval has a dedicated top-level submenu: enable state, current model, model choices, exact-command learning, and a small floating add/manage panel.

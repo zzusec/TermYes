@@ -21,7 +21,7 @@ final class AIReviewModelPicker: NSObject {
             backing: .buffered,
             defer: false
         )
-        panel.title = "AI 审批模型"
+        panel.title = "Ctrl-C 窗口审核模型"
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
@@ -155,7 +155,7 @@ final class AIReviewModelPicker: NSObject {
 
         let controller = AIReviewController.shared
         if controller.models.isEmpty {
-            let empty = NSTextField(labelWithString: "尚未添加审批模型")
+            let empty = NSTextField(labelWithString: "尚未添加窗口审核模型")
             empty.textColor = .secondaryLabelColor
             stack.addArrangedSubview(empty)
             return

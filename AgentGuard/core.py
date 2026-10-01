@@ -566,6 +566,7 @@ def _classify(cmd, cwd=None):
     core = strip_heredocs(cmd)
     scan = build_scan_text(core)
     cwd = cwd or os.getcwd()
+    policy, _ = rules.active_policy()
 
     rm = classify_rm(scan, core, cwd)
     if rm == "warn":
@@ -574,14 +575,14 @@ def _classify(cmd, cwd=None):
     if rm == "block":
         return "block", rules.RM_BLOCK_REASON
 
-    for pattern, reason in rules.BLOCK:
+    for pattern, reason in policy["block"]:
         if re.search(pattern, scan):
             return "block", reason
 
     if rm == "warn":
         return "warn", rules.RM_WARN_REASON
 
-    for pattern, reason in rules.WARN:
+    for pattern, reason in policy["warn"]:
         if re.search(pattern, scan):
             return "warn", reason
 

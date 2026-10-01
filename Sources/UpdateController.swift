@@ -40,7 +40,7 @@ final class UpdateController: NSObject, ObservableObject {
 
     private let repository = "zzusec/TermYes"
     private let bundleIdentifier = "io.github.zzusec.termosaic"
-    private let checkInterval: TimeInterval = 6 * 60 * 60
+    private let checkInterval: TimeInterval = 2 * 60 * 60
     private var timer: Timer?
     private var availableRelease: GitHubRelease?
     private var started = false

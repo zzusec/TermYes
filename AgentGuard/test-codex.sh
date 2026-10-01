@@ -86,24 +86,24 @@ check PreToolUse deny 'dd if=/dev/zero of=/dev/disk2'
 check PreToolUse deny 'bash -c "rm -rf /"'
 check PreToolUse deny ':(){ :|:& };:'
 
-echo "== PermissionRequest:安全交回原生权限 / 危险拒绝 / 毁灭级拒绝 =="
-check PermissionRequest none  'npm install express'
-check PermissionRequest none  'git push origin main'
-check PermissionRequest none  'curl https://api.example.com/data'
-check PermissionRequest none  'rm -rf /tmp/foo'          # 普通目录删除自动点允许
-check PermissionRequest none  'rm -rf node_modules'
+echo "== PermissionRequest:清单外放行 / 危险拒绝 / 毁灭级拒绝 =="
+check PermissionRequest allow 'npm install express'
+check PermissionRequest allow 'git push origin main'
+check PermissionRequest allow 'curl https://api.example.com/data'
+check PermissionRequest allow 'rm -rf /tmp/foo'
+check PermissionRequest allow 'rm -rf node_modules'
 check PermissionRequest deny  'git push --force origin main'
 check PermissionRequest deny  "rm -rf $HOME/testproj"    # 整个项目 → 弹原生确认
 check PermissionRequest deny  'rm -rf /tmp/*'
-check PermissionRequest none  'rm -rf /tmp/data2 && cat > /tmp/seed.mjs <<"EOF"
+check PermissionRequest allow 'rm -rf /tmp/data2 && cat > /tmp/seed.mjs <<"EOF"
 const ip = `10.0.0.${i}`;
 EOF
 node /tmp/seed.mjs'                                      # heredoc 纯数据正文不影响判定
-check PermissionRequest none  'rm -rf /tmp/data2 && cat > /tmp/x.sh <<EOF
+check PermissionRequest allow 'rm -rf /tmp/data2 && cat > /tmp/x.sh <<EOF
 target=`whoami`
 EOF'                                                     # 正文里的命令替换与 rm 目标无关
-check PermissionRequest none  'D=/tmp/foo; rm -rf $D'    # 同命令赋值展开后=普通临时目录
-check PermissionRequest none  'B=$(osascript -e "get bounds"); rm -rf ~/Downloads/x.app && cp -R build/x.app ~/Downloads/'
+check PermissionRequest allow 'D=/tmp/foo; rm -rf $D'
+check PermissionRequest allow 'B=$(osascript -e "get bounds"); rm -rf ~/Downloads/x.app && cp -R build/x.app ~/Downloads/'
 check PermissionRequest deny  'rm -rf $(cat /tmp/target)'   # 目标由命令替换决定 → 看不清
 check PermissionRequest deny  'D=$(pwd); rm -rf $D'         # 变量值来自命令替换 → 不可信
 check PreToolUse       deny  'rm -rf "$(echo x)" ~'         # 混入家目录照样拦死

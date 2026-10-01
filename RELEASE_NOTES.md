@@ -1,3 +1,163 @@
+# TermYes v1.6.18
+
+## 简体中文
+
+- 一级菜单「自动化」更名为「定时激活5h窗口」，内部只显示起始时间设置与最近激活状态；保留手动「发送“继续”」，不恢复自动发送。
+
+## English
+
+- Rename the Automation menu to Scheduled 5h Windows, with start-time settings and latest activation status; manual Continue remains available without a scheduled send.
+
+# TermYes v1.6.17（待发布）
+
+## 简体中文
+
+- 移除自动发送“继续”的定时器、间隔与范围设置；旧版偏好不会再触发终端输入。
+- 保留手动「发送“继续”」（仅匹配 Codex / Claude 会话并跳过待确认提示）与独立的「定时激活5h」。AI 自动审核仍只处理 Ctrl-C 确认。
+
+## English
+
+- Remove scheduled auto-continue and its interval/scope settings; saved settings no longer trigger terminal input.
+- Keep manual Continue for matching Codex/Claude sessions and independent scheduled 5h activation. AI Auto Review still covers Ctrl-C prompts only.
+
+# TermYes v1.6.16（待发布）
+
+## 简体中文
+
+- 「Agent自动审批」简化为「自动审批」；单独修复 Agent 后弹出明确的成功或失败结果。
+- Claude Code 新增的第三方 Hook 不再阻止安全重基；TermYes 自身守卫被改动时仍拒绝覆盖。
+- 定时激活 5h 可选择 Claude、Codex 或两者；自动“继续”的间隔与范围移入紧凑设置窗口。
+
+## English
+
+- Rename Agent Auto Approval to Auto Approval and show a repair result for individual agents.
+- Preserve independently added Claude Code hooks while rejecting edits to the managed guard.
+- Choose Claude, Codex, or both for scheduled five-hour activation; move auto-continue options into a compact settings panel.
+
+# TermYes v1.6.15（待发布）
+
+## 简体中文
+
+- 将菜单「Ctrl-C 审核」更名为「AI自动审核」，「每 5h 请求」更名为「定时激活5h」；菜单内继续标明 AI 审核范围是 Ctrl-C 窗口确认，不改变实际逻辑。
+
+## English
+
+- Rename the Ctrl-C Review menu to AI Auto Review and the five-hour request setting to Scheduled 5h activation; neither changes behavior.
+
+# TermYes v1.6.14（待发布）
+
+## 简体中文
+
+- 修复 agy 已使用 TermYes 免确认 wrapper 时，点击「修复」被自身符号链接误拦截的问题；独立添加的 `orca-status` 配置会保留，守卫本身被改动仍拒绝覆盖。卸载守卫时同样保留独立配置。
+- 未修复原因与目标 Agent 直接显示在菜单中，完整诊断仍可复制；菜单栏图标固定为四宫格，不再因窗口或守卫状态变形。
+- 「Ctrl-C 辅助功能权限」只在开启 Ctrl-C 自动确认但尚未授权时显示；此权限与 Agent 免确认无关。
+
+## English
+
+- Fix agy repair rejecting TermYes's own YOLO wrapper symlink. Preserve independent `orca-status` additions, including on uninstall, while refusing edits to the managed guard.
+- Show targeted repair failures in the menu and keep the menu-bar icon stable. Only show the Ctrl-C Accessibility shortcut when that separate feature is enabled and permission is missing.
+
+# TermYes v1.6.13（待发布）
+
+## 简体中文
+
+- 主菜单「Agent」更名为「Agent自动审批」；各 Agent 在同一层显示免确认开关状态（勾/叉），未就绪时点击该项可单独修复；守卫未就绪但免确认已开启时保持勾号并提示待修复。
+- 审核模型、自动化选项和快捷键选项统一放在各自的二级菜单内，移除所有三级及更深层菜单。
+
+## English
+
+- Rename the Agent menu to Agent Auto Approval and display check/cross icons for each detected client's permission state; clicking an unready client repairs it.
+- Flatten model review, automation, and shortcut choices into their second-level menus; no third-level menus remain.
+
+# TermYes v1.6.12（待发布）
+
+## 简体中文
+
+- 自动化菜单新增独立于自动“继续”的每 5 小时定时请求。按用户指定时间启动缺失的 Claude/Codex Terminal 窗口，并分别发送一句简短问候以触发模型请求，不向可能退回 Shell 的标签页键入文字。守卫未就绪、命令失败或模型无回复时显示失败并可复制详情。
+
+## English
+
+- Add a five-hour scheduled model request independent of Auto Continue. Open missing Claude/Codex Terminal windows and make a short non-interactive request for each agent, reporting guard, CLI, and empty-response failures without typing into a shell.
+
+# TermYes v1.6.11（待发布）
+
+## 简体中文
+
+- 菜单栏仅保留状态图标，不再常驻显示「配置 8/8」；主菜单及 Agent 子菜单缩短文案、收起完整错误信息，诊断信息仍可复制。
+
+## English
+
+- Show only the status icon in the menu bar. Shorten main and Agent menu labels while keeping full error details available through copy actions.
+
+# TermYes v1.6.10（待发布）
+
+## 简体中文
+
+- 菜单栏「一键检查并修复 Agent」可展开查看每个已检测 Agent 的 YOLO/守卫状态；可只修复一个未就绪 Agent，或一次只修复所有未就绪项，不重复安装已就绪项。
+- 显式修复时若免确认启动 wrapper 被原有独立可执行文件占用，先迁移保留原文件再安装 wrapper；修复失败会恢复原命令，外部修改的 Hook 文件仍不会被覆盖。菜单展示具体失败原因。
+
+## English
+
+- Expand the menu-bar Agent action to inspect readiness and repair either one client or only those not ready.
+- Explicit repairs can preserve an existing standalone client executable under the local vendor directory before installing the YOLO wrapper; a failed repair restores the original command and exposes the error.
+
+# TermYes v1.6.9（待发布）
+
+## 简体中文
+
+- GitHub `main` 的 `AgentGuard/danger-policy.json` 独立维护危险命令清单；递增 `version` 后，客户端启动时及每两小时检查并在校验通过后原子更新，Hook 下一次调用生效。失败保留上版规则并在菜单显示。
+- GitHub 正式版应用检查周期缩短为两小时；仅发布更高版本的 Release 时自动下载、验证并更新。旧版应用需先升级才支持规则热更新。
+
+## English
+
+- Independently versioned GitHub danger list, checked at launch and every two hours while the app runs. Valid higher revisions activate atomically for subsequent hooks; errors preserve the last valid policy and appear in the menu.
+- Published application releases are checked every two hours; older clients must upgrade to support data-only rule updates.
+
+# TermYes v1.6.8
+
+## 简体中文
+
+- Codex Shell Hook 只按 `AgentGuard/rules.py` 危险清单与 `AgentGuard/core.py` 的 `rm -rf` 目标分级拒绝；未命中规则的有效命令直接放行，不再由 AI 二次否决。
+- 模型缺失、离线或给出保守判断不会再阻拦清单外命令。无效 Hook 输入和无法可靠解析的命令仍拒绝；窗口级 Ctrl-C 可选模型审核与 Shell 放行完全分离。
+- 已保存的旧版 AI 拒绝记录与学习记忆不参与 Shell 放行决策。
+
+## English
+
+- Codex Shell hooks deny only commands matching the shared danger list or high-impact `rm -rf` target rules. Valid unmatched commands are permitted without an AI veto, including when the reviewer is unavailable.
+- Invalid hook input and unclassifiable shell syntax still deny. Optional AI review applies only to the separate Ctrl-C terminal-input workflow; old reviewer history and learning memory do not control Shell commands.
+
+# TermYes v1.6.7
+
+## 简体中文
+
+- 未配置独立 AI 审批模型时，Codex Shell 守卫自动使用 Codex 用户级配置的默认模型复核未被确定性规则拦截的命令；模型故障或无效响应拒绝执行，不依赖 YOLO 下可能缺失的 `PermissionRequest`。单次启动参数与项目级模型覆盖不在自动跟随范围内。
+- 自动模式不使用已学习命令的放行缓存；菜单显示“跟随 Codex”，已手动配置并主动关闭的模型仍保持关闭。
+- 当前仅覆盖 Codex Shell Hook；其他客户端、独立文件编辑及 MCP 不在本次 AI 审批范围内。
+
+## English
+
+- Codex shell hooks now review non-blocked commands with the user-configured default Codex model. Missing or invalid model responses deny rather than silently allowing commands, even without `PermissionRequest` under YOLO. CLI and project-level model overrides are not tracked.
+- Automatic review bypasses learned allow caches; explicitly disabled custom reviewers remain disabled. The menu displays the active mode.
+
+# TermYes v1.6.6
+
+## 简体中文
+
+- 增加常驻检查：启动后每 5 分钟检查已检测到的 Agent，修复 YOLO/等效权限模式并安装或更新危险命令守卫。
+- 启动器会在启动 Agent 前确认守卫文件与权限配置就绪；检查失败则拒绝启动，不再只提示后继续运行。
+- 菜单分别显示 YOLO 状态与守卫文件状态；配置被外部修改时拒绝覆盖并报告错误。守卫文件就绪不代表客户端实际加载或信任 Hook，仍须逐客户端验证。
+- 菜单栏图标旁显示就绪数；展开后直接显示 YOLO/守卫汇总和“一键检查并修复 Agent”，异常时使用警示图标。
+- 危险与警告级 Shell 指令继续硬拒绝，普通指令交回客户端；守卫不覆盖独立文件编辑、MCP 等操作。
+
+本地构建产物：`TermYes-v1.6.6-macOS.dmg` 与旧版更新兼容包 `Termosaic-v1.6.6-macOS.dmg`。未自动发布到 GitHub。
+
+## English
+
+- Monitor detected agents at launch and every five minutes, maintaining YOLO-equivalent modes and installing or updating shell-command guards.
+- Agent launchers fail closed when guard files or permissions cannot be prepared; changed files are reported, not overwritten.
+- The menu distinguishes YOLO readiness from installed guard files. Client-side hook loading and trust remain unverified; file edits and MCP calls are outside the shell guard.
+- The menu bar shows a ready count, a prominent one-click repair action, and a warning icon when a check fails.
+
 # TermYes v1.6.5
 
 ## 简体中文

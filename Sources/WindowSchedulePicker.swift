@@ -17,17 +17,25 @@ final class WindowSchedulePicker: NSObject {
 
     private var panel: NSPanel?
     private var picker: NSDatePicker?
+    private var claudeCheckbox: NSButton?
+    private var codexCheckbox: NSButton?
+    private var confirmButton: NSButton?
 
     func show() {
+        if let panel {
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
         let controller = AutoContinueController.shared
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 122),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 155),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        panel.title = "激活 5h 窗口"
+        panel.title = "定时激活5h窗口"
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
@@ -39,7 +47,12 @@ final class WindowSchedulePicker: NSObject {
         picker.datePickerElements = .hourMinute
         picker.dateValue = controller.windowStartDate ?? Date()
 
-        let hint = NSTextField(labelWithString: "滚动微调 5 分钟（⇧ 按小时）· 每 5 小时一轮")
+        let claudeCheckbox = NSButton(checkboxWithTitle: "Claude", target: self, action: #selector(updateConfirm))
+        claudeCheckbox.state = controller.windowAgents.contains(.claude) ? .on : .off
+        let codexCheckbox = NSButton(checkboxWithTitle: "Codex", target: self, action: #selector(updateConfirm))
+        codexCheckbox.state = controller.windowAgents.contains(.codex) ? .on : .off
+
+        let hint = NSTextField(labelWithString: "启动缺失窗口，并发送一句问候；每 5 小时一轮")
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
 
@@ -49,8 +62,9 @@ final class WindowSchedulePicker: NSObject {
         cancel.keyEquivalent = "\u{1b}"
         let confirm = button(title: "好", action: #selector(confirmSelection))
         confirm.keyEquivalent = "\r"
+        confirm.isEnabled = !controller.windowAgents.isEmpty
 
-        for view in [label, picker, hint, disable, cancel, confirm] {
+        for view in [label, picker, claudeCheckbox, codexCheckbox, hint, disable, cancel, confirm] {
             view.translatesAutoresizingMaskIntoConstraints = false
             panel.contentView?.addSubview(view)
         }
@@ -64,8 +78,13 @@ final class WindowSchedulePicker: NSObject {
             picker.centerYAnchor.constraint(equalTo: label.centerYAnchor),
             picker.widthAnchor.constraint(equalToConstant: 120),
 
+            claudeCheckbox.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+            claudeCheckbox.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
+            codexCheckbox.leadingAnchor.constraint(equalTo: claudeCheckbox.trailingAnchor, constant: 18),
+            codexCheckbox.centerYAnchor.constraint(equalTo: claudeCheckbox.centerYAnchor),
+
             hint.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            hint.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
+            hint.topAnchor.constraint(equalTo: claudeCheckbox.bottomAnchor, constant: 8),
             hint.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
 
             confirm.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
@@ -83,6 +102,9 @@ final class WindowSchedulePicker: NSObject {
 
         self.panel = panel
         self.picker = picker
+        self.claudeCheckbox = claudeCheckbox
+        self.codexCheckbox = codexCheckbox
+        self.confirmButton = confirm
         NSApp.activate(ignoringOtherApps: true)
         panel.center()
         panel.makeKeyAndOrderFront(nil)
@@ -99,10 +121,24 @@ final class WindowSchedulePicker: NSObject {
         panel?.close()
         panel = nil
         picker = nil
+        claudeCheckbox = nil
+        codexCheckbox = nil
+        confirmButton = nil
+    }
+
+    @objc private func updateConfirm() {
+        confirmButton?.isEnabled = selectedAgents != []
+    }
+
+    private var selectedAgents: Set<ScheduledAgent> {
+        var agents: Set<ScheduledAgent> = []
+        if claudeCheckbox?.state == .on { agents.insert(.claude) }
+        if codexCheckbox?.state == .on { agents.insert(.codex) }
+        return agents
     }
 
     @objc private func disableWindows() {
-        AutoContinueController.shared.setWindowStartMinutes(nil)
+        AutoContinueController.shared.setWindowSchedule(minutes: nil, agents: selectedAgents)
         close()
     }
 
@@ -110,7 +146,7 @@ final class WindowSchedulePicker: NSObject {
         guard let picker else { return close() }
         let components = Calendar.current.dateComponents([.hour, .minute], from: picker.dateValue)
         guard let hour = components.hour, let minute = components.minute else { return close() }
-        AutoContinueController.shared.setWindowStartMinutes(hour * 60 + minute)
+        AutoContinueController.shared.setWindowSchedule(minutes: hour * 60 + minute, agents: selectedAgents)
         close()
     }
 }

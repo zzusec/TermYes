@@ -132,12 +132,9 @@ final class TerminalManager: NSObject, ObservableObject {
         retile()
     }
 
-    func sendContinueToTerminalSessions(includeAllWindows: Bool, automatic: Bool) -> (sent: Int, busy: Int, blocked: Int)? {
-        let sendToAll = includeAllWindows ? "true" : "false"
+    func sendContinueToTerminalSessions() -> (sent: Int, busy: Int, blocked: Int)? {
         let source = """
         \(TerminalResumePolicy.appleScriptHandlers)
-        set isAutomatic to \(automatic ? "true" : "false")
-        set sendToAll to \(sendToAll)
         set sentCount to 0
         set busyCount to 0
         set blockedCount to 0
@@ -148,14 +145,12 @@ final class TerminalManager: NSObject, ObservableObject {
                     set activeTab to selected tab of currentWindow
                     set windowName to name of currentWindow as text
                     set processText to (processes of activeTab) as text
-                    set shouldSend to sendToAll
-                    if shouldSend is false then
-                        ignoring case
-                            if windowName contains "codex" or windowName contains "claude" or processText contains "codex" or processText contains "claude" then
-                                set shouldSend to true
-                            end if
-                        end ignoring
-                    end if
+                    set shouldSend to false
+                    ignoring case
+                        if windowName contains "codex" or windowName contains "claude" or processText contains "codex" or processText contains "claude" then
+                            set shouldSend to true
+                        end if
+                    end ignoring
 
                     if shouldSend then
                         set screenText to get contents of selected tab of currentWindow
@@ -178,8 +173,6 @@ final class TerminalManager: NSObject, ObservableObject {
                             set busyCount to busyCount + 1
                         else if my mustPauseResume(tail) then
                             set blockedCount to blockedCount + 1
-                        else if isAutomatic and not (my canAutomaticallyResume(tail)) then
-                            set blockedCount to blockedCount + 1
                         else
                             -- Never answer permission prompts; the agent hook owns approval.
                             do script "继续" in activeTab
@@ -198,6 +191,29 @@ final class TerminalManager: NSObject, ObservableObject {
               let busyCount = result.atIndex(2)?.int32Value,
               let blockedCount = result.atIndex(3)?.int32Value else { return nil }
         return (sent: Int(sentCount), busy: Int(busyCount), blocked: Int(blockedCount))
+    }
+
+    func openMissingAgentWindows(_ agents: [ScheduledAgent], guardPath: String) -> [String] {
+        agents.compactMap { agent in
+            let command = agent.startupCommand(guardPath: guardPath)
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let source = """
+            tell application id "com.apple.Terminal"
+                repeat with windowRef in every window
+                    try
+                        set processNames to processes of selected tab of windowRef
+                        repeat with processName in processNames
+                            if (processName as text) is "\(agent.rawValue)" then return false
+                        end repeat
+                    end try
+                end repeat
+                do script "\(command)"
+            end tell
+            return true
+            """
+            return executeAppleScript(source) == nil ? "\(agent.rawValue)：无法检查或打开 Terminal 窗口" : nil
+        }
     }
 
     func terminalWindowSnapshots() -> [TerminalWindowSnapshot]? {
