@@ -1,3 +1,17 @@
+# TermYes v1.6.19
+
+## 简体中文
+
+- 更新检查改用公开 GitHub Release 跳转，避免匿名 API 配额耗尽导致 HTTP 403；严格校验正式版本和下载地址，保留 SHA-256、应用身份与签名校验。
+- 精简菜单：自动排列集中显示终端与快捷键；自动审批集中展示 Agent 状态、修复和危险命令清单；定时激活5h窗口单独设置。
+- 移除发送“继续”入口及其旧逻辑；默认全局快捷键改为 `⌘P`。
+
+## English
+
+- Check public GitHub Release redirects instead of the rate-limited anonymous API; validate stable tags and download locations while retaining checksum, app identity, and signature checks.
+- Simplify menus for window arrangement, Agent auto-approval and guard policy, and scheduled five-hour activation.
+- Remove the manual Continue command and legacy logic; set the default global shortcut to `⌘P`.
+
 # TermYes v1.6.18
 
 ## 简体中文

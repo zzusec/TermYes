@@ -47,17 +47,3 @@ enum FiveHourActivation {
         return anchor.addingTimeInterval(cycles * interval)
     }
 }
-
-enum TerminalResumePolicy {
-    static let appleScriptHandlers = """
-    on mustPauseResume(screenText)
-        ignoring case
-            repeat with marker in {"y/n", "yes/no", "want to continue", "输入 yes", "是否继续", "确认继续", "requires approval", "approval required", "would you like", "allow this", "approve", "permission denied", "命令守卫", "已拦截", "已拦下", "guard blocked", "hook failed", "blocked by", "password", "passphrase", "verification code", "密码", "验证码", "登录", "sign in", "trust", "授权", "拒绝", "确认", "choose", "请选择"}
-                if screenText contains (marker as text) then return true
-            end repeat
-        end ignoring
-        return false
-    end mustPauseResume
-
-    """
-}

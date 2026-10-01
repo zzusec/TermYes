@@ -2,12 +2,11 @@ import AppKit
 import Combine
 
 @MainActor
-final class AutoContinueController: NSObject, ObservableObject {
-    static let shared = AutoContinueController()
+final class ScheduledActivationController: NSObject, ObservableObject {
+    static let shared = ScheduledActivationController()
 
     @Published private(set) var windowStartMinutes: Int?
     @Published private(set) var windowAgents: Set<ScheduledAgent>
-    @Published private(set) var lastStatusMessage: String?
     @Published private(set) var lastActivationStatus: String?
     @Published private(set) var lastActivationDetail: String?
 
@@ -69,25 +68,6 @@ final class AutoContinueController: NSObject, ObservableObject {
         components.minute = windowStartMinutes % 60
         components.second = 0
         return Calendar.current.date(from: components)
-    }
-
-    func sendNow() {
-        guard let result = TerminalManager.shared.sendContinueToTerminalSessions() else {
-            lastStatusMessage = "无法检查 Terminal 会话"
-            return
-        }
-        if result.sent > 0 {
-            lastStatusMessage = "已手动继续 \(result.sent) 个会话"
-            if result.blocked > 0 {
-                lastStatusMessage = (lastStatusMessage ?? "") + "；跳过 \(result.blocked) 个待处理会话"
-            }
-        } else if result.blocked > 0 {
-            lastStatusMessage = "\(result.blocked) 个会话需确认、已拦截或状态不明，未发送文字"
-        } else if result.busy > 0 {
-            lastStatusMessage = "\(result.busy) 个会话正在运行中，已跳过"
-        } else {
-            lastStatusMessage = "没有找到匹配的 Codex / Claude 会话"
-        }
     }
 
     /// Makes a fresh model request at each scheduled five-hour boundary.

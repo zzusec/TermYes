@@ -12,37 +12,13 @@ final class UpdateController: NSObject, ObservableObject {
     @Published private(set) var isDownloading = false
     @Published private(set) var availableVersion: String?
     @Published private(set) var statusMessage = "尚未检查更新"
+    @Published private(set) var updateIssue: String?
     @Published private(set) var isInstallingUpdate = false
 
-    private struct GitHubRelease: Decodable, Sendable {
-        let tagName: String
-        let name: String?
-        let draft: Bool
-        let prerelease: Bool
-        let assets: [GitHubAsset]
-
-        enum CodingKeys: String, CodingKey {
-            case tagName = "tag_name"
-            case name, draft, prerelease, assets
-        }
-    }
-
-    private struct GitHubAsset: Decodable, Sendable {
-        let name: String
-        let browserDownloadURL: URL
-        let size: Int
-
-        enum CodingKeys: String, CodingKey {
-            case name, size
-            case browserDownloadURL = "browser_download_url"
-        }
-    }
-
-    private let repository = "zzusec/TermYes"
     private let bundleIdentifier = "io.github.zzusec.termosaic"
     private let checkInterval: TimeInterval = 2 * 60 * 60
     private var timer: Timer?
-    private var availableRelease: GitHubRelease?
+    private var availableRelease: GitHubReleaseLocation?
     private var started = false
 
     override private init() {
@@ -62,19 +38,17 @@ final class UpdateController: NSObject, ObservableObject {
         guard !isChecking, !isDownloading, !isInstallingUpdate else { return }
         isChecking = true
         isUpToDate = false
+        updateIssue = nil
         statusMessage = "正在检查 GitHub 更新…"
 
         Task {
             defer { isChecking = false }
             do {
                 let release = try await fetchLatestRelease()
-                guard !release.draft, !release.prerelease else {
-                    statusMessage = "最新 Release 不是正式版本"
-                    return
-                }
                 guard let remoteVersion = SemanticVersion(release.tagName),
                       let currentVersion = currentSemanticVersion else {
                     statusMessage = "无法解析版本号"
+                    updateIssue = statusMessage
                     return
                 }
 
@@ -91,6 +65,7 @@ final class UpdateController: NSObject, ObservableObject {
                 }
             } catch {
                 statusMessage = "检查更新失败：\(error.localizedDescription)"
+                updateIssue = statusMessage
             }
         }
     }
@@ -98,6 +73,7 @@ final class UpdateController: NSObject, ObservableObject {
     func installAvailableUpdate() {
         guard !isDownloading, !isInstallingUpdate, let release = availableRelease else { return }
         isDownloading = true
+        updateIssue = nil
         statusMessage = "正在下载 v\(availableVersion ?? release.tagName)…"
 
         Task {
@@ -107,6 +83,7 @@ final class UpdateController: NSObject, ObservableObject {
                 try launchInstaller(stagedApp: stagedApp)
             } catch {
                 statusMessage = "安装更新失败：\(error.localizedDescription)"
+                updateIssue = statusMessage
             }
         }
     }
@@ -128,28 +105,29 @@ final class UpdateController: NSObject, ObservableObject {
         self.timer = timer
     }
 
-    private func fetchLatestRelease() async throws -> GitHubRelease {
-        let url = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    private func fetchLatestRelease() async throws -> GitHubReleaseLocation {
+        let url = URL(string: "https://github.com/zzusec/TermYes/releases/latest")!
         var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("TermYes/\(currentSemanticVersion?.description ?? "unknown")", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await URLSession.shared.data(for: request)
         try validateHTTP(response)
-        return try JSONDecoder().decode(GitHubRelease.self, from: data)
+        guard let finalURL = response.url,
+              let release = GitHubReleaseLocation(redirectedURL: finalURL) else {
+            throw UpdateError.invalidReleaseURL
+        }
+        return release
     }
 
-    private func downloadAndStage(release: GitHubRelease) async throws -> URL {
+    private func downloadAndStage(release: GitHubReleaseLocation) async throws -> URL {
         guard let version = SemanticVersion(release.tagName) else { throw UpdateError.invalidVersion }
         let expectedDMGName = "TermYes-v\(version)-macOS.dmg"
-        guard let dmgAsset = release.assets.first(where: { $0.name == expectedDMGName }),
-              let checksumAsset = release.assets.first(where: { $0.name == "\(expectedDMGName).sha256" }) else {
-            throw UpdateError.missingAssets
-        }
 
         statusMessage = "正在下载更新包…"
-        let (temporaryDMG, dmgResponse) = try await URLSession.shared.download(from: dmgAsset.browserDownloadURL)
+        let (temporaryDMG, dmgResponse) = try await URLSession.shared.download(from: release.dmgURL)
         try validateHTTP(dmgResponse)
-        let (checksumData, checksumResponse) = try await URLSession.shared.data(from: checksumAsset.browserDownloadURL)
+        let (checksumData, checksumResponse) = try await URLSession.shared.data(from: release.checksumURL)
         try validateHTTP(checksumResponse)
 
         guard let checksumText = String(data: checksumData, encoding: .utf8),
@@ -283,15 +261,15 @@ final class UpdateController: NSObject, ObservableObject {
     }
 
     private enum UpdateError: LocalizedError {
-        case invalidVersion, missingAssets, invalidChecksumFile, checksumMismatch
+        case invalidReleaseURL, invalidVersion, invalidChecksumFile, checksumMismatch
         case mountFailed(String), appMissingFromDMG, stagingFailed(String), invalidApplication
         case signatureInvalid(String), notInstalledInApplications, applicationsNotWritable, helperMissing
         case httpFailure(Int)
 
         var errorDescription: String? {
             switch self {
+            case .invalidReleaseURL: return "GitHub Release 跳转地址或版本无效"
             case .invalidVersion: return "Release 版本号无效"
-            case .missingAssets: return "Release 缺少 DMG 或校验文件"
             case .invalidChecksumFile: return "SHA-256 文件格式无效"
             case .checksumMismatch: return "下载文件的 SHA-256 不匹配"
             case .mountFailed(let message): return "无法挂载 DMG：\(message)"

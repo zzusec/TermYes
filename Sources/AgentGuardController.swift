@@ -43,15 +43,9 @@ final class AgentGuardController: ObservableObject {
 
     @objc private func checkAgain() { run("monitor") }
 
-    func copyDetails() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(details.isEmpty ? message : details, forType: .string)
-    }
+    var diagnosticDetails: String { details.isEmpty ? message : details }
 
-    func copyPolicyStatus() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(clients.first?.policyStatus ?? message, forType: .string)
-    }
+    var policyDetails: String { clients.first?.policyStatus ?? message }
 
     private func run(_ action: String, client: String? = nil) {
         guard !isWorking else { return }

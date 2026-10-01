@@ -24,21 +24,20 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 - **Separate Ctrl-C window review.** An optional configured model can review the narrowly recognized Ctrl-C terminal-input prompt; it does not control Shell commands.
 - **Window-level Ctrl-C approval.** With Accessibility permission, TermYes can auto-confirm only a verified terminal-input prompt whose requested input is exactly Ctrl-C; Enter, text, passwords, and permission prompts remain manual.
 - **Less desktop clutter.** Show or hide the canvas together, including minimized windows, while processes keep running. No Dock icon, embedded shell, or permanent control window; other applications' windows are not rearranged.
-- **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘O`; change it if you need to preserve another application's Open command.
-- **Manual task recovery.** Only an explicit click on Continue attempts to send text to matching Codex/Claude sessions; recognized confirmation prompts, guard denials, and passwords are skipped. No timer sends Continue into existing sessions.
+- **Keyboard access.** A configurable global shortcut brings the canvas back. The default is `⌘P`; change it if you need to preserve another application's Print command.
 - **One place for Agent safety.** Detect and repair YOLO-equivalent modes when TermYes starts, install/update guards from the menu, and keep dangerous shell commands blocked even when the client itself will not ask.
 - **YOLO loaded before each launch.** New zsh terminals install a lightweight agent launcher that repairs the selected client's YOLO mode before starting it; failures are reported without silently falling back.
-- **In-app updates.** Download versioned release images, verify checksums and application signatures, then replace and relaunch with a backup for recovery.
+- **In-app updates.** Check the public GitHub Release redirect without using the anonymous API quota, then download versioned images, verify checksums and application signatures, and replace and relaunch with a backup for recovery.
 
 ## Install
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The local v1.6.18 build is at `dist/TermYes-v1.6.18-macOS.dmg`.
+1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The local v1.6.19 build is at `dist/TermYes-v1.6.19-macOS.dmg`.
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
-4. Use the menu-bar grid icon to show the terminal canvas.
+4. Open the menu-bar grid icon, then choose Auto Arrange → Show Terminal.
 
 The community build is ad-hoc signed, not Apple-notarized. If macOS blocks first launch, use its per-application **Open Anyway** workflow only if you trust this release. Do not disable system-wide security protections.
 
@@ -49,7 +48,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- v1.6.18 includes a **`Termosaic-v1.6.18-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
+- v1.6.19 includes a **`Termosaic-v1.6.19-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -57,18 +56,13 @@ The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redi
 
 | Menu action | Shortcut |
 | --- | --- |
-| Show/hide terminal canvas | `⌥⌘1` |
-| Re-tile on the display under the pointer | `⌥⌘2` |
-| Attempt one manual resume pass | `⌥⌘3` |
-| Show and re-tile globally | `⌘O` by default; configurable |
+| Show and re-tile globally | `⌘P` by default; configurable |
 
 Switching to another application hides the canvas. Hiding windows does not stop the processes inside them. TermYes manages **Apple's Terminal.app only**, not iTerm2 or other terminal emulators.
 
-Continue runs only when explicitly clicked (or invoked with `⌥⌘3`). It matches `Codex`/`Claude` in the window title or process list; saved automatic-continue preferences no longer take effect.
+Auto Arrange lets you show or hide the terminal canvas. Its configurable global shortcut shows and re-tiles the canvas on the display under the pointer. TermYes does not send Continue into existing agent sessions, manually or automatically.
 
-**Scheduled 5h Windows → Set time** is independent of manual Continue. Choose the start time and Claude, Codex, or both. While TermYes runs, it checks the selected agent guards every five hours, opens a Terminal window for a missing agent, and makes a short request using each agent's configured CLI. The request runs non-interactively rather than typing into a tab that might be a shell. The menu reports successes and copyable failures. A successful CLI request cannot guarantee a provider's usage window resets; no timer runs while the app is closed.
-
-Screen-text recognition is a heuristic, not a reliable session-state API. It can miss prompts or pause unnecessarily, and cannot guarantee recovery from crashes. Manual sends match agent sessions only, but stale window titles can still point to an ordinary shell; check before sending.
+**Scheduled 5h Windows → Set time** lets you choose the start time and Claude, Codex, or both. While TermYes runs, it checks the selected agent guards every five hours, opens a Terminal window for a missing agent, and makes a short request using each agent's configured CLI. The request runs non-interactively rather than typing into a tab that might be a shell. The menu reports successes and copyable failures. A successful CLI request cannot guarantee a provider's usage window resets; no timer runs while the app is closed.
 
 ## Agent command guards
 
@@ -114,14 +108,16 @@ PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
 bash AgentGuard/test.sh
 PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
 node Tests/test_guard_plugins.mjs
-swiftc Sources/TerminalResumePolicy.swift Tests/TerminalResumeTests.swift -o /tmp/termyes-resume-tests
-/tmp/termyes-resume-tests
+swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termyes-activation-tests
+/tmp/termyes-activation-tests
 swiftc Sources/GridLayout.swift Tests/main.swift -o /tmp/termyes-grid-tests
 /tmp/termyes-grid-tests
 swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termyes-ai-settings-tests
 /tmp/termyes-ai-settings-tests
 swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termyes-version-tests
 /tmp/termyes-version-tests
+swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termyes-release-location-tests
+/tmp/termyes-release-location-tests
 bash Tests/test_update_installer.sh
 ```
 

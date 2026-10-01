@@ -17,14 +17,13 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 
 ## Interaction
 
-- The main action is one toggle, “显示终端画布”, and its state is the canvas state.
-- “重新排列” uses the display under the pointer; hiding the canvas when another application becomes active is always on, not a setting.
-- The top level stays short: canvas toggle, re-tile, and sending `继续` once stay direct; AI approval is one top-level submenu; scheduled 5h activation has its own clearly named submenu; shortcuts and updates live under Settings.
+- The top level starts with three workflows: “自动排列”, “自动审批”, and “定时激活5h窗口”.
+- “自动排列” contains a show/hide toggle and one configurable global shortcut to show and re-tile; re-tiling uses the display under the pointer, and hiding on app switch is always on.
+- Version and update checking stay in the main menu.
+- Failures show a short, contextual “查看原因…” action; full details and an optional copy action live in a dialog, not in the main menu.
 - Submenus stay short. Start times are picked in a small floating panel, never as a 24-row clock inside the menu.
 - Automation permission failures explain both the problem and the exact recovery path in System Settings.
-- The menu-bar control is the sole interface and holds every action, manual-send feedback, and online-update state.
+- The menu-bar control is the sole interface and holds every action and online-update state.
 
 - Guard controls distinguish installation records from verified protection. Show pending/known-gap states, never a green “protected” claim without real-client evidence; errors stay in the menu with copyable details.
-- AI approval has a dedicated top-level submenu: enable state, current model, model choices, exact-command learning, and a small floating add/manage panel.
-- AI approval memory remains local-first, with one optional iCloud Drive merge toggle shown alongside learning controls.
-- Window-level approval is a separate opt-in switch with an explicit Accessibility permission entry and a narrow Ctrl-C-only scope.
+- “自动审批” shows agent readiness, repairs, and dangerous-command policy updates; it does not imply model review of shell commands.

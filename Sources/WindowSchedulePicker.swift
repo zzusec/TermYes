@@ -27,7 +27,7 @@ final class WindowSchedulePicker: NSObject {
             panel.makeKeyAndOrderFront(nil)
             return
         }
-        let controller = AutoContinueController.shared
+        let controller = ScheduledActivationController.shared
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 155),
@@ -138,7 +138,7 @@ final class WindowSchedulePicker: NSObject {
     }
 
     @objc private func disableWindows() {
-        AutoContinueController.shared.setWindowSchedule(minutes: nil, agents: selectedAgents)
+        ScheduledActivationController.shared.setWindowSchedule(minutes: nil, agents: selectedAgents)
         close()
     }
 
@@ -146,7 +146,7 @@ final class WindowSchedulePicker: NSObject {
         guard let picker else { return close() }
         let components = Calendar.current.dateComponents([.hour, .minute], from: picker.dateValue)
         guard let hour = components.hour, let minute = components.minute else { return close() }
-        AutoContinueController.shared.setWindowSchedule(minutes: hour * 60 + minute, agents: selectedAgents)
+        ScheduledActivationController.shared.setWindowSchedule(minutes: hour * 60 + minute, agents: selectedAgents)
         close()
     }
 }

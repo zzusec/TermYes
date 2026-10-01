@@ -35,15 +35,16 @@ fi
 
 sources=(
   "$ROOT/Sources/SemanticVersion.swift"
+  "$ROOT/Sources/GitHubReleaseLocation.swift"
   "$ROOT/Sources/GridLayout.swift"
-  "$ROOT/Sources/TerminalResumePolicy.swift"
+  "$ROOT/Sources/FiveHourActivation.swift"
   "$ROOT/Sources/AgentGuardController.swift"
   "$ROOT/Sources/AIReviewSettings.swift"
   "$ROOT/Sources/AIReviewModelPicker.swift"
   "$ROOT/Sources/WindowApprovalController.swift"
   "$ROOT/Sources/TerminalManager.swift"
   "$ROOT/Sources/GlobalHotKeyController.swift"
-  "$ROOT/Sources/AutoContinueController.swift"
+  "$ROOT/Sources/ScheduledActivationController.swift"
   "$ROOT/Sources/WindowSchedulePicker.swift"
   "$ROOT/Sources/UpdateController.swift"
   "$ROOT/Sources/TermYesApp.swift"

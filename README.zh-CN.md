@@ -23,22 +23,21 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 - **独立的 Ctrl-C 窗口审核。** 可以为严格识别的终端 Ctrl-C 确认框单独配置模型；不会影响 Shell 命令的放行。
 - **窗口级 Ctrl-C 审批。** 这是与 Agent 免确认不同的可选功能。开启它但尚未授权时，菜单才显示「Ctrl-C 辅助功能权限」；获得权限后只会在明确匹配的终端输入确认框中选择 Ctrl-C，回车、文本、密码和权限弹窗仍保持人工处理。
 - **减少桌面干扰。** 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。
-- **快捷键呼出。** 可配置全局快捷键，默认 `⌘O`；若要保留其他应用的“打开”命令，请修改它。
-- **手动恢复任务。** 仅在点击「发送“继续”」后尝试向匹配的 Codex / Claude 会话输入文字；识别出的确认提示、守卫拒绝和密码提示会跳过，不再定时发送“继续”。
+- **快捷键呼出。** 可配置全局快捷键，默认 `⌘P`；若要保留其他应用的“打印”命令，请修改它。
 - **统一管理 Agent 安全。** TermYes 启动时及此后每 5 分钟检查已检测到的 Agent，维护 YOLO/等效权限模式并安装、更新危险 Shell 命令守卫；被外部修改的守卫不会自动覆盖。
 - **菜单栏可见状态。** 菜单栏仅显示状态图标；展开「自动审批」可查看已检测 Agent 的免确认勾/叉状态，点击待修复项单独修复，或一键修复所有未就绪项。单独修复会显示结果；诊断详情可复制。守卫文件就绪不等于客户端 Hook 已加载。
 - **启动前双重检查。** 新开的 zsh 终端会在启动 Agent 前检查守卫配置与 YOLO；检查失败会拒绝启动。守卫文件就绪不等于客户端实际加载并信任 Hook。
-- **应用内更新。** 下载对应版本的安装包，验证校验和与应用签名，保留备份后替换并重新启动。
+- **应用内更新。** 通过公开 GitHub Release 跳转检查版本（不占用匿名 API 配额），下载对应版本的安装包，验证校验和与应用签名，保留备份后替换并重新启动。
 
 ## 安装
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.18 构建产物位于 `dist/TermYes-v1.6.18-macOS.dmg`。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.19 构建产物位于 `dist/TermYes-v1.6.19-macOS.dmg`。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
-4. 点击菜单栏四宫格图标，显示终端画布。
+4. 点击菜单栏四宫格图标，在「自动排列」中选择「显示终端」。
 
 社区版本采用 ad-hoc 签名，尚未经过 Apple 公证。如果 macOS 阻止首次启动，请在确认信任该版本后使用系统针对该应用的“仍要打开”流程；不需要关闭系统级安全保护。
 
@@ -49,7 +48,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- v1.6.18 另有 **`Termosaic-v1.6.18-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
+- v1.6.19 另有 **`Termosaic-v1.6.19-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 
@@ -57,18 +56,13 @@ GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重�
 
 | 菜单操作 | 快捷键 |
 | --- | --- |
-| 显示或隐藏终端画布 | `⌥⌘1` |
-| 在鼠标所在显示器重新平铺 | `⌥⌘2` |
-| 手动尝试发送一次“继续” | `⌥⌘3` |
-| 全局呼出并重新平铺 | 默认 `⌘O`，可修改 |
+| 全局呼出并重新平铺 | 默认 `⌘P`，可修改 |
 
 切换到其他应用时会隐藏画布；隐藏窗口不会停止窗口内的进程。TermYes **只管理 Apple 系统 Terminal.app**，不管理 iTerm2 或其他终端模拟器。
 
-「发送“继续”」仅在手动点击（或按 `⌥⌘3`）时运行，只匹配窗口标题或进程列表中包含 `Codex` / `Claude` 的会话；旧版自动发送偏好不再生效。
+在「自动排列」中可显示或隐藏终端；配置的全局快捷键用于呼出并在鼠标所在显示器重新平铺。TermYes 不会向现有 Agent 会话自动或手动发送「继续」。
 
-**定时激活5h窗口 → 设置时间**可设置起始时间，勾选 Claude、Codex 或两者；它独立于手动发送“继续”。TermYes 运行期间每五小时检查一次选中 Agent 的守卫，缺少对应的 Terminal 会话时启动新窗口，并用当前 CLI 配置向模型发送一句简单问候；为避免把文字误发到 Shell，模型请求通过非交互 CLI 发出，不向 Terminal 标签页键入问候。菜单显示请求结果，可复制失败原因。此功能只能确认 CLI 请求成功，不能保证第三方供应商或账号的额度窗口一定重置；应用退出后不会定时触发。
-
-尾屏文字识别是启发式，不是可靠的会话状态接口，可能漏判或保守暂停，也不能保证恢复进程崩溃。手动发送只匹配 Agent 会话，但窗口标题也可能过时；发送前仍需确认不是普通 Shell。
+**定时激活5h窗口 → 设置时间**可设置起始时间，勾选 Claude、Codex 或两者。TermYes 运行期间每五小时检查一次选中 Agent 的守卫，缺少对应的 Terminal 会话时启动新窗口，并用当前 CLI 配置向模型发送一句简单问候；为避免把文字误发到 Shell，模型请求通过非交互 CLI 发出，不向 Terminal 标签页键入问候。菜单显示请求结果，可复制失败原因。此功能只能确认 CLI 请求成功，不能保证第三方供应商或账号的额度窗口一定重置；应用退出后不会定时触发。
 
 ## Agent 命令守卫
 
@@ -114,14 +108,16 @@ PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
 bash AgentGuard/test.sh
 PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
 node Tests/test_guard_plugins.mjs
-swiftc Sources/TerminalResumePolicy.swift Tests/TerminalResumeTests.swift -o /tmp/termyes-resume-tests
-/tmp/termyes-resume-tests
+swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termyes-activation-tests
+/tmp/termyes-activation-tests
 swiftc Sources/GridLayout.swift Tests/main.swift -o /tmp/termyes-grid-tests
 /tmp/termyes-grid-tests
 swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termyes-ai-settings-tests
 /tmp/termyes-ai-settings-tests
 swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termyes-version-tests
 /tmp/termyes-version-tests
+swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termyes-release-location-tests
+/tmp/termyes-release-location-tests
 bash Tests/test_update_installer.sh
 ```
 

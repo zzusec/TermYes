@@ -23,11 +23,13 @@ jobs:
         run: |
           swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termosaic-version-tests
           /tmp/termosaic-version-tests
+          swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termosaic-release-location-tests
+          /tmp/termosaic-release-location-tests
       - name: Test AI review settings
         run: |
           swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termosaic-ai-settings-tests
           /tmp/termosaic-ai-settings-tests
-      - name: Test Agent guards and resume policy
+      - name: Test Agent guards and five-hour activation
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_policy_update.py
@@ -36,8 +38,8 @@ jobs:
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
           node Tests/test_guard_plugins.mjs
-          swiftc Sources/TerminalResumePolicy.swift Tests/TerminalResumeTests.swift -o /tmp/termosaic-resume-tests
-          /tmp/termosaic-resume-tests
+          swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termosaic-activation-tests
+          /tmp/termosaic-activation-tests
       - name: Build universal app
         run: SKIP_INSTALL=1 ./build.sh
       - name: Verify architectures

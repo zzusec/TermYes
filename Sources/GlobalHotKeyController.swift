@@ -10,6 +10,7 @@ private let termosaicHotKeyEventHandler: EventHandlerUPP = { _, _, _ in
 }
 
 enum GlobalShortcut: String, CaseIterable, Identifiable {
+    case commandP
     case commandO
     case commandOptionO
     case commandShiftO
@@ -20,6 +21,7 @@ enum GlobalShortcut: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
+        case .commandP: return "⌘P"
         case .commandO: return "⌘O"
         case .commandOptionO: return "⌥⌘O"
         case .commandShiftO: return "⇧⌘O"
@@ -34,7 +36,7 @@ enum GlobalShortcut: String, CaseIterable, Identifiable {
 
     fileprivate var carbonModifiers: UInt32 {
         switch self {
-        case .commandO:
+        case .commandP, .commandO:
             return UInt32(cmdKey)
         case .commandOptionO:
             return UInt32(cmdKey | optionKey)
@@ -48,13 +50,13 @@ enum GlobalShortcut: String, CaseIterable, Identifiable {
     }
 
     fileprivate var carbonKeyCode: UInt32 {
-        UInt32(kVK_ANSI_O)
+        self == .commandP ? UInt32(kVK_ANSI_P) : UInt32(kVK_ANSI_O)
     }
 
     static var saved: GlobalShortcut {
         guard let raw = UserDefaults.standard.string(forKey: "globalShortcut"),
               let shortcut = GlobalShortcut(rawValue: raw) else {
-            return .commandO
+            return .commandP
         }
         return shortcut
     }
