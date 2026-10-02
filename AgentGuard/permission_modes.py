@@ -37,9 +37,9 @@ COMMANDS = {
     "codebuddy": ("codebuddy",),
     "zcode": ("zcode",),
     "pi": ("pi",),
-    "qoder": ("qoder", "qodercli"),
+    "qoder": ("qodercli", "qoder"),
     "gemini": ("gemini",),
-    "cursor": ("cursor", "cursor-agent"),
+    "cursor": ("cursor-agent",),
     "agy": ("agy",),
     "opencode": ("opencode",),
     "droid": ("droid",),
@@ -89,39 +89,38 @@ def _atomic_write(path, content, mode=0o600):
             os.unlink(temporary)
 
 
-def _search_dirs(home):
-    values = [
+def _default_search_dirs(home):
+    return [
         home / ".local/bin",
         home / ".local/share/Termosaic/vendor/bin",
         home / ".opencode/bin",
-        home / ".qoder/entry",
+        home / ".qoder/bin/qodercli",
         home / ".pi/agent/bin",
+        home / ".cursor/bin",
         Path("/opt/homebrew/bin"),
         Path("/usr/local/bin"),
         Path("/usr/bin"),
     ]
-    for item in os.environ.get("PATH", "").split(os.pathsep):
-        if item:
-            values.append(Path(item))
-    result = []
-    for path in values:
-        if path not in result:
-            result.append(path)
-    return result
+
+
+def _search_dirs(home):
+    # PATH order is the shell's launch order; known locations are only fallbacks.
+    values = [Path(item or ".") for item in os.environ.get("PATH", "").split(os.pathsep)]
+    return list(dict.fromkeys(values + _default_search_dirs(home)))
 
 
 def _is_managed_wrapper(path):
-    if path.is_symlink():
-        return Path(os.readlink(path)).name == WRAPPER_NAME
     try:
         with path.open("rb") as handle:
-            return MANAGED_MARKER.encode() in handle.read(256)
+            lines = handle.read(256).splitlines()
+        return (len(lines) > 1 and lines[0].startswith(b"#!")
+                and lines[1] == MANAGED_MARKER.encode())
     except OSError:
         return False
 
 
-def _find_command(home, names):
-    for directory in _search_dirs(home):
+def _find_command(home, names, directories=None):
+    for directory in _search_dirs(home) if directories is None else directories:
         for name in names:
             candidate = directory / name
             if (candidate.is_file() and os.access(candidate, os.X_OK)
@@ -130,12 +129,53 @@ def _find_command(home, names):
     return None
 
 
+def _underlying_path(home, client):
+    directories = _search_dirs(home)
+    if client in WRAPPER_FLAGS:
+        directories = [home / ".local/share/Termosaic/vendor/bin", *directories]
+    if client == "qoder":
+        # qoder is also a valid older CLI name. Only exclude the known IDE/CLI
+        # dispatcher when its qodercli dependency is actually missing.
+        cli = _find_command(home, ("qodercli",), directories)
+        if cli:
+            return cli
+        candidate = _find_command(home, ("qoder",), directories)
+        if candidate:
+            with candidate.open("rb") as handle:
+                if b"# Qoder Command Dispatcher\n" in handle.read(256):
+                    return None
+        return candidate
+    return _find_command(home, COMMANDS.get(client, ()), directories)
+
+
+def launcher_path(home, client):
+    underlying = _underlying_path(home, client)
+    if underlying is None:
+        return None
+    if client in WRAPPER_FLAGS:
+        for name in _wrapper_names(client):
+            candidate = home / ".local/bin" / name
+            if (candidate.is_file() and os.access(candidate, os.X_OK)
+                    and _is_managed_wrapper(candidate)):
+                return candidate
+    return underlying
+
+
+def executable_paths(home, client):
+    paths = []
+    for candidate in (launcher_path(home, client), _underlying_path(home, client)):
+        if candidate:
+            # A symlink's mtime alone cannot detect a replaced executable target.
+            for path in (candidate, candidate.resolve()):
+                if path not in paths:
+                    paths.append(path)
+    return paths
+
+
 def is_detected(home, client):
     if any(Path(path).is_dir() for path in APP_PATHS.get(client, ())):
         return True
-    if _find_command(home, COMMANDS.get(client, ())):
-        return True
-    return False
+    return _underlying_path(home, client) is not None
 
 
 def _read_json(path):
@@ -156,14 +196,18 @@ def _write_json(path, value):
 
 
 def _top_level_toml_value(text, key):
-    pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*(.*?)\s*(?:#.*)?$")
+    pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*(.*)$")
+    string = re.compile(r"^(\"(?:[^\"\\]|\\.)*\"|'[^']*')\s*(?:#.*)?$")
     for line in text.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("["):
+        if line.lstrip().startswith("["):
             break
         match = pattern.match(line)
         if match:
-            return match.group(1).strip()
+            value = string.fullmatch(match.group(1).strip())
+            if value:
+                literal = value.group(1)
+                return json.loads(literal) if literal.startswith('"') else literal[1:-1]
+            return None
     return None
 
 
@@ -220,69 +264,147 @@ def _set_json_mode(path, keys, mode):
     _write_json(path, value)
 
 
+def _permission_arguments_content():
+    # Refuse conflicting options instead of relying on a CLI's first/last-wins
+    # parsing. Do not inspect positional text after the explicit -- delimiter.
+    return """_termyes_check_yolo_arguments() {
+  local client="$1" arg option value expected
+  shift
+  local -a args=("$@")
+  local i
+  for (( i=1; i <= ${#args}; i++ )); do
+    arg="${args[i]}"
+    [[ "$arg" == "--" ]] && break
+    option="${arg%%=*}"
+    value="${arg#*=}"
+    expected=""
+    case "$client:$option" in
+      gemini:--approval-mode) expected=yolo ;;
+      droid:--auto) expected=high ;;
+      claude:--permission-mode|codebuddy:--permission-mode) expected=bypassPermissions ;;
+      qoder:--permission-mode) expected=bypass_permissions ;;
+      codex:--ask-for-approval|codex:-a) expected=never ;;
+      codex:--sandbox|codex:-s) expected=danger-full-access ;;
+      codex:--config|codex:-c)
+        if [[ "$arg" != *=* ]]; then
+          (( i++ ))
+          value="${args[i]:-}"
+        fi
+        case "$value" in
+          approval_policy=*) expected=never ;;
+          sandbox_mode=*) expected=danger-full-access ;;
+          *) continue ;;
+        esac
+        value="${value#*=}"
+        value="${value//\\\"/}"
+        value="${value//\\'/}"
+        if [[ "$value" != "$expected" ]]; then
+          print -u2 "[TermYes] $option 的权限覆盖与强制 YOLO 模式冲突，已阻止启动。"
+          return 64
+        fi
+        continue ;;
+      codex:--full-auto)
+        print -u2 "[TermYes] $arg 与强制 YOLO 模式冲突，已阻止启动。"
+        return 64 ;;
+    esac
+    if [[ -n "$expected" ]]; then
+      if [[ "$arg" != *=* ]]; then
+        (( i++ ))
+        value="${args[i]:-}"
+      fi
+      if [[ "$value" != "$expected" ]]; then
+        print -u2 "[TermYes] $option=$value 与强制 YOLO 模式冲突，已阻止启动。"
+        return 64
+      fi
+    fi
+    case "$client:$arg" in
+      gemini:--yolo=false|gemini:--no-yolo|cursor:--yolo=false|cursor:--no-yolo|\
+      opencode:--auto=false|opencode:--no-auto|copilot:--allow-all-tools=false|\
+      agy:--dangerously-skip-permissions=false|claude:--dangerously-skip-permissions=false|\
+      codebuddy:--dangerously-skip-permissions=false|qoder:--dangerously-skip-permissions=false)
+        print -u2 "[TermYes] $arg 与强制 YOLO 模式冲突，已阻止启动。"
+        return 64 ;;
+    esac
+  done
+}
+"""
+
+
 def _wrapper_content():
+    cases = []
+    for client, flags in WRAPPER_FLAGS.items():
+        names = "|".join(_wrapper_names(client))
+        command = COMMANDS[client][0]
+        cases.append(f"  {names}) client={client}; command_name={command}; flags=({' '.join(flags)}) ;;")
+    fallback = []
+    for directory in _default_search_dirs(Path("/TERMYES_HOME")):
+        value = str(directory).replace("/TERMYES_HOME", "$HOME")
+        fallback.append('"' + value + '"')
     return """#!/bin/zsh
 {marker}
 set -eu
 
-command_name=${{0:t}}
-case "$command_name" in
-  gemini)
-    flags=(--yolo)
-    ;;
-  cursor|cursor-agent)
-    flags=(--yolo)
-    ;;
-  agy)
-    flags=(--dangerously-skip-permissions)
-    ;;
-  opencode)
-    flags=(--auto)
-    ;;
-  droid)
-    flags=(--auto high)
-    ;;
-  crush)
-    flags=(--yolo)
-    ;;
-  copilot)
-    flags=(--allow-all-tools)
-    ;;
+{argument_check}
+entry_name=${{0:t}}
+case "$entry_name" in
+{cases}
   *)
-    print -u2 "agent-yolo-wrapper: unsupported command: $command_name"
-    exit 64
-    ;;
+    print -u2 "agent-yolo-wrapper: unsupported command: $entry_name"
+    exit 64 ;;
 esac
+_termyes_check_yolo_arguments "$client" "$@" || exit $?
 
-for dir in "$HOME/.local/share/Termosaic/vendor/bin" ${{(s/:/)PATH}}; do
-  [[ "$dir" == "$HOME/.local/bin" ]] && continue
+for dir in "$HOME/.local/share/Termosaic/vendor/bin" "${{path[@]}}" {fallback}; do
+  [[ -z "$dir" ]] && dir=.
+  [[ "${{dir:A}}" == "${{HOME:A}}/.local/bin" ]] && continue
   candidate="$dir/$command_name"
+  [[ "${{candidate:A}}" == "${{0:A}}" ]] && continue
   if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+    # A copied managed wrapper is also not an underlying CLI.
+    header="$(/usr/bin/head -c 256 "$candidate")"
+    [[ "$header" == '#!'*$'\n{marker}\n'* ]] && continue
     manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
-    client="$command_name"
-    [[ "$client" == "cursor-agent" ]] && client="cursor"
     if [[ ! -r "$manage_path" ]] || ! /usr/bin/python3 -B "$manage_path" ensure "$client" >/dev/null; then
-      print -u2 "[TermYes] $command_name 的命令守卫或 YOLO 未就绪，已阻止启动。"
+      print -u2 "[TermYes] $entry_name 的命令守卫或 YOLO 未就绪，已阻止启动。"
       exit 1
     fi
     export DANGER_GUARD_BYPASS=1
+    # --auto belongs to the run command, not the root parser, in current OpenCode.
+    if [[ "$client" == "opencode" && "${{1:-}}" == "run" ]]; then
+      shift
+      exec "$candidate" run "${{flags[@]}}" "$@"
+    fi
     exec "$candidate" "${{flags[@]}}" "$@"
   fi
 done
 
-print -u2 "$command_name 未安装；wrapper 已就位，安装后会自动使用 YOLO/免确认参数。"
+print -u2 "$entry_name 未安装；wrapper 已就位，安装后会自动使用 YOLO/免确认参数。"
 exit 127
-""".format(marker=MANAGED_MARKER)
+""".format(marker=MANAGED_MARKER, argument_check=_permission_arguments_content(),
+           cases="\n".join(cases), fallback=" ".join(fallback))
 
 
 def _shell_wrapper_content():
+    functions = []
+    for client in ROOTS:
+        names = _wrapper_names(client) if client in WRAPPER_FLAGS else COMMANDS[client]
+        if client == "qoder":
+            names = tuple(dict.fromkeys((*names, "qoder")))
+        for name in names:
+            functions.append(
+                f'if (( $+commands[{name}] )) || [[ -x "$HOME/.local/bin/{name}" ]]; then '
+                f'{name}() {{ _termyes_agent_yolo {client} {name} "$@"; }}; fi'
+            )
+    wrapped = "|".join(WRAPPER_FLAGS)
     return """{marker}
 _termyes_manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
 
+{argument_check}
 _termyes_agent_yolo() {{
   emulate -L zsh
-  local client="$1"
-  shift
+  local client="$1" entry="$2"
+  shift 2
+  _termyes_check_yolo_arguments "$client" "$@" || return $?
   if [[ ! -r "$_termyes_manage_path" ]]; then
     print -u2 "[TermYes] 缺少权限协调器：$_termyes_manage_path"
     return 1
@@ -290,29 +412,20 @@ _termyes_agent_yolo() {{
     print -u2 "[TermYes] $client 的命令守卫或 YOLO 未就绪，已阻止启动。"
     return 1
   fi
-  command "$@"
+  case "$client" in
+    {wrapped}) command "$HOME/.local/bin/$entry" "$@" ;;
+    *) command "$entry" "$@" ;;
+  esac
 }}
 
-if (( $+commands[codex] )); then codex() {{ _termyes_agent_yolo codex codex "$@"; }}; fi
-if (( $+commands[claude] )); then claude() {{ _termyes_agent_yolo claude claude "$@"; }}; fi
-if (( $+commands[codebuddy] )); then codebuddy() {{ _termyes_agent_yolo codebuddy codebuddy "$@"; }}; fi
-if (( $+commands[zcode] )); then zcode() {{ _termyes_agent_yolo zcode zcode "$@"; }}; fi
-if (( $+commands[pi] )); then pi() {{ _termyes_agent_yolo pi pi "$@"; }}; fi
-if (( $+commands[qoder] )); then qoder() {{ _termyes_agent_yolo qoder qoder "$@"; }}; fi
-if (( $+commands[gemini] )); then gemini() {{ _termyes_agent_yolo gemini gemini "$@"; }}; fi
-if (( $+commands[cursor] )); then cursor() {{ _termyes_agent_yolo cursor cursor "$@"; }}; fi
-if (( $+commands[cursor-agent] )); then cursor-agent() {{ _termyes_agent_yolo cursor cursor-agent "$@"; }}; fi
-if (( $+commands[agy] )); then agy() {{ _termyes_agent_yolo agy agy "$@"; }}; fi
-if (( $+commands[opencode] )); then opencode() {{ _termyes_agent_yolo opencode opencode "$@"; }}; fi
-if (( $+commands[droid] )); then droid() {{ _termyes_agent_yolo droid droid "$@"; }}; fi
-if (( $+commands[crush] )); then crush() {{ _termyes_agent_yolo crush crush "$@"; }}; fi
-if (( $+commands[copilot] )); then copilot() {{ _termyes_agent_yolo copilot copilot "$@"; }}; fi
-""".format(marker=MANAGED_MARKER)
+{functions}
+""".format(marker=MANAGED_MARKER, argument_check=_permission_arguments_content(),
+           wrapped=wrapped, functions="\n".join(functions))
 
 
 def _wrapper_names(client):
     if client == "cursor":
-        return ("cursor", "cursor-agent")
+        return ("cursor-agent", "cursor")
     command = COMMANDS[client][0]
     return (command,)
 
@@ -322,9 +435,9 @@ def _ensure_wrapper(home, client):
     wrapper = local_bin / WRAPPER_NAME
     content = _wrapper_content().encode()
     if wrapper.exists():
-        if wrapper.is_symlink() or MANAGED_MARKER not in wrapper.read_text(encoding="utf-8", errors="ignore"):
+        if wrapper.is_symlink() or not _is_managed_wrapper(wrapper):
             raise ValueError("已有非 TermYes wrapper，未覆盖：" + str(wrapper))
-        if wrapper.read_bytes() != content:
+        if wrapper.read_bytes() != content or stat.S_IMODE(wrapper.stat().st_mode) != 0o755:
             _atomic_write(wrapper, content, 0o755)
     else:
         _atomic_write(wrapper, content, 0o755)
@@ -384,21 +497,33 @@ def _ensure_zsh_path(home):
 
     zshrc = home / ".zshrc"
     text = zshrc.read_text(encoding="utf-8") if zshrc.is_file() else ""
-    additions = []
-    if PATH_MARKER not in text:
-        additions.extend([
-            PATH_MARKER,
-            'export PATH="$HOME/.local/bin:$PATH"',
-        ])
-    if SHELL_MARKER not in text:
-        additions.extend([
-            SHELL_MARKER,
-            f'[[ -r "$HOME/.local/bin/{SHELL_WRAPPER_NAME}" ]] && source "$HOME/.local/bin/{SHELL_WRAPPER_NAME}"',
-        ])
-    if additions:
-        mode = stat.S_IMODE(zshrc.stat().st_mode) if zshrc.exists() else 0o600
-        block = "\n" + "\n".join(additions) + "\n# End TermYes Agent YOLO shell\n"
-        _atomic_write(zshrc, (text.rstrip() + block).encode(), mode)
+    block = (PATH_MARKER + '\nexport PATH="$HOME/.local/bin:$PATH"\n'
+             + SHELL_MARKER + '\n'
+             + f'[[ -r "$HOME/.local/bin/{SHELL_WRAPPER_NAME}" ]] && source "$HOME/.local/bin/{SHELL_WRAPPER_NAME}"\n'
+             + "# End TermYes Agent YOLO shell\n")
+    if text.endswith(block):
+        return
+    lines = text.splitlines()
+    kept = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if line in (PATH_MARKER, SHELL_MARKER):
+            marker = line
+            index += 1
+            if index < len(lines):
+                expected = ('export PATH="$HOME/.local/bin:$PATH"' if marker == PATH_MARKER
+                            else f'[[ -r "$HOME/.local/bin/{SHELL_WRAPPER_NAME}" ]] && source "$HOME/.local/bin/{SHELL_WRAPPER_NAME}"')
+                legacy = f'source "$HOME/.local/bin/{SHELL_WRAPPER_NAME}"'
+                if lines[index] == expected or (marker == SHELL_MARKER and lines[index] == legacy):
+                    index += 1
+            continue
+        if line != "# End TermYes Agent YOLO shell":
+            kept.append(line)
+        index += 1
+    updated = "\n".join(kept).rstrip() + "\n" + block
+    mode = stat.S_IMODE(zshrc.stat().st_mode) if zshrc.exists() else 0o600
+    _atomic_write(zshrc, updated.encode(), mode)
 
 
 def inspect(home, client):
@@ -434,6 +559,8 @@ def inspect(home, client):
             if result["permissionReady"]
             else "需要设置为 " + expected
         )
+        if client == "codebuddy" and result["permissionReady"]:
+            result["permissionReason"] = "bypassPermissions 已配置；原生 HIGH/CRITICAL 审批仍可能保留，需验证安全 Shell 免确认"
         return result
     if client == "codex":
         path = home / ".codex/config.toml"
@@ -447,7 +574,7 @@ def inspect(home, client):
         result["permissionMode"] = (
             "approval=" + str(approval) + ", sandbox=" + str(sandbox)
         )
-        result["permissionReady"] = approval == '"never"' and sandbox == '"danger-full-access"'
+        result["permissionReady"] = approval == "never" and sandbox == "danger-full-access"
         result["permissionReason"] = (
             "已处于 YOLO 模式"
             if result["permissionReady"]
@@ -455,14 +582,17 @@ def inspect(home, client):
         )
         return result
     if client in WRAPPER_FLAGS:
-        if _find_command(home, COMMANDS[client]) is None:
+        if _underlying_path(home, client) is None:
             result["permissionMode"] = "no-cli-launcher"
             result["permissionReason"] = "检测到客户端，但没有可包装的命令行启动器"
             return result
         names = _wrapper_names(client)
+        content = _wrapper_content().encode()
         managed = all(
-            (home / ".local/bin" / name).exists()
+            (home / ".local/bin" / name).is_file()
+            and os.access(home / ".local/bin" / name, os.X_OK)
             and _is_managed_wrapper(home / ".local/bin" / name)
+            and (home / ".local/bin" / name).read_bytes() == content
             for name in names
         )
         result["permissionMode"] = " ".join(WRAPPER_FLAGS[client]) if managed else "default"
@@ -470,7 +600,7 @@ def inspect(home, client):
         result["permissionReason"] = (
             "启动 wrapper 已强制免确认参数"
             if managed
-            else "需要安装免确认启动 wrapper"
+            else "需要安装或更新可执行的免确认启动 wrapper"
         )
         return result
     result["permissionReason"] = "该客户端的免确认模式无法由 TermYes 自动配置"

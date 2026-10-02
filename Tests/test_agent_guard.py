@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import shutil
 import subprocess
@@ -533,9 +534,6 @@ with tempfile.TemporaryDirectory(prefix="termosaic-claude-rebase-") as tmp:
                               ("managed group removal", removed_managed),
                               ("existing group edit", changed_existing_group),
                               ("existing event edit", changed_existing_event),
-                              ("other existing setting", changed_existing_key),
-                              ("permission mode edit", changed_permission_mode),
-                              ("new top-level setting", new_top_level_key),
                               ("duplicate managed group", new_managed_group),
                               ("managed hook in new event", new_managed_event)):
             manage.install(home, "claude")
@@ -549,6 +547,85 @@ with tempfile.TemporaryDirectory(prefix="termosaic-claude-rebase-") as tmp:
                   "Claude repair refuses " + label + " without overwriting config or receipt")
             config.write_bytes(base64.b64decode(json.loads(record_before)["installed"][str(config)]["data"]))
             manage.uninstall(home, "claude")
+
+        for label, mutate in (("other existing setting", changed_existing_key),
+                              ("permission mode edit", changed_permission_mode),
+                              ("new top-level setting", new_top_level_key)):
+            manage.install(home, "claude")
+            altered = json.loads(config.read_bytes())
+            mutate(altered)
+            config.write_bytes(manage.json_bytes(altered))
+            clients, failures = manage.repair_unready(home, ["claude"])
+            repaired = json.loads(config.read_bytes())
+            check(not failures and next(item for item in clients if item["id"] == "claude")["guardReady"]
+                  and repaired["permissions"]["defaultMode"] == "bypassPermissions",
+                  "Claude repair rebases " + label + " while restoring YOLO and guard")
+            if label == "other existing setting":
+                check(repaired["custom"]["keep"] == "changed", "Claude keeps changed provider setting")
+            if label == "new top-level setting":
+                check(repaired["other"] is True, "Claude keeps new provider setting")
+            manage.uninstall(home, "claude")
+
+with tempfile.TemporaryDirectory(prefix="termosaic-claude-provider-switch-") as tmp:
+    home = Path(tmp).resolve()
+    local_bin = home / ".local/bin"
+    local_bin.mkdir(parents=True)
+    cli = local_bin / "claude"
+    cli.write_text("#!/bin/sh\nexit 0\n")
+    cli.chmod(0o755)
+    _, config, runtime, adapter = manage.locations(home, "claude")
+    config.parent.mkdir(parents=True)
+    config.write_bytes(manage.json_bytes({"model": "provider-a", "env": {"ANTHROPIC_BASE_URL": "https://a.invalid"}}))
+    with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": str(local_bin) + ":/usr/bin:/bin"}):
+        manage.locked_action(home, "claude", "repair")
+        replacement = {"model": "provider-b", "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:15722"}}
+        config.write_bytes(manage.json_bytes(replacement))
+        clients, failures = manage.repair_unready(home, ["claude"])
+        claude = next(item for item in clients if item["id"] == "claude")
+        repaired = json.loads(config.read_bytes())
+        check(not failures and claude["guardReady"] and claude["permissionReady"],
+              f"Claude repair accepts a provider config replacement: {failures}, {claude['guardReason']}")
+        check(repaired["model"] == "provider-b"
+              and repaired["env"] == replacement["env"]
+              and repaired["permissions"]["defaultMode"] == "bypassPermissions"
+              and len(repaired["hooks"]["PreToolUse"]) == 1,
+              "Claude repair preserves the replacement provider and reinstalls guard plus YOLO")
+        receipt = json.loads(manage.receipt_path(home, "claude").read_bytes())
+        before = json.loads(base64.b64decode(receipt["before"][str(config)]["data"]))
+        expected = {**replacement, "permissions": {"defaultMode": "bypassPermissions"}}
+        check(before == expected, "Claude provider replacement becomes the new uninstall baseline with YOLO")
+        manage.uninstall(home, "claude")
+        check(json.loads(config.read_bytes()) == expected and not (runtime / adapter).exists(),
+              "Claude uninstall restores the replacement provider and keeps YOLO")
+
+with tempfile.TemporaryDirectory(prefix="termosaic-claude-provider-hot-switch-") as tmp:
+    home = Path(tmp).resolve()
+    local_bin = home / ".local/bin"
+    local_bin.mkdir(parents=True)
+    cli = local_bin / "claude"
+    cli.write_text("#!/bin/sh\nexit 0\n")
+    cli.chmod(0o755)
+    _, config, runtime, adapter = manage.locations(home, "claude")
+    config.parent.mkdir(parents=True)
+    config.write_bytes(manage.json_bytes({"model": "provider-a"}))
+    with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": str(local_bin) + ":/usr/bin:/bin"}):
+        manage.locked_action(home, "claude", "repair")
+        switched = json.loads(config.read_bytes())
+        switched["model"] = "provider-b"
+        switched["skipDangerousModePermissionPrompt"] = True
+        config.write_bytes(manage.json_bytes(switched))
+        clients, failures = manage.repair_unready(home, ["claude"])
+        repaired = json.loads(config.read_bytes())
+        claude = next(item for item in clients if item["id"] == "claude")
+        check(not failures and claude["guardReady"] and repaired["model"] == "provider-b"
+              and repaired["skipDangerousModePermissionPrompt"] is True,
+              "Claude hot switch with retained managed hook rebases provider settings")
+        manage.uninstall(home, "claude")
+        restored = json.loads(config.read_bytes())
+        check(restored["model"] == "provider-b" and restored["skipDangerousModePermissionPrompt"] is True
+              and "hooks" not in restored and restored["permissions"]["defaultMode"] == "bypassPermissions"
+              and not (runtime / adapter).exists(),
+              "Claude hot-switch uninstall preserves provider settings without the managed hook")
 
 with tempfile.TemporaryDirectory(prefix="termosaic-agy-rebase-") as tmp:
     home = Path(tmp).resolve()
@@ -655,5 +732,156 @@ for command in ("rm -rf /", "diskutil eraseDisk APFS Example /dev/disk3", "curl 
           "Codex PreToolUse denies listed danger: " + command)
     permission = hook("codex", payload("codex", command), event="PermissionRequest")
     check(denied(permission), "Codex permission hook denies listed danger: " + command)
+
+probe_token = "a" * 32
+probe_receipt = Path("/tmp/termyes-guard-receipt-" + probe_token)
+probe_receipt.unlink(missing_ok=True)
+with mock.patch.dict(os.environ, {
+    core.GUARD_PROBE_TOKEN_ENV: probe_token,
+    core.GUARD_PROBE_RECEIPT_ENV: str(probe_receipt),
+}):
+    level, probe_reason = core.classify(
+        "/usr/bin/printf %s " + probe_token + " > /tmp/termyes-guard-executed-" + probe_token,
+        str(ROOT),
+    )
+check(level == "block" and "端到端验证" in probe_reason and probe_receipt.read_text() == probe_token,
+      "guard probe produces a receipt and blocks an otherwise safe command")
+probe_receipt.unlink()
+
+with tempfile.TemporaryDirectory(prefix="termosaic-live-verify-") as tmp:
+    home = Path(tmp).resolve()
+    local_bin = home / ".local/bin"
+    local_bin.mkdir(parents=True)
+    cli = local_bin / "claude"
+    cli.write_text("#!/bin/sh\nexit 0\n")
+    cli.chmod(0o755)
+    _, config, _, _ = manage.locations(home, "claude")
+    config.parent.mkdir(parents=True)
+    config.write_bytes(manage.json_bytes({"model": "synthetic"}))
+
+    def successful_probe(command, arguments, probe_home, extra_env=None, timeout=manage.VERIFY_TIMEOUT_SECONDS):
+        if extra_env:
+            Path(extra_env["TERMYES_GUARD_PROBE_RECEIPT"]).write_text(
+                extra_env["TERMYES_GUARD_PROBE_TOKEN"]
+            )
+        else:
+            match = re.search(r"/tmp/termyes-agent-safe-([a-f0-9]{32})", arguments[-1])
+            check(match is not None, "safe live probe prompt contains its marker path")
+            Path(match.group(0)).write_text(match.group(1))
+        return 0, manage.LIVE_MARKER, False
+
+    with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": str(local_bin) + ":/usr/bin:/bin"}), \
+            mock.patch.object(manage, "run_probe", side_effect=successful_probe):
+        manage.locked_action(home, "claude", "repair")
+        record = manage.verify_client(home, "claude")
+        check(record["liveStatus"] == "passed" and record["requestStatus"] == "passed"
+              and record["guardLiveStatus"] == "passed",
+              "live verifier requires both safe execution and guard receipt")
+        verification = manage.read_verification(home)
+        verification["clients"]["claude"] = record
+        manage.write_verification(home, verification)
+        check(manage.live_status(home, "claude")["liveStatus"] == "passed",
+              "matching live verification remains valid")
+        changed = json.loads(config.read_bytes())
+        changed["model"] = "changed"
+        config.write_bytes(manage.json_bytes(changed))
+        check(manage.live_status(home, "claude")["liveStatus"] == "stale",
+              "provider changes invalidate prior live verification")
+
+# Additive third-party integrations must not make the repair menu a dead end.
+for client in ("codebuddy", "qoder"):
+    with tempfile.TemporaryDirectory(prefix="termyes-additive-hooks-") as tmp:
+        home = Path(tmp).resolve()
+        cli = home / ".local/bin" / permission_modes.COMMANDS[client][0]
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\nexit 0\n")
+        cli.chmod(0o755)
+        with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": str(cli.parent) + ":/usr/bin:/bin"}):
+            manage.locked_action(home, client, "repair")
+            config = manage.locations(home, client)[1]
+            changed = json.loads(config.read_bytes())
+            third_party = {"hooks": [{"type": "command", "command": "echo external"}]}
+            changed["hooks"]["PreToolUse"].append(third_party)
+            changed["hooks"]["SessionStart"] = [third_party]
+            config.write_bytes(manage.json_bytes(changed))
+            config.chmod(0o644)
+            _, failures = manage.repair_unready(home, [client])
+            check(not failures, client + " repairs additive external hooks")
+            check(json.loads(config.read_bytes()) == changed and config.stat().st_mode & 0o777 == 0o600,
+                  client + " preserves external hooks and tightens permissions")
+            manage.uninstall(home, client)
+            restored = json.loads(config.read_bytes())
+            check(restored["hooks"]["PreToolUse"] == [third_party]
+                  and restored["hooks"]["SessionStart"] == [third_party],
+                  client + " uninstall keeps external hooks")
+
+# A marker from a crashed/timed-out client cannot certify an operational Agent.
+with tempfile.TemporaryDirectory(prefix="termyes-verifier-failure-") as tmp:
+    home = Path(tmp).resolve()
+    cli = home / ".local/bin/claude"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("#!/bin/sh\nexit 0\n")
+    cli.chmod(0o755)
+    with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": str(cli.parent) + ":/usr/bin:/bin"}):
+        manage.locked_action(home, "claude", "repair")
+        for code, timed_out in ((1, False), (-15, True)):
+            def failed_after_marker(command, arguments, probe_home, extra_env=None, timeout=120):
+                successful_probe(command, arguments, probe_home, extra_env, timeout)
+                return code, "client failed after tool execution", timed_out
+            with mock.patch.object(manage, "run_probe", side_effect=failed_after_marker):
+                record = manage.verify_client(home, "claude")
+            check(record["liveStatus"] == "failed" and record["requestStatus"] == "failed"
+                  and record["guardLiveStatus"] != "passed",
+                  "client exit/timeout is not hidden by probe markers")
+        with mock.patch.object(manage, "run_probe", side_effect=successful_probe):
+            record = manage.verify_client(home, "claude")
+        record["liveCheckedAt"] = (manage.datetime.datetime.now(manage.datetime.timezone.utc)
+                                  - manage.datetime.timedelta(days=2)).isoformat()
+        verification = manage.read_verification(home)
+        verification["clients"]["claude"] = record
+        manage.write_verification(home, verification)
+        check(manage.live_status(home, "claude")["liveStatus"] == "stale",
+              "old success expires rather than remaining checked forever")
+
+# Real CLI parsers differ: agy consumes -p's immediate value, OpenCode scopes --auto to run.
+check(manage.probe_arguments("agy", "safe prompt")[-1] == "--print=safe prompt"
+      and "60s" in manage.probe_arguments("agy", "safe prompt"),
+      "agy probe binds the actual prompt instead of swallowing output-format")
+with tempfile.TemporaryDirectory(prefix="termyes-reviewer-probe-") as tmp:
+    with mock.patch.object(manage.subprocess, "Popen") as launch:
+        process = launch.return_value
+        process.returncode = 0
+        process.communicate.return_value = (b'{}', b'')
+        manage.run_reviewer_probe(Path(tmp))
+        request = json.loads(process.communicate.call_args.args[0])
+        check(re.findall(r'^Input: "([^"\r\n]*)"$', request["prompt"], re.M) == ["\\u{3}"],
+              "reviewer probe uses an actual Ctrl-C dialog, not escaped literal quotes")
+
+# Shared daemons cannot rely on the CLI's per-request environment.
+with mock.patch.dict(os.environ, {core.GUARD_PROBE_TOKEN_ENV: "", core.GUARD_PROBE_RECEIPT_ENV: ""}):
+    token = "d" * 32
+    authorization = Path("/tmp/termyes-guard-request-" + token)
+    receipt = Path("/tmp/termyes-guard-receipt-" + token)
+    command = "/usr/bin/printf %s " + token + " > /tmp/termyes-guard-executed-" + token
+    try:
+        authorization.unlink(missing_ok=True)
+        receipt.unlink(missing_ok=True)
+        check(core.classify(command, str(ROOT))[0] == "safe" and not receipt.exists(),
+              "unregistered probe does not manufacture guard evidence")
+        authorization.write_text(token)
+        authorization.chmod(0o600)
+        check(core.classify(command, str(ROOT))[0] == "block" and receipt.read_text() == token,
+              "registered probe proves actual guard loading in shared daemon")
+        receipt.unlink()
+        authorization.chmod(0o644)
+        check(core.classify(command, str(ROOT))[0] == "safe" and not receipt.exists(),
+              "daemon receipt refuses broadly readable authorization")
+        authorization.chmod(0o600)
+        os.utime(authorization, (core.time.time() - 301, core.time.time() - 301))
+        check(core.classify(command, str(ROOT))[0] == "safe" and not receipt.exists(),
+              "daemon receipt refuses expired authorization")
+    finally:
+        authorization.unlink(missing_ok=True)
+        receipt.unlink(missing_ok=True)
 
 print(f"Agent guard checks passed: {checks}; 13 adapters; real client/YOLO validation NOT performed.")

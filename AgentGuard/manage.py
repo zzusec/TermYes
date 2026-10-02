@@ -2,19 +2,29 @@
 """Install shell guards and reconcile supported agents to YOLO-equivalent modes."""
 import argparse
 import base64
+import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import fcntl
+import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
+import signal
 import stat
+import subprocess
 import sys
 import tempfile
+import uuid
 
 import permission_modes
 import policy_update
 
 SOURCE = Path(__file__).resolve().parent
+LIVE_MARKER = "TERMYES_AGENT_OK"
+VERIFY_TIMEOUT_SECONDS = 120
+VERIFY_MAX_AGE_SECONDS = 24 * 60 * 60
 
 CLIENTS = {
     "claude": ("Claude Code", ".claude", "settings.json", "danger-guard.py"),
@@ -104,6 +114,191 @@ def locations(home, client):
 
 def receipt_path(home, client):
     return home / "Library/Application Support/Termosaic/AgentGuard" / (client + ".json")
+
+
+def verification_path(home):
+    return home / "Library/Application Support/Termosaic/AgentGuard/verification.json"
+
+
+def _file_fingerprint(path, content=False):
+    try:
+        stat_result = path.lstat()
+        value = {
+            "path": str(path),
+            "mode": stat.S_IMODE(stat_result.st_mode),
+            "size": stat_result.st_size,
+            "mtime": stat_result.st_mtime_ns,
+        }
+        if path.is_symlink():
+            value["link"] = os.readlink(path)
+        elif content and path.is_file():
+            value["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return value
+    except OSError:
+        return {"path": str(path), "missing": True}
+
+
+def verification_fingerprint(home, client):
+    _, config, _, _ = locations(home, client)
+    inspection = permission_modes.inspect(home, client)
+    value = {
+        "client": client,
+        "permissionMode": inspection.get("permissionMode"),
+        "permissionReady": inspection.get("permissionReady"),
+        "config": _file_fingerprint(config, content=True) if config else None,
+        "settings": [
+            _file_fingerprint(home / relative, content=True)
+            for relative in {
+                "claude": (".claude/settings.local.json",),
+                "codex": (".codex/config.toml", ".codex/auth.json"),
+                "codebuddy": (".codebuddy/settings.local.json",),
+                "pi": (".pi/agent/settings.json", ".pi/agent/models.json", ".pi/agent/auth.json"),
+                "qoder": (".qoder/settings.local.json",),
+                "agy": (".gemini/config/config.json",),
+                "opencode": (".config/opencode/opencode.json", ".config/opencode/opencode.jsonc"),
+            }.get(client, ())
+        ],
+        "receipt": _file_fingerprint(receipt_path(home, client), content=True),
+        "commands": [
+            {"entry": _file_fingerprint(path), "target": _file_fingerprint(path.resolve())}
+            for path in permission_modes.executable_paths(home, client)
+        ],
+        "verifier": [
+            _file_fingerprint(SOURCE / name, content=True)
+            for name in ("manage.py", "permission_modes.py", "core.py")
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()
+
+
+def read_verification(home):
+    path = verification_path(home)
+    if not path.exists():
+        return {"version": 1, "clients": {}, "reviewer": None}
+    checked_path(path)
+    value = mapping(json.loads(path.read_bytes()))
+    clients = value.get("clients")
+    if not isinstance(clients, dict):
+        raise ValueError("实测记录格式无效")
+    reviewer = value.get("reviewer")
+    if reviewer is not None and not isinstance(reviewer, dict):
+        raise ValueError("AI 审批实测记录格式无效")
+    return {"version": 1, "clients": clients, "reviewer": reviewer}
+
+
+def write_verification(home, value):
+    atomic_write(verification_path(home), json_bytes(value))
+
+
+def live_status(home, client, verification=None):
+    try:
+        verification = verification or read_verification(home)
+        record = verification["clients"].get(client)
+        if not isinstance(record, dict):
+            return {
+                "liveStatus": "untested",
+                "liveReason": "尚未进行真实模型与命令守卫实测",
+                "requestStatus": "untested",
+                "requestReason": "尚未实测",
+                "guardLiveStatus": "untested",
+                "guardLiveReason": "尚未实测",
+            }
+        result = {
+            "liveStatus": record.get("liveStatus", "untested"),
+            "liveReason": record.get("liveReason", "实测记录不完整"),
+            "liveCheckedAt": record.get("liveCheckedAt"),
+            "requestStatus": record.get("requestStatus", "untested"),
+            "requestReason": record.get("requestReason", "实测记录不完整"),
+            "guardLiveStatus": record.get("guardLiveStatus", "untested"),
+            "guardLiveReason": record.get("guardLiveReason", "实测记录不完整"),
+        }
+        checked_at = datetime.datetime.fromisoformat(record.get("liveCheckedAt", ""))
+        age = (datetime.datetime.now(datetime.timezone.utc) - checked_at).total_seconds()
+        if (record.get("fingerprint") != verification_fingerprint(home, client)
+                or age < 0 or age > VERIFY_MAX_AGE_SECONDS):
+            result.update({
+                "liveStatus": "stale",
+                "liveReason": "配置、CLI 或守卫已变化，或实测超过 24 小时，请重新实测",
+                "requestStatus": "stale",
+                "requestReason": "实测后配置或 CLI 已变化",
+                "guardLiveStatus": "stale",
+                "guardLiveReason": "实测后守卫配置已变化",
+            })
+        return result
+    except Exception as error:
+        return {
+            "liveStatus": "failed",
+            "liveReason": "无法读取实测记录：" + str(error),
+            "requestStatus": "failed",
+            "requestReason": "无法读取实测记录",
+            "guardLiveStatus": "failed",
+            "guardLiveReason": "无法读取实测记录",
+        }
+
+
+def reviewer_config_path(home):
+    return home / "Library/Application Support/Termosaic/AgentGuard/ai-review.json"
+
+
+def reviewer_fingerprint(home):
+    value = {
+        "config": _file_fingerprint(reviewer_config_path(home), content=True),
+        "script": _file_fingerprint(SOURCE / "ai_review.py", content=True),
+    }
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def reviewer_configuration(home):
+    path = reviewer_config_path(home)
+    if not path.is_file():
+        return False, "未配置 AI 审批模型"
+    try:
+        config = mapping(json.loads(path.read_bytes()))
+    except Exception as error:
+        return False, "AI 审批配置无效：" + str(error)
+    if config.get("enabled") is not True:
+        return False, "AI 审批未启用"
+    models = config.get("models")
+    if isinstance(models, list) and models:
+        selected_id = config.get("selected_model_id")
+        selected = next((model for model in models if isinstance(model, dict)
+                         and model.get("id") == selected_id), None)
+        selected = selected or next((model for model in models if isinstance(model, dict)), None)
+        if selected:
+            config = {**config, **selected}
+    if not isinstance(config.get("endpoint"), str) or not isinstance(config.get("model"), str):
+        return False, "AI 审批模型未配置完整"
+    return True, "AI 审批模型已配置"
+
+
+def reviewer_status(home, verification=None):
+    configured, configured_reason = reviewer_configuration(home)
+    if not configured:
+        return {
+            "reviewerConfigured": False,
+            "reviewerStatus": "disabled" if configured_reason == "AI 审批未启用" else "failed",
+            "reviewerReason": configured_reason,
+        }
+    try:
+        verification = verification or read_verification(home)
+        record = verification.get("reviewer")
+        if not isinstance(record, dict):
+            return {"reviewerConfigured": True, "reviewerStatus": "untested",
+                    "reviewerReason": "AI 审批尚未发起真实模型实测"}
+        result = {
+            "reviewerConfigured": True,
+            "reviewerStatus": record.get("status", "untested"),
+            "reviewerReason": record.get("reason", "AI 审批实测记录不完整"),
+            "reviewerCheckedAt": record.get("checkedAt"),
+        }
+        if record.get("fingerprint") != reviewer_fingerprint(home):
+            result.update({"reviewerStatus": "stale", "reviewerReason": "审批模型配置已变化，请重新实测"})
+        return result
+    except Exception as error:
+        return {"reviewerConfigured": True, "reviewerStatus": "failed",
+                "reviewerReason": "无法读取 AI 审批实测记录：" + str(error)}
 
 
 def owns(entry, paths):
@@ -256,6 +451,42 @@ def rebase_claude_hooks(installed_config, current_config, restored_config, paths
     return restored_config
 
 
+def claude_config_was_replaced(installed_config, current_config):
+    installed_settings = {key: value for key, value in installed_config.items() if key != "hooks"}
+    current_settings = {key: value for key, value in current_config.items() if key != "hooks"}
+    return installed_settings != current_settings or "hooks" not in current_config
+
+
+def without_managed_claude_hooks(current_config, paths):
+    restored = json.loads(json.dumps(current_config))
+    hooks = restored.get("hooks")
+    if hooks is None:
+        return restored
+    hooks = mapping(hooks)
+    cleaned = {}
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            raise ValueError("Claude Hook 事件不是数组：" + event)
+        remaining_groups = []
+        for group in groups:
+            group = mapping(group)
+            entries = group.get("hooks")
+            if not isinstance(entries, list):
+                raise ValueError("Claude Hook 列表格式错误")
+            remaining = [entry for entry in entries if not owns(entry, paths)]
+            if remaining:
+                remaining_groups.append({**group, "hooks": remaining})
+            elif len(remaining) == len(entries):
+                remaining_groups.append(group)
+        if remaining_groups:
+            cleaned[event] = remaining_groups
+    if cleaned:
+        restored["hooks"] = cleaned
+    else:
+        restored.pop("hooks", None)
+    return restored
+
+
 def install(home, client):
     receipt = receipt_path(home, client)
     previous = read_file(receipt) if client == "claude" else None
@@ -276,12 +507,12 @@ def install(home, client):
     if old and snapshots != old["installed"]:
         config = locations(home, client)[1]
         changed = {name for name in snapshots if snapshots[name] != old["installed"][name]}
-        if client not in ("agy", "claude") or config is None or changed != {str(config)}:
+        if client not in ("agy", "claude", "codebuddy", "qoder") or config is None or changed != {str(config)}:
             raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
         key = str(config)
         stored = old["installed"][key]
         current = snapshots[key]
-        if not stored or not current or (client != "claude" and stored["mode"] != current["mode"]):
+        if not stored or not current or (client == "agy" and stored["mode"] != current["mode"]):
             raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
         installed_config = mapping(json.loads(base64.b64decode(stored["data"])))
         current_config = mapping(json.loads(base64.b64decode(current["data"])))
@@ -297,7 +528,14 @@ def install(home, client):
             root, _, runtime, adapter = locations(home, client)
             paths = {str(runtime / adapter), str(root / "hooks" / adapter)}
             if installed_config != current_config:
-                rebase_claude_hooks(installed_config, current_config, restored_config, paths)
+                if client == "claude" and claude_config_was_replaced(installed_config, current_config):
+                    permission_modes.repair(home, client)
+                    current_config = mapping(json.loads(config.read_bytes()))
+                    restored_config = without_managed_claude_hooks(current_config, paths)
+                    files = desired_files(home, client)
+                    updated[key]["data"] = base64.b64encode(files[config]).decode()
+                else:
+                    rebase_claude_hooks(installed_config, current_config, restored_config, paths)
             updated[key]["mode"] = stored["mode"] & current["mode"] & 0o600
         before = {**before, key: {"data": base64.b64encode(json_bytes(restored_config)).decode(),
                                   "mode": previous_config["mode"] if previous_config else current["mode"]}}
@@ -349,6 +587,11 @@ def uninstall(home, client):
 
 def status(home, selected=None):
     policy_version, policy_status, policy_error = policy_update.status(home)
+    try:
+        verification = read_verification(home)
+    except Exception:
+        verification = None
+    review_status = reviewer_status(home, verification)
     result = []
     for client, (name, _, _, _) in CLIENTS.items():
         if selected and client not in selected:
@@ -385,6 +628,8 @@ def status(home, selected=None):
             "guardReady": guard_ready,
             "guardReason": guard_reason,
             "approvalReason": reason(client),
+            **review_status,
+            **live_status(home, client, verification),
             **permission_modes.inspect(home, client),
         })
     return result
@@ -452,11 +697,303 @@ def monitor(home, selected=None):
     return clients, failures
 
 
+def probe_arguments(client, prompt):
+    if client == "claude":
+        return ["-p", "--output-format", "text", "--no-session-persistence", prompt]
+    if client == "codex":
+        return ["exec", "--skip-git-repo-check", "--ephemeral", "--color", "never", prompt]
+    if client == "codebuddy":
+        return ["-p", "--output-format", "text", "--no-session-persistence", prompt]
+    if client == "zcode":
+        return ["--prompt", prompt, "--mode", "yolo", "--no-color"]
+    if client == "pi":
+        return ["--print", prompt]
+    if client == "qoder":
+        return ["-p", "--output-format", "text", "--no-session-persistence", prompt]
+    if client == "agy":
+        return ["--output-format", "text", "--print-timeout", "60s", "--print=" + prompt]
+    if client == "opencode":
+        return ["run", "--format", "json", prompt]
+    return None
+
+
+def run_probe(command, arguments, home, extra_env=None, timeout=VERIFY_TIMEOUT_SECONDS):
+    environment = dict(os.environ)
+    environment.update({
+        "HOME": str(home),
+        "PATH": os.pathsep.join((
+            str(home / ".local/bin"),
+            str(home / ".local/share/Termosaic/vendor/bin"),
+            str(home / ".opencode/bin"),
+            str(home / ".qoder/entry"),
+            str(home / ".pi/agent/bin"),
+            "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+        )),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "DANGER_GUARD_SILENT": "1",
+    })
+    if extra_env:
+        environment.update(extra_env)
+    with tempfile.TemporaryFile() as output:
+        process = subprocess.Popen(
+            [str(command), *arguments],
+            cwd=str(home),
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        timed_out = False
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=3)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+        output.seek(0, os.SEEK_END)
+        size = output.tell()
+        output.seek(max(0, size - 16384))
+        text = output.read().decode("utf-8", errors="replace")
+    return process.returncode, text, timed_out
+
+
+def output_reason(output):
+    clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)
+    errors = [line.strip() for line in clean.splitlines()
+              if re.search(r"error|failed|invalid|unrecognized|usage limit|429", line, re.I)]
+    text = " ".join(("\n".join(errors) if errors else clean).split())
+    return text[:600] if errors else text[-300:] if text else "客户端未返回可诊断信息"
+
+
+def read_probe_file(path, token):
+    try:
+        return path.is_file() and not path.is_symlink() and path.read_text() == token
+    except OSError:
+        return False
+
+
+def verify_client(home, client):
+    checked_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    current = next(item for item in status(home, [client]) if item["id"] == client)
+    base = {
+        "fingerprint": verification_fingerprint(home, client),
+        "liveCheckedAt": checked_at,
+    }
+    if not current["detected"]:
+        reason_text = "未检测到客户端"
+        return {**base, "liveStatus": "unsupported", "liveReason": reason_text,
+                "requestStatus": "unsupported", "requestReason": reason_text,
+                "guardLiveStatus": "unsupported", "guardLiveReason": reason_text}
+    if not current["permissionReady"] or not current["guardReady"] or current.get("serviceError"):
+        reason_text = current.get("serviceError") or (
+            current["permissionReason"] if not current["permissionReady"] else current["guardReason"]
+        )
+        return {**base, "liveStatus": "failed", "liveReason": "配置未就绪：" + reason_text,
+                "requestStatus": "failed", "requestReason": "配置未就绪：" + reason_text,
+                "guardLiveStatus": "failed", "guardLiveReason": "配置未就绪：" + reason_text}
+    command = permission_modes.launcher_path(home, client)
+    arguments = probe_arguments(client, "")
+    if command is None or arguments is None:
+        reason_text = "该客户端尚未支持端到端实测"
+        return {**base, "liveStatus": "unsupported", "liveReason": reason_text,
+                "requestStatus": "unsupported", "requestReason": reason_text,
+                "guardLiveStatus": "unsupported", "guardLiveReason": reason_text}
+
+    token = uuid.uuid4().hex
+    safe_path = Path("/tmp") / ("termyes-agent-safe-" + token)
+    safe_command = "/usr/bin/printf %s " + shlex.quote(token) + " > " + shlex.quote(str(safe_path))
+    safe_prompt = (
+        "请使用 Shell/Bash 工具原样执行下面这条安全命令一次，不要用其他方式创建文件：\n"
+        + safe_command + "\n命令执行完成后只回复 " + LIVE_MARKER + "。"
+    )
+    request_status = "failed"
+    request_reason = "Agent 未执行安全 Shell 探针"
+    try:
+        code, output, timed_out = run_probe(command, probe_arguments(client, safe_prompt), home)
+        if code == 0 and not timed_out and read_probe_file(safe_path, token):
+            request_status = "passed"
+            request_reason = "真实模型请求与免确认 Shell 执行通过"
+        elif timed_out:
+            request_reason = "真实请求超时"
+        else:
+            request_reason = "未执行安全 Shell 探针（退出码 %s）：%s" % (code, output_reason(output))
+    except Exception as error:
+        request_reason = "无法启动真实请求：" + str(error)
+    finally:
+        try:
+            safe_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    if request_status != "passed":
+        return {
+            **base, "liveStatus": "failed", "liveReason": request_reason,
+            "requestStatus": request_status, "requestReason": request_reason,
+            "guardLiveStatus": "untested",
+            "guardLiveReason": "请求/免确认未通过，未运行守卫实测",
+        }
+
+    guard_token = uuid.uuid4().hex
+    guard_receipt = Path("/tmp") / ("termyes-guard-receipt-" + guard_token)
+    guard_executed = Path("/tmp") / ("termyes-guard-executed-" + guard_token)
+    guard_authorization = Path("/tmp") / ("termyes-guard-request-" + guard_token)
+    guard_command = "/usr/bin/printf %s " + shlex.quote(guard_token) + " > " + shlex.quote(str(guard_executed))
+    guard_prompt = (
+        "请使用 Shell/Bash 工具原样执行下面这条安全的 TermYes 守卫验证命令一次：\n"
+        + guard_command + "\n如果被 Hook 拒绝，不要重试；只回复 " + LIVE_MARKER + "。"
+    )
+    guard_status = "failed"
+    guard_reason = "命令守卫未返回加载证据"
+    try:
+        fd = os.open(guard_authorization, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(guard_token)
+        code, output, timed_out = run_probe(
+            command,
+            probe_arguments(client, guard_prompt),
+            home,
+            {
+                "TERMYES_GUARD_PROBE_TOKEN": guard_token,
+                "TERMYES_GUARD_PROBE_RECEIPT": str(guard_receipt),
+            },
+        )
+        receipt_ready = read_probe_file(guard_receipt, guard_token)
+        command_ran = read_probe_file(guard_executed, guard_token)
+        if code == 0 and not timed_out and receipt_ready and not command_ran:
+            guard_status = "passed"
+            guard_reason = "客户端已真实加载并调用 TermYes 命令守卫"
+        elif command_ran:
+            guard_reason = "验证命令已执行，客户端未加载 TermYes 守卫"
+        elif timed_out:
+            guard_reason = "命令守卫实测超时"
+        else:
+            guard_reason = "未取得守卫调用证据（退出码 %s）：%s" % (code, output_reason(output))
+    except Exception as error:
+        guard_reason = "无法执行命令守卫实测：" + str(error)
+    finally:
+        for path in (guard_receipt, guard_executed, guard_authorization):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+    passed = request_status == "passed" and guard_status == "passed"
+    return {
+        **base,
+        "liveStatus": "passed" if passed else "failed",
+        "liveReason": "Agent 请求、免确认执行与命令守卫均通过" if passed else (
+            request_reason if request_status != "passed" else guard_reason
+        ),
+        "requestStatus": request_status,
+        "requestReason": request_reason,
+        "guardLiveStatus": guard_status,
+        "guardLiveReason": guard_reason,
+    }
+
+
+def verify_clients(home, selected=None):
+    verification = read_verification(home)
+    failures = {}
+    candidates = [item["id"] for item in status(home, selected) if item["detected"]]
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        pending = {executor.submit(verify_client, home, client): client for client in candidates}
+        for completed in as_completed(pending):
+            client = pending[completed]
+            record = completed.result()
+            verification["clients"][client] = record
+            write_verification(home, verification)
+            if record["liveStatus"] != "passed":
+                failures[client] = record["liveReason"]
+    return status(home), failures
+
+
+def run_reviewer_probe(home, timeout=60):
+    environment = dict(os.environ)
+    environment.update({
+        "HOME": str(home),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TERMOSAIC_AI_REVIEW_CONFIG": str(reviewer_config_path(home)),
+    })
+    process = subprocess.Popen(
+        ["/usr/bin/python3", "-B", str(SOURCE / "ai_review.py")],
+        cwd=str(home),
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    request = json.dumps({
+        "prompt": (
+            "Would you like to send input to terminal?\n"
+            'Input: "\\u{3}"\n'
+            "1. Yes, proceed\n2. No"
+        ),
+        "input": "\\u{3}",
+    }).encode()
+    try:
+        stdout, stderr = process.communicate(request, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=3)
+        except (ProcessLookupError, subprocess.TimeoutExpired):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        return 124, b"", b"AI reviewer timeout"
+    return process.returncode, stdout[-1048576:], stderr[-16384:]
+
+
+def verify_reviewer(home):
+    configured, reason_text = reviewer_configuration(home)
+    record = {
+        "fingerprint": reviewer_fingerprint(home),
+        "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    if not configured:
+        return {**record, "status": "disabled" if reason_text == "AI 审批未启用" else "failed",
+                "reason": reason_text}
+    try:
+        code, stdout, stderr = run_reviewer_probe(home)
+        if code != 0:
+            return {**record, "status": "failed",
+                    "reason": "AI reviewer 执行失败（%s）：%s" % (
+                        code, output_reason(stderr.decode("utf-8", errors="replace"))
+                    )}
+        value = mapping(json.loads(stdout))
+        if value.get("behavior") == "allow":
+            return {**record, "status": "passed", "reason": "Ctrl-C AI reviewer 真实请求与允许决策通过"}
+        return {**record, "status": "failed", "reason": value.get("reason", "AI reviewer 未允许 Ctrl-C")}
+    except Exception as error:
+        return {**record, "status": "failed", "reason": "AI reviewer 返回无效：" + str(error)}
+
+
+def verify_all(home):
+    _, failures = verify_clients(home)
+    verification = read_verification(home)
+    verification["reviewer"] = verify_reviewer(home)
+    write_verification(home, verification)
+    if verification["reviewer"]["status"] not in ("passed", "disabled"):
+        failures["reviewer"] = verification["reviewer"]["reason"]
+    return status(home), failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client"),
+        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "verify-reviewer"),
     )
     parser.add_argument("client", nargs="?", choices=CLIENTS)
     parser.add_argument("--home", type=Path, default=Path.home(), help="User root; tests use a temporary home")
@@ -476,9 +1013,32 @@ def main():
         if failures:
             sys.exit(1)
         return
+    if args.action == "verify-reviewer":
+        verification = read_verification(args.home)
+        verification["reviewer"] = verify_reviewer(args.home)
+        write_verification(args.home, verification)
+        print(json.dumps(status(args.home), ensure_ascii=False))
+        if verification["reviewer"]["status"] != "passed":
+            sys.exit(1)
+        return
+    if args.action in ("verify", "verify-client"):
+        if args.action == "verify-client" and not args.client:
+            parser.error("client required")
+        clients, failures = (verify_clients(args.home, [args.client])
+                             if args.action == "verify-client" else verify_all(args.home))
+        print(json.dumps(clients, ensure_ascii=False))
+        if failures:
+            sys.exit(1)
+        return
     if args.action in ("monitor", "ensure"):
         if args.action == "ensure" and not args.client:
             parser.error("client required")
+        if args.action == "ensure":
+            clients = status(args.home, [args.client])
+            if clients and all(item["detected"] and item["permissionReady"] and item["guardReady"]
+                               for item in clients):
+                print(json.dumps(clients, ensure_ascii=False))
+                return
         clients, failures = monitor(args.home, [args.client] if args.action == "ensure" else None)
         print(json.dumps(clients, ensure_ascii=False))
         if failures:

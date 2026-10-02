@@ -51,6 +51,15 @@ def responses(decision, confidence="high", reason="test"):
     ]}]}
 
 
+def anthropic(decision, confidence="high", reason="test"):
+    content = json.dumps({
+        "decision": decision,
+        "confidence": confidence,
+        "reason": reason,
+    })
+    return {"content": [{"type": "text", "text": content}]}
+
+
 class AIReviewTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="termosaic-ai-review-")
@@ -412,6 +421,35 @@ class AIReviewTests(unittest.TestCase):
             decision = ai_review.review_terminal_input(prompt, "\\u{3}")
         self.assertEqual(decision["behavior"], "allow")
 
+    def test_window_level_ctrl_c_supports_anthropic_wire_format(self):
+        prompt = "\n".join([
+            "Would you like to send input to terminal 85856?",
+            "1. Yes, proceed",
+            "2. No",
+            'Input: "\\u{3}"',
+        ])
+        value = json.loads(self.config.read_text())
+        value.update({
+            "endpoint": "http://127.0.0.1:8789/v1/messages",
+            "model": "glm-5.3-flash",
+            "wire_api": "anthropic",
+            "max_response_tokens": 1200,
+        })
+        self.config.write_text(json.dumps(value))
+        with mock.patch.object(
+            ai_review.urllib.request,
+            "urlopen",
+            return_value=FakeResponse(anthropic("allow")),
+        ) as request:
+            decision = ai_review.review_terminal_input(prompt, "\\u{3}")
+        self.assertEqual(decision["behavior"], "allow")
+        sent = request.call_args.args[0]
+        body = json.loads(sent.data.decode("utf-8"))
+        self.assertEqual(sent.full_url, "http://127.0.0.1:8789/v1/messages")
+        self.assertEqual(sent.get_header("Anthropic-version"), "2023-06-01")
+        self.assertIn("independent reviewer", body["messages"][0]["content"])
+        self.assertFalse(body["stream"])
+
     def test_window_level_enter_and_text_are_denied_without_model(self):
         prompt = "\n".join([
             "Would you like to send input to terminal 85856?",
@@ -424,6 +462,42 @@ class AIReviewTests(unittest.TestCase):
             text = ai_review.review_terminal_input(prompt, "rm -rf /")
         self.assertEqual(newline["behavior"], "deny")
         self.assertEqual(text["behavior"], "deny")
+        request.assert_not_called()
+
+    def test_window_prompt_input_must_match_requested_ctrl_c(self):
+        prompts = (
+            'Would you like to send input to terminal 1?\n1. Yes, proceed\n2. No\nInput: "\\n"',
+            'Would you like to send input to terminal 1?\n1. Yes, proceed\n2. No',
+            'Would you like to send input to terminal 1?\n1. Yes, proceed\n2. No\nInput: "\\u{3}"\nInput: "text"',
+            'Would you like to send input to terminal 1?\n1. Yes, proceed\n2. No\nInput: "\\u{3}"\n'
+            'Would you like to send input to terminal 2?\n1. Yes, proceed\n2. No\nInput: "text"',
+        )
+        with mock.patch.object(ai_review.urllib.request, "urlopen", return_value=FakeResponse(completion("allow"))) as request:
+            for prompt in prompts:
+                with self.subTest(prompt=prompt):
+                    self.assertEqual(ai_review.review_terminal_input(prompt, "\\u{3}")["behavior"], "deny")
+        request.assert_not_called()
+
+    def test_selected_model_protocol_does_not_inherit_previous_model(self):
+        value = json.loads(self.config.read_text())
+        value["wire_api"] = "anthropic"
+        value["models"] = [{"id": "chat", "endpoint": "https://example.invalid/v1/chat/completions", "model": "chat-model"}]
+        value["selected_model_id"] = "chat"
+        self.config.write_text(json.dumps(value))
+        with mock.patch.object(ai_review.urllib.request, "urlopen", return_value=FakeResponse(completion("allow"))) as request:
+            decision = self.review()
+        self.assertEqual(decision["behavior"], "allow")
+        body = json.loads(request.call_args.args[0].data)
+        self.assertEqual(body["messages"][0]["role"], "system")
+        self.assertNotIn("system", body)
+
+    def test_window_reviewer_diagnostics_do_not_echo_config_contents(self):
+        self.config.write_text('{"synthetic-private-value": nope}')
+        prompt = 'Would you like to send input to terminal 1?\n1. Yes, proceed\n2. No\nInput: "\\u{3}"'
+        with mock.patch.object(ai_review.urllib.request, "urlopen") as request:
+            decision = ai_review.review_terminal_input(prompt, "\\u{3}")
+        self.assertEqual(decision["behavior"], "deny")
+        self.assertNotIn("synthetic-private-value", json.dumps(decision))
         request.assert_not_called()
 
     def test_selected_model_overrides_flat_config(self):

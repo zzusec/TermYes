@@ -1,3 +1,36 @@
+# TermYes v1.6.21
+
+## 简体中文
+
+- Agent 勾选改为端到端实测依据：真实模型请求、安全 Shell 免确认执行、实际守卫调用都通过才就绪；修复配置、超时、异常退出或过期记录不再冒充成功。新增全面实测、单项实测和可滚动/复制的诊断。
+- Codex / Claude 每五小时在专用 Terminal 窗口发送 `hi` 并显示真实回复；新增“立即激活一次（发送 hi）”，与 Timer 共用路径，不碰正在工作的会话，不发送重复后台请求。两者的真实定时窗口链路已验收通过。
+- 迁移 OpenCode 守卫到 v2 插件 API；修复 `run --auto` 参数位置和共享 daemon 的实际守卫验证，正常后台服务已实测通过。
+- 保留 CodeBuddy / Qoder 的独立追加 Hook，修复 wrapper 检测、路径优先级与权限降级参数冲突；守卫错误和外部修改仍可见、失败关闭。
+- 修复排列错误被轮询抹掉、模型配置保存伪成功、停用/修改调度后的旧结果、Ctrl-C 窗口复核和更新安装器回滚问题。
+- 本地自动回归 23/23 步通过，双架构应用、两个兼容 DMG 和临时更新路径验证通过。适配器协议测试不等于所有真实客户端已认证。
+
+### 使用说明与已知边界
+
+- 实测和 `hi` 激活会产生真实模型请求，可能消耗现有服务额度。
+- 未配置、未登录、额度不足或实测失败的 Agent 不显示就绪；本轮设备上 Qoder、zcode、agy 仍未通过，发布不代表这三项问题已解决。设备上的账号或模型配置不会打进安装包。
+- 本地 ad-hoc 签名变更后，Ctrl-C 自动确认可能需要在系统设置中重新授予 TermYes 辅助功能权限。
+- 守卫检查 Shell 文本，不是沙箱，也不保护未加载 Hook 或非 Shell 工具。
+
+## English
+
+- Check Agent readiness only after a real model request, automatic safe Shell execution, and actual guard invocation pass. Installed files, configuration repairs, crashes, timeouts, and stale records no longer count as success; add full/individual live checks and copyable diagnostics.
+- Send `hi` for Codex/Claude in dedicated Terminal windows at each five-hour boundary, showing real replies. Activate Now shares the Timer path, avoids active user sessions, and removes duplicate background requests; both real timer paths passed local acceptance.
+- Migrate the OpenCode guard to the v2 plugin API, fix `run --auto`, and verify guard invocation in the normal shared daemon.
+- Preserve additive third-party CodeBuddy/Qoder hooks, harden wrappers/PATH and conflicting permission flags, and retain visible fail-closed errors.
+- Fix hidden tiling errors, false-positive model saves, obsolete schedule results, Ctrl-C window revalidation, and updater rollback failures.
+- All 23 local regression steps passed, including universal builds, both compatibility images, and temporary update tests. Mock adapter checks are not blanket real-client certification.
+
+### Notes and limitations
+
+- Live checks and activation make real model requests and may consume service credits.
+- Unconfigured, unauthenticated, quota-exhausted, or failing clients remain unverified; Qoder, zcode, and agy did not pass on the acceptance device. Local credentials/model routes are not packaged.
+- Changed ad-hoc signatures may require reauthorizing Accessibility for Ctrl-C confirmation. Shell guards are not a sandbox and do not protect unloaded hooks or non-Shell tools.
+
 # TermYes v1.6.20
 
 ## 简体中文

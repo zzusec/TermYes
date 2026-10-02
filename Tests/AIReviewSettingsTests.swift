@@ -51,6 +51,13 @@ struct AIReviewSettingsTests {
         expect(controller.learnedPatternCount == 1, "learned pattern count should be loaded")
         expect(controller.syncEnabled, "cloud sync should be loaded")
 
+        var emptyModels = legacy
+        emptyModels["models"] = []
+        try JSONSerialization.data(withJSONObject: emptyModels).write(to: configURL)
+        controller.reload()
+        expect(controller.models.count == 1, "empty models should fall back to flat config")
+        expect(controller.selectedModel?.model == "cline-pass/qwen3.8-max", "flat fallback model should remain selected")
+
         expect(
             controller.add(
                 name: "Second",
@@ -87,6 +94,44 @@ struct AIReviewSettingsTests {
             (saved?["allowed_temp_roots"] as? [String])?.contains("/private/tmp") == true,
             "temporary roots should be preserved"
         )
+
+        let permissions = try FileManager.default.attributesOfItem(atPath: configURL.path)[.posixPermissions] as? NSNumber
+        expect(permissions?.intValue == 0o600, "saved configuration should be private")
+
+        controller.remove(second.id)
+        controller.reload()
+        expect(controller.models.isEmpty, "deleting the last model must not resurrect the flat fallback")
+        expect(!controller.isEnabled, "removing all models should disable the reviewer")
+        controller.setEnabled(true)
+        expect(!controller.isEnabled, "reviewer cannot be enabled without a configured model")
+        expect(controller.errorMessage != nil, "missing model prerequisite should be visible")
+
+        let blockedParent = root.appendingPathComponent("not-a-directory")
+        try Data("blocked".utf8).write(to: blockedParent)
+        let blocked = AIReviewController(configURL: blockedParent.appendingPathComponent("ai-review.json"))
+        expect(!blocked.add(name: "Unsaved", endpoint: "https://example.invalid/v1/messages", model: "test", apiKeyEnv: ""), "save failure must not report a successful add")
+        expect(blocked.models.isEmpty, "failed save must restore persisted state")
+        expect(blocked.errorMessage != nil, "save failure should remain visible")
+
+        let invalid = AIReviewController(configURL: root.appendingPathComponent("invalid.json"))
+        for endpoint in ["http:///path", "https://", "https://user:password@example.invalid/v1/chat/completions"] {
+            expect(!invalid.add(name: "Invalid", endpoint: endpoint, model: "test", apiKeyEnv: ""), "malformed or credential-bearing endpoint must be rejected")
+        }
+        expect(invalid.add(name: "Messages", endpoint: "https://example.invalid/v1/messages", model: "test-messages", apiKeyEnv: ""), "messages model should save")
+        let messageID = invalid.selectedModelID!
+        expect(invalid.add(name: "Chat", endpoint: "https://example.invalid/v1/chat/completions", model: "test-chat", apiKeyEnv: ""), "chat model should save")
+        invalid.select(messageID)
+        let protocols = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("invalid.json"))) as! [String: Any]
+        expect(protocols["wire_api"] as? String == "anthropic", "selected model protocol should persist")
+        expect((protocols["models"] as? [[String: Any]])?.last?["wire_api"] as? String == "chat", "protocol must belong to each model")
+
+        let corruptURL = root.appendingPathComponent("corrupt.json")
+        let corruptData = Data("not-json".utf8)
+        try corruptData.write(to: corruptURL)
+        let corrupt = AIReviewController(configURL: corruptURL)
+        expect(!corrupt.add(name: "Overwrite", endpoint: "https://example.invalid/v1/chat/completions", model: "test", apiKeyEnv: ""), "unreadable config must not be overwritten")
+        let preservedCorruptData = try Data(contentsOf: corruptURL)
+        expect(preservedCorruptData == corruptData, "corrupt config should remain available for recovery")
 
         print("AI review settings tests passed.")
     }

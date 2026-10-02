@@ -106,11 +106,18 @@ final class GlobalHotKeyController: ObservableObject {
         )
 
         guard status == noErr, let reference else {
-            registrationError = "快捷键 \(shortcut.displayName) 已被其他应用占用"
+            registrationError = Self.registrationFailure(shortcut, status: status)
             hotKey = nil
             return
         }
         hotKey = reference
+    }
+
+    static func registrationFailure(_ shortcut: GlobalShortcut, status: OSStatus) -> String {
+        if status == eventHotKeyExistsErr {
+            return "快捷键 \(shortcut.displayName) 已被其他应用占用（错误 \(status)）"
+        }
+        return "无法启用快捷键 \(shortcut.displayName)（错误 \(status)）"
     }
 
     private func installEventHandlerIfNeeded() -> Bool {
@@ -127,7 +134,7 @@ final class GlobalHotKeyController: ObservableObject {
             nil,
             &eventHandler
         )
-        if status != noErr {
+        if status != noErr || eventHandler == nil {
             registrationError = "无法启用全局快捷键（错误 \(status)）"
             return false
         }

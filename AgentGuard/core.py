@@ -12,6 +12,8 @@ import os
 import re
 import shlex
 import subprocess
+import stat
+import time
 
 import rules
 
@@ -27,6 +29,8 @@ QUIET_HOURS_CONFIG_ENV = "TERMOSAIC_QUIET_HOURS_CONFIG"
 DEFAULT_QUIET_HOURS_CONFIG = os.path.expanduser(
     "~/Library/Application Support/Termosaic/AgentGuard/quiet-hours.json"
 )
+GUARD_PROBE_TOKEN_ENV = "TERMYES_GUARD_PROBE_TOKEN"
+GUARD_PROBE_RECEIPT_ENV = "TERMYES_GUARD_PROBE_RECEIPT"
 
 
 # ============================================================
@@ -546,6 +550,47 @@ def _unwrap_rm(cmd, cwd, fallback, depth=0):
     return "safe" if saw_safe else fallback
 
 
+def _guard_probe(cmd):
+    token = os.environ.get(GUARD_PROBE_TOKEN_ENV, "")
+    receipt = os.environ.get(GUARD_PROBE_RECEIPT_ENV, "")
+    # A shared Agent daemon does not inherit the requesting CLI's environment.
+    # Only the exact safe probe with a fresh, owner-only authorization may use
+    # the file-backed receipt protocol; ordinary commands remain unchanged.
+    if not token:
+        match = re.fullmatch(
+            r"/usr/bin/printf %s ([a-f0-9]{32}) > /tmp/termyes-guard-executed-\1", cmd
+        )
+        if not match:
+            return False
+        token = match.group(1)
+        authorization = "/tmp/termyes-guard-request-" + token
+        try:
+            fd = os.open(authorization, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, "r") as handle:
+                info = os.fstat(handle.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                        or stat.S_IMODE(info.st_mode) != 0o600
+                        or not 0 <= time.time() - info.st_mtime <= 300
+                        or handle.read(64) != token):
+                    return False
+        except OSError:
+            return False
+        receipt = "/tmp/termyes-guard-receipt-" + token
+    if not re.fullmatch(r"[a-f0-9]{32}", token) or token not in cmd:
+        return False
+    real_receipt = os.path.realpath(receipt)
+    if (not re.fullmatch(r"/private/tmp/termyes-guard-receipt-[a-f0-9]{32}", real_receipt)
+            or os.path.lexists(receipt)):
+        return False
+    try:
+        fd = os.open(receipt, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(token)
+        return True
+    except OSError:
+        return False
+
+
 def classify(cmd, cwd=None, bypass=None):
     """TermYes: every warning is a denial, regardless of client/permission mode.
 
@@ -556,6 +601,8 @@ def classify(cmd, cwd=None, bypass=None):
         raise ValueError("缺失、无效或过长的命令")
     if not isinstance(cwd, str) or not os.path.isabs(cwd):
         raise ValueError("缺失或无效的工作目录")
+    if _guard_probe(cmd):
+        return "block", "TermYes 守卫端到端验证命令"
     if mask_cmd_subs(strip_heredocs(cmd)) is None:
         return "block", "命令引号或替换表达式未闭合，无法可靠判定"
     level, reason = _classify(cmd, cwd)

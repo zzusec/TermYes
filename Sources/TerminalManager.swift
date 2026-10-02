@@ -39,7 +39,10 @@ final class TerminalManager: NSObject, ObservableObject {
     private var started = false
     private var dashboardRequested = false
 
-    override private init() {
+    private let scriptExecutor: ((String) -> (NSAppleEventDescriptor, NSDictionary?))?
+
+    init(scriptExecutor: ((String) -> (NSAppleEventDescriptor, NSDictionary?))? = nil) {
+        self.scriptExecutor = scriptExecutor
         super.init()
     }
 
@@ -76,6 +79,7 @@ final class TerminalManager: NSObject, ObservableObject {
         for value in candidates {
             if let url = URL(string: value), NSWorkspace.shared.open(url) { return }
         }
+        updatePhase(.error("无法打开自动化设置，请在系统设置中打开隐私与安全性 → 自动化"))
     }
 
     func showDashboard() {
@@ -85,8 +89,10 @@ final class TerminalManager: NSObject, ObservableObject {
         targetScreen = screenUnderPointer() ?? NSScreen.main
 
         if let terminal = terminalApplication() {
-            _ = terminal.unhide()
-            _ = terminal.activate(options: [.activateAllWindows])
+            guard terminal.unhide(), terminal.activate(options: [.activateAllWindows]) else {
+                updatePhase(.error("无法显示或激活 Terminal"))
+                return
+            }
             updatePhase(.visible)
             scheduleTilePasses()
         } else {
@@ -101,8 +107,9 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func hideDashboard(activateManager: Bool = true) {
         dashboardRequested = false
-        if let terminal = terminalApplication() {
-            _ = terminal.hide()
+        if let terminal = terminalApplication(), !terminal.hide() {
+            updatePhase(.error("无法隐藏 Terminal"))
+            return
         }
 
         updatePhase(terminalApplication() == nil ? .terminalNotRunning : .hidden)
@@ -120,26 +127,18 @@ final class TerminalManager: NSObject, ObservableObject {
         }
     }
 
-    func openMissingAgentWindows(_ agents: [ScheduledAgent], guardPath: String) -> [String] {
+    func openAgentActivationWindows(_ agents: [ScheduledAgent], scriptPath: String, resultDirectory: String) -> [String] {
         agents.compactMap { agent in
-            let command = agent.startupCommand(guardPath: guardPath)
+            let command = agent.activationCommand(scriptPath: scriptPath, resultDirectory: resultDirectory)
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
+            // Always create a dedicated window; never send input into a user's active Agent session.
             let source = """
             tell application id "com.apple.Terminal"
-                repeat with windowRef in every window
-                    try
-                        set processNames to processes of selected tab of windowRef
-                        repeat with processName in processNames
-                            if (processName as text) is "\(agent.rawValue)" then return false
-                        end repeat
-                    end try
-                end repeat
                 do script "\(command)"
             end tell
-            return true
             """
-            return executeAppleScript(source) == nil ? "\(agent.rawValue)：无法检查或打开 Terminal 窗口" : nil
+            return executeAppleScript(source) == nil ? "\(agent.rawValue)：无法打开激活窗口" : nil
         }
     }
 
@@ -150,13 +149,11 @@ final class TerminalManager: NSObject, ObservableObject {
         set output to ""
         tell application id "com.apple.Terminal"
             repeat with windowRef in every window
-                try
-                    set currentWindow to contents of windowRef
-                    set currentID to id of currentWindow
-                    set currentName to name of currentWindow as text
-                    set currentText to contents of selected tab of currentWindow
-                    set output to output & currentID & fieldSeparator & currentName & fieldSeparator & currentText & recordSeparator
-                end try
+                set currentWindow to contents of windowRef
+                set currentID to id of currentWindow
+                set currentName to name of currentWindow as text
+                set currentText to contents of selected tab of currentWindow
+                set output to output & currentID & fieldSeparator & currentName & fieldSeparator & currentText & recordSeparator
             end repeat
         end tell
         return output
@@ -164,17 +161,24 @@ final class TerminalManager: NSObject, ObservableObject {
         guard let result = executeAppleScript(source) else { return nil }
         let recordSeparator = Character(UnicodeScalar(30))
         let fieldSeparator = Character(UnicodeScalar(31))
-        return result.stringValue?
-            .split(separator: recordSeparator, omittingEmptySubsequences: true)
-            .compactMap { record in
-                let fields = record.split(separator: fieldSeparator, maxSplits: 2)
-                guard fields.count == 3, let id = Int(fields[0]) else { return nil }
-                return TerminalWindowSnapshot(
-                    id: id,
-                    name: String(fields[1]),
-                    contents: String(fields[2])
-                )
+        guard let output = result.stringValue else {
+            updatePhase(.error("Terminal 窗口快照未返回文本"))
+            return nil
+        }
+        var snapshots: [TerminalWindowSnapshot] = []
+        for record in output.split(separator: recordSeparator, omittingEmptySubsequences: true) {
+            let fields = record.split(separator: fieldSeparator, maxSplits: 2, omittingEmptySubsequences: false)
+            guard fields.count == 3, let id = Int(fields[0]), id > 0 else {
+                updatePhase(.error("Terminal 窗口快照格式无效"))
+                return nil
             }
+            snapshots.append(TerminalWindowSnapshot(
+                id: id,
+                name: String(fields[1]),
+                contents: String(fields[2])
+            ))
+        }
+        return snapshots
     }
 
     func terminalWindowNeedsAttention() -> Bool {
@@ -250,7 +254,6 @@ final class TerminalManager: NSObject, ObservableObject {
         }
 
         guard dashboardRequested else { return }
-        updatePhase(.visible)
 
         // Poll Window Server cheaply for near-instant change detection. Confirm with
         // Terminal AppleScript only when the candidate count changes, excluding the
@@ -293,14 +296,16 @@ final class TerminalManager: NSObject, ObservableObject {
         configuration.activates = true
         NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { [weak self] app, error in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.dashboardRequested else { return }
                 if let error {
                     self.updatePhase(.error("无法启动 Terminal：\(error.localizedDescription)"))
                     return
                 }
-                self.dashboardRequested = true
+                guard let app, app.unhide() else {
+                    self.updatePhase(.error("Terminal 启动后无法显示"))
+                    return
+                }
                 self.updatePhase(.visible)
-                _ = app?.unhide()
                 self.scheduleTilePasses()
             }
         }
@@ -327,9 +332,9 @@ final class TerminalManager: NSObject, ObservableObject {
         let windowIDs = stableWindowOrder(currentWindowIDs: currentWindowIDs)
         let count = windowIDs.count
         updateWindowCount(count)
-        lastTiledWindowIDs = windowIDs
 
         guard count > 0 else {
+            lastTiledWindowIDs = []
             updatePhase(.visible)
             return
         }
@@ -342,6 +347,15 @@ final class TerminalManager: NSObject, ObservableObject {
             .map(accessibilityFrame(from:))
         guard frames.count == count else { return }
 
+        guard applyWindowLayout(windowIDs: windowIDs, frames: frames) else {
+            lastWindowServerCandidateCount = -1
+            return
+        }
+        lastTiledWindowIDs = windowIDs
+        updatePhase(.visible)
+    }
+
+    func applyWindowLayout(windowIDs: [Int], frames: [CGRect]) -> Bool {
         let windowIDList = windowIDs.map(String.init).joined(separator: ", ")
         let boundsList = frames.map { frame in
             let left = Int(frame.minX.rounded())
@@ -356,20 +370,17 @@ final class TerminalManager: NSObject, ObservableObject {
         set targetBounds to {\(boundsList)}
         tell application id "com.apple.Terminal"
             repeat with i from 1 to count of targetWindowIDs
-                try
-                    set currentID to item i of targetWindowIDs
-                    set currentWindow to first window whose id is currentID
-                    set miniaturized of currentWindow to false
-                    set visible of currentWindow to true
-                    set bounds of currentWindow to item i of targetBounds
-                end try
+                set currentID to item i of targetWindowIDs
+                set currentWindow to first window whose id is currentID
+                set miniaturized of currentWindow to false
+                set visible of currentWindow to true
+                set bounds of currentWindow to item i of targetBounds
             end repeat
         end tell
         return count of targetBounds
         """
 
-        guard executeAppleScript(source) != nil else { return }
-        updatePhase(.visible)
+        return executeAppleScript(source) != nil
     }
 
     private func windowServerCandidateCount(pid: pid_t) -> Int {
@@ -415,14 +426,18 @@ final class TerminalManager: NSObject, ObservableObject {
     }
 
     private func executeAppleScript(_ source: String) -> NSAppleEventDescriptor? {
-        guard let script = NSAppleScript(source: source) else {
-            updatePhase(.error("无法创建 Terminal 自动化脚本"))
-            return nil
-        }
-
         var errorInfo: NSDictionary?
+        let result: NSAppleEventDescriptor
         logger.debug("Executing Terminal automation script")
-        let result = script.executeAndReturnError(&errorInfo)
+        if let scriptExecutor {
+            (result, errorInfo) = scriptExecutor(source)
+        } else {
+            guard let script = NSAppleScript(source: source) else {
+                updatePhase(.error("无法创建 Terminal 自动化脚本"))
+                return nil
+            }
+            result = script.executeAndReturnError(&errorInfo)
+        }
         guard errorInfo == nil else {
             let number = (errorInfo?[NSAppleScript.errorNumber] as? NSNumber)?.intValue ?? 0
             let message = (errorInfo?[NSAppleScript.errorMessage] as? String) ?? "未知自动化错误"

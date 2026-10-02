@@ -13,6 +13,8 @@ struct TermYesUpdateInstaller {
         let backup = URL(fileURLWithPath: arguments[4], isDirectory: true)
         let logURL = URL(fileURLWithPath: arguments[5])
         var logLines: [String] = []
+        let skipLaunch = ProcessInfo.processInfo.environment["TERMOSAIC_UPDATE_SKIP_LAUNCH"] == "1"
+        var backedUp = false
 
         func log(_ message: String) {
             logLines.append("\(ISO8601DateFormatter().string(from: Date())) \(message)")
@@ -27,12 +29,15 @@ struct TermYesUpdateInstaller {
 
         let fileManager = FileManager.default
         do {
-            if fileManager.fileExists(atPath: backup.path) { try fileManager.removeItem(at: backup) }
+            guard !fileManager.fileExists(atPath: backup.path) else {
+                throw InstallerError.backupExists
+            }
             guard fileManager.fileExists(atPath: staged.path), fileManager.fileExists(atPath: installed.path) else {
                 throw InstallerError.missingApplication
             }
 
             try fileManager.moveItem(at: installed, to: backup)
+            backedUp = true
             log("Backed up existing application")
 
             let copy = run("/usr/bin/ditto", [staged.path, installed.path])
@@ -41,7 +46,7 @@ struct TermYesUpdateInstaller {
             let verify = run("/usr/bin/codesign", ["--verify", "--deep", "--strict", installed.path])
             guard verify == 0 else { throw InstallerError.signatureFailed(verify) }
 
-            if ProcessInfo.processInfo.environment["TERMOSAIC_UPDATE_SKIP_LAUNCH"] != "1" {
+            if !skipLaunch {
                 let openStatus = run("/usr/bin/open", [installed.path])
                 guard openStatus == 0 else { throw InstallerError.launchFailed(openStatus) }
             }
@@ -52,10 +57,18 @@ struct TermYesUpdateInstaller {
             exit(0)
         } catch {
             log("Update failed: \(error.localizedDescription)")
-            if fileManager.fileExists(atPath: installed.path) { try? fileManager.removeItem(at: installed) }
-            if fileManager.fileExists(atPath: backup.path) {
-                try? fileManager.moveItem(at: backup, to: installed)
-                _ = run("/usr/bin/open", [installed.path])
+            if backedUp {
+                do {
+                    if fileManager.fileExists(atPath: installed.path) { try fileManager.removeItem(at: installed) }
+                    try fileManager.moveItem(at: backup, to: installed)
+                    log("Restored existing application")
+                    if !skipLaunch {
+                        let status = run("/usr/bin/open", [installed.path])
+                        if status != 0 { log("Restored application launch failed with status \(status)") }
+                    }
+                } catch {
+                    log("Rollback failed: \(error.localizedDescription); backup retained at \(backup.path)")
+                }
             }
             exit(1)
         }
@@ -77,9 +90,10 @@ struct TermYesUpdateInstaller {
     }
 
     private enum InstallerError: LocalizedError {
-        case missingApplication, copyFailed(Int32), signatureFailed(Int32), launchFailed(Int32)
+        case missingApplication, backupExists, copyFailed(Int32), signatureFailed(Int32), launchFailed(Int32)
         var errorDescription: String? {
             switch self {
+            case .backupExists: return "A previous update backup exists; recover or remove it before retrying"
             case .missingApplication: return "Staged or installed application is missing"
             case .copyFailed(let code): return "ditto failed with status \(code)"
             case .signatureFailed(let code): return "codesign verification failed with status \(code)"

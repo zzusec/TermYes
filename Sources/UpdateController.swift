@@ -29,6 +29,13 @@ final class UpdateController: NSObject, ObservableObject {
         guard !started else { return }
         started = true
         scheduleTimer()
+        if let cache = try? updateCacheDirectory(),
+           let log = try? String(contentsOf: cache.appendingPathComponent("update-installer.log"), encoding: .utf8),
+           log.contains("Update failed:") || log.contains("Timed out waiting") {
+            statusMessage = "上次更新安装失败"
+            updateIssue = "\(statusMessage)：\n\(log)"
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             self?.checkForUpdates(userInitiated: false)
         }
@@ -79,6 +86,7 @@ final class UpdateController: NSObject, ObservableObject {
         Task {
             defer { isDownloading = false }
             do {
+                try validateInstallationPrerequisites()
                 let stagedApp = try await downloadAndStage(release: release)
                 try launchInstaller(stagedApp: stagedApp)
             } catch {
@@ -187,7 +195,7 @@ final class UpdateController: NSObject, ObservableObject {
         return stagedApp
     }
 
-    private func launchInstaller(stagedApp: URL) throws {
+    private func validateInstallationPrerequisites() throws {
         let installedApp = Bundle.main.bundleURL
         guard installedApp.path.hasPrefix("/Applications/") else { throw UpdateError.notInstalledInApplications }
         guard FileManager.default.isWritableFile(atPath: installedApp.deletingLastPathComponent().path) else {
@@ -196,6 +204,12 @@ final class UpdateController: NSObject, ObservableObject {
 
         let helper = installedApp.appendingPathComponent("Contents/Helpers/TermYesUpdateInstaller")
         guard FileManager.default.isExecutableFile(atPath: helper.path) else { throw UpdateError.helperMissing }
+    }
+
+    private func launchInstaller(stagedApp: URL) throws {
+        try validateInstallationPrerequisites()
+        let installedApp = Bundle.main.bundleURL
+        let helper = installedApp.appendingPathComponent("Contents/Helpers/TermYesUpdateInstaller")
 
         let backup = installedApp.deletingLastPathComponent().appendingPathComponent(".TermYes.app.backup")
         let log = try updateCacheDirectory().appendingPathComponent("update-installer.log")

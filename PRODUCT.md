@@ -30,6 +30,7 @@ Show every existing Terminal.app shell window as one balanced wall on the curren
 - Remain available only from the macOS menu bar, with no Dock icon or desktop control window.
 - Check public GitHub Releases online and securely stage, validate, replace, and relaunch newer TermYes versions.
 - Provide a persisted, configurable global shortcut that shows and forcibly re-tiles the complete Terminal mosaic.
+- At each configured five-hour boundary, open dedicated Terminal windows for selected Codex/Claude greetings and show their actual replies; manual activation shares the same path and never injects input into active user sessions.
 - Bundle thirteen shell-guard adapters from bypass-yes with per-client installation and exact restore; dangerous/warning rules and captured input/bridge errors deny.
 - Keep detected agents in YOLO-equivalent modes while maintaining independently installed command guards; refuse to launch through managed entry points when readiness fails. Installed files alone are not proof of runtime protection.
 - Deny Shell commands only when shared explicit danger rules or high-impact rm target rules match; permit valid unmatched commands without a Codex AI veto. Keep optional AI review for Ctrl-C terminal-input prompts separate.

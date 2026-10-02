@@ -9,21 +9,16 @@ enum ScheduledAgent: String, CaseIterable {
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
     }
 
-    var activationArguments: [String] {
-        switch self {
-        case .claude: return ["-p", FiveHourActivation.prompt]
-        case .codex: return ["exec", "--skip-git-repo-check", FiveHourActivation.prompt]
+    func activationCommand(scriptPath: String, resultDirectory: String) -> String {
+        func quote(_ value: String) -> String {
+            "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
         }
+        return "/usr/bin/python3 -B \(quote(scriptPath)) \(rawValue) --result-dir \(quote(resultDirectory))"
     }
 
-    func startupCommand(guardPath: String) -> String {
-        let quotedPath = guardPath.replacingOccurrences(of: "'", with: "'\\''")
-        return "/usr/bin/python3 -B '\(quotedPath)' ensure \(rawValue) && export PATH=\"$HOME/.local/bin:$PATH\" && exec \(rawValue)"
-    }
 }
 
 enum FiveHourActivation {
-    static let prompt = "你好，请只回复收到，不要调用工具或修改文件。"
     static let interval: TimeInterval = 5 * 60 * 60
 
     static func selectedAgents(from storedValues: [String]?) -> [ScheduledAgent] {

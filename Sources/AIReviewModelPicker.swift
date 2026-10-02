@@ -14,6 +14,14 @@ final class AIReviewModelPicker: NSObject {
 
     func show() {
         AIReviewController.shared.reload()
+        if let panel, panel.isVisible {
+            rebuildModels()
+            errorLabel?.stringValue = AIReviewController.shared.errorMessage ?? ""
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
+        panel?.close()
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
@@ -52,10 +60,9 @@ final class AIReviewModelPicker: NSObject {
             endpointField.stringValue = "http://127.0.0.1:15722/v1/chat/completions"
         }
 
-        let errorLabel = NSTextField(labelWithString: "")
+        let errorLabel = NSTextField(wrappingLabelWithString: controller.errorMessage ?? "")
         errorLabel.font = .systemFont(ofSize: 11)
         errorLabel.textColor = .systemRed
-        errorLabel.lineBreakMode = .byTruncatingTail
 
         let cancel = button(title: "关闭", action: #selector(close))
         let add = button(title: "添加并选择", action: #selector(addModel))
@@ -215,12 +222,14 @@ final class AIReviewModelPicker: NSObject {
     @objc private func selectModel(_ sender: NSButton) {
         guard let id = sender.identifier?.rawValue else { return }
         AIReviewController.shared.select(id)
+        errorLabel?.stringValue = AIReviewController.shared.errorMessage ?? ""
         rebuildModels()
     }
 
     @objc private func deleteModel(_ sender: NSButton) {
         guard let id = sender.identifier?.rawValue else { return }
         AIReviewController.shared.remove(id)
+        errorLabel?.stringValue = AIReviewController.shared.errorMessage ?? ""
         rebuildModels()
     }
 

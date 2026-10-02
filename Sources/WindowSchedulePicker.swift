@@ -12,7 +12,7 @@ private final class ScrollDatePicker: NSDatePicker {
 
 /// Lets the user pick any start time for the five-hour windows without a 24-row menu.
 @MainActor
-final class WindowSchedulePicker: NSObject {
+final class WindowSchedulePicker: NSObject, NSWindowDelegate {
     static let shared = WindowSchedulePicker()
 
     private var panel: NSPanel?
@@ -36,6 +36,7 @@ final class WindowSchedulePicker: NSObject {
             defer: false
         )
         panel.title = "定时激活5h窗口"
+        panel.delegate = self
         panel.level = .floating
         panel.isReleasedWhenClosed = false
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
@@ -52,7 +53,7 @@ final class WindowSchedulePicker: NSObject {
         let codexCheckbox = NSButton(checkboxWithTitle: "Codex", target: self, action: #selector(updateConfirm))
         codexCheckbox.state = controller.windowAgents.contains(.codex) ? .on : .off
 
-        let hint = NSTextField(labelWithString: "启动缺失窗口，并发送一句问候；每 5 小时一轮")
+        let hint = NSTextField(labelWithString: "打开专用窗口发送 hi；每 5 小时一轮")
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
 
@@ -119,6 +120,9 @@ final class WindowSchedulePicker: NSObject {
 
     @objc private func close() {
         panel?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
         panel = nil
         picker = nil
         claudeCheckbox = nil
@@ -143,7 +147,7 @@ final class WindowSchedulePicker: NSObject {
     }
 
     @objc private func confirmSelection() {
-        guard let picker else { return close() }
+        guard let picker, !selectedAgents.isEmpty else { return }
         let components = Calendar.current.dateComponents([.hour, .minute], from: picker.dateValue)
         guard let hour = components.hour, let minute = components.minute else { return close() }
         ScheduledActivationController.shared.setWindowSchedule(minutes: hour * 60 + minute, agents: selectedAgents)

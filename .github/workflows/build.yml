@@ -25,6 +25,10 @@ jobs:
           /tmp/termosaic-version-tests
           swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termosaic-release-location-tests
           /tmp/termosaic-release-location-tests
+      - name: Test verified Agent readiness
+        run: |
+          swiftc Sources/AgentGuardController.swift Tests/AgentGuardReadinessTests.swift -o /tmp/termyes-readiness-tests
+          /tmp/termyes-readiness-tests
       - name: Test AI review settings
         run: |
           swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termosaic-ai-settings-tests
@@ -32,6 +36,8 @@ jobs:
       - name: Test Agent guards and five-hour activation
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_permission_modes.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_activation.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_policy_update.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_ai_review.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
@@ -40,6 +46,8 @@ jobs:
           node Tests/test_guard_plugins.mjs
           swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termosaic-activation-tests
           /tmp/termosaic-activation-tests
+          swiftc Sources/{GridLayout,FiveHourActivation,TerminalManager,GlobalHotKeyController,ScheduledActivationController,WindowSchedulePicker}.swift Tests/menu_activation_regression.swift -o /tmp/termyes-menu-regression
+          /tmp/termyes-menu-regression
       - name: Build universal app
         run: SKIP_INSTALL=1 ./build.sh
       - name: Verify architectures
@@ -57,10 +65,11 @@ jobs:
         run: |
           VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)"
           test "${GITHUB_REF_NAME}" = "v${VERSION}"
+          awk '/^# TermYes v/ { if (seen++) exit } { print }' RELEASE_NOTES.md > build/release-notes.md
           gh release create "${GITHUB_REF_NAME}" \
             --verify-tag --draft \
             --title "TermYes ${GITHUB_REF_NAME}" \
-            --notes-file RELEASE_NOTES.md \
+            --notes-file build/release-notes.md \
             "dist/TermYes-v${VERSION}-macOS.dmg" \
             "dist/TermYes-v${VERSION}-macOS.dmg.sha256" \
             "dist/Termosaic-v${VERSION}-macOS.dmg" \

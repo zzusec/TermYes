@@ -46,6 +46,8 @@ struct TermYesApp: App {
     @StateObject private var scheduledActivation = ScheduledActivationController.shared
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
+    @StateObject private var aiReview = AIReviewController.shared
+    @StateObject private var windowApproval = WindowApprovalController.shared
 
     private var updateVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -58,7 +60,24 @@ struct TermYesApp: App {
     private func showIssue(_ title: String, detail: String) {
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = detail
+        if detail.count > 1200 {
+            alert.informativeText = "完整详情如下，可选择文本或复制。"
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 500, height: 280))
+            scroll.hasVerticalScroller = true
+            scroll.borderType = .bezelBorder
+            let text = NSTextView(frame: scroll.contentView.bounds)
+            text.string = detail
+            text.isEditable = false
+            text.isSelectable = true
+            text.font = .systemFont(ofSize: 12)
+            text.textContainerInset = NSSize(width: 8, height: 8)
+            text.autoresizingMask = [.width]
+            text.textContainer?.widthTracksTextView = true
+            scroll.documentView = text
+            alert.accessoryView = scroll
+        } else {
+            alert.informativeText = detail
+        }
         alert.alertStyle = .warning
         alert.addButton(withTitle: "关闭")
         alert.addButton(withTitle: "复制详情")
@@ -73,21 +92,67 @@ struct TermYesApp: App {
         agentGuard.clients.filter(\.detected)
     }
 
-    private func isAgentReady(_ client: AgentGuardClient) -> Bool {
-        client.permissionReady && client.guardReady && client.serviceError == nil
+    private func isAgentConfigured(_ client: AgentGuardClient) -> Bool {
+        client.configurationReady
     }
 
-    private var readyAgentCount: Int {
-        detectedAgents.filter(isAgentReady).count
+    private var configuredAgentCount: Int {
+        detectedAgents.filter(isAgentConfigured).count
+    }
+
+    private var verifiedAgentCount: Int {
+        detectedAgents.filter { $0.requestStatus == "passed" }.count
+    }
+
+    private var loadedGuardCount: Int {
+        detectedAgents.filter { $0.guardLiveStatus == "passed" }.count
     }
 
     private var orderedDetectedAgents: [AgentGuardClient] {
-        detectedAgents.filter { !isAgentReady($0) } + detectedAgents.filter(isAgentReady)
+        detectedAgents.sorted { left, right in
+            func rank(_ client: AgentGuardClient) -> Int {
+                if !isAgentConfigured(client) { return 0 }
+                if client.liveStatus == "failed" { return 1 }
+                if client.liveStatus != "passed" { return 2 }
+                return 3
+            }
+            let leftRank = rank(left)
+            let rightRank = rank(right)
+            return leftRank == rightRank ? left.name < right.name : leftRank < rightRank
+        }
     }
 
     private var agentSafetyText: String {
         guard !detectedAgents.isEmpty else { return "检测中…" }
-        return "已就绪 \(readyAgentCount)/\(detectedAgents.count)"
+        return "配置 \(configuredAgentCount)/\(detectedAgents.count) · 请求 \(verifiedAgentCount)/\(detectedAgents.count) · 守卫 \(loadedGuardCount)/\(detectedAgents.count)"
+    }
+
+    private func agentStatusText(_ client: AgentGuardClient) -> String {
+        if !isAgentConfigured(client) { return "配置待修复" }
+        if client.isVerified { return "实测通过" }
+        if client.requestStatus == "failed" { return "请求/免确认失败" }
+        if client.guardLiveStatus == "failed" { return "守卫未加载" }
+        if client.liveStatus == "stale" { return "配置已变化，待重测" }
+        if client.liveStatus == "unsupported" { return "暂不支持实测" }
+        return "待实测"
+    }
+
+    private func agentStatusIcon(_ client: AgentGuardClient) -> String {
+        if !isAgentConfigured(client) { return "xmark.square" }
+        if client.isVerified { return "checkmark.square.fill" }
+        if client.liveStatus == "failed" { return "exclamationmark.triangle.fill" }
+        return "questionmark.square"
+    }
+
+    private var reviewerStatusText: String {
+        guard let client = agentGuard.clients.first else { return "检测中…" }
+        switch client.reviewerStatus {
+        case "passed": return "实测通过"
+        case "failed": return "实测失败"
+        case "stale": return "配置已变化，待重测"
+        case "disabled": return "未启用"
+        default: return "待实测"
+        }
     }
 
     private var agentMenuStatus: String {
@@ -149,26 +214,79 @@ struct TermYesApp: App {
             }
             Menu("自动审批") {
                 Text(agentSafetyText)
-                if readyAgentCount < detectedAgents.count {
-                    Button(agentGuard.isWorking ? "正在修复…" : "修复未就绪（\(detectedAgents.count - readyAgentCount)）") {
+                Button(agentGuard.isWorking ? "正在全面实测…" : "全面实测（会产生模型请求）") {
+                    agentGuard.verifyAll()
+                }
+                .disabled(agentGuard.isWorking || detectedAgents.isEmpty)
+                if configuredAgentCount < detectedAgents.count {
+                    Button(agentGuard.isWorking ? "正在修复…" : "修复配置未就绪（\(detectedAgents.count - configuredAgentCount)）") {
                         agentGuard.repairUnready()
                     }
                     .disabled(agentGuard.isWorking)
                 }
-                Button("刷新状态") { agentGuard.refresh() }
+                Button("刷新配置与实测记录") { agentGuard.refresh() }
                     .disabled(agentGuard.isWorking)
                 Divider()
                 ForEach(orderedDetectedAgents) { client in
-                    if isAgentReady(client) {
-                        Label(client.name, systemImage: "checkmark.square.fill")
-                    } else {
-                        Button {
+                    Button {
+                        if client.liveStatus == "unsupported" {
+                            showIssue("\(client.name) 尚未实测", detail: client.liveReason ?? "该客户端暂不支持端到端验证，不能标为就绪。")
+                        } else if isAgentConfigured(client) {
+                            agentGuard.verify(client)
+                        } else {
                             agentGuard.repair(client)
-                        } label: {
-                            Label("\(client.name)\(client.permissionReady ? " · 待修复" : "")",
-                                  systemImage: client.permissionReady ? "checkmark.square.fill" : "xmark.square")
                         }
-                        .disabled(agentGuard.isWorking)
+                    } label: {
+                        Label("\(client.name) · \(agentStatusText(client))", systemImage: agentStatusIcon(client))
+                    }
+                    .disabled(agentGuard.isWorking)
+                }
+                Divider()
+                Text("Ctrl-C AI 审批")
+                Toggle(
+                    "启用 AI reviewer",
+                    isOn: Binding(
+                        get: { aiReview.isEnabled },
+                        set: {
+                            aiReview.setEnabled($0)
+                            agentGuard.refresh()
+                        }
+                    )
+                )
+                .disabled(aiReview.models.isEmpty)
+                Text("审核模型：\(aiReview.selectedModel?.name ?? "未配置")")
+                Button("配置审核模型…") {
+                    AIReviewModelPicker.shared.show()
+                }
+                if let error = aiReview.errorMessage {
+                    Button("审批模型设置失败 · 查看原因…") {
+                        showIssue("审批模型设置失败", detail: error)
+                    }
+                }
+                Toggle(
+                    "自动确认 Ctrl-C 窗口",
+                    isOn: Binding(
+                        get: { windowApproval.isEnabled },
+                        set: { windowApproval.setEnabled($0) }
+                    )
+                )
+                if windowApproval.isEnabled && !windowApproval.isAccessibilityTrusted {
+                    Button("授予 Ctrl-C 辅助功能权限…") {
+                        windowApproval.requestAccessibility()
+                    }
+                    Button("打开辅助功能设置…") {
+                        windowApproval.openAccessibilitySettings()
+                    }
+                }
+                Text("Reviewer：\(reviewerStatusText) · 窗口：\(windowApproval.statusMessage)")
+                Button(agentGuard.isWorking ? "正在实测 reviewer…" : "实测 Ctrl-C AI reviewer") {
+                    agentGuard.verifyReviewer()
+                }
+                .disabled(agentGuard.isWorking || !aiReview.isEnabled || aiReview.models.isEmpty)
+                if let reason = agentGuard.clients.first?.reviewerReason,
+                   agentGuard.clients.first?.reviewerStatus == "failed" {
+                    Button("查看 reviewer 失败原因…") {
+                        showIssue("Ctrl-C AI reviewer 实测失败", detail: reason)
                     }
                 }
                 Divider()
@@ -180,15 +298,17 @@ struct TermYesApp: App {
                         showIssue("危险命令清单异常", detail: agentGuard.policyDetails)
                     }
                 }
-                if agentGuard.lastCheckFailed {
-                    Divider()
-                    Text(agentMenuStatus)
-                    Button("查看 Agent 状态…") {
-                        showIssue("Agent 检查结果", detail: agentGuard.diagnosticDetails)
-                    }
+                Divider()
+                Text(agentMenuStatus)
+                Button("查看 Agent 状态与实测详情…") {
+                    showIssue("Agent 检查结果", detail: agentGuard.diagnosticDetails)
                 }
             }
             Menu("定时激活5h窗口") {
+                Button(scheduledActivation.activating ? "正在激活…" : "立即激活一次（发送 hi）") {
+                    scheduledActivation.activateNow()
+                }
+                .disabled(scheduledActivation.activating || scheduledActivation.windowAgents.isEmpty)
                 Button("设置时间：\(scheduledActivation.windowScheduleDescription)") {
                     WindowSchedulePicker.shared.show()
                 }

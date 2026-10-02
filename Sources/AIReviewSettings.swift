@@ -10,6 +10,7 @@ struct AIReviewModel: Identifiable, Equatable {
     var timeoutSeconds: Double
     var attempts: Int
     var maxResponseTokens: Int
+    var wireAPI: String
 }
 
 @MainActor
@@ -27,6 +28,7 @@ final class AIReviewController: ObservableObject {
     @Published private(set) var syncPath = ""
 
     private var document: [String: Any] = [:]
+    private var readFailed = false
     private let configURL: URL
 
     init(configURL: URL = AIReviewController.defaultConfigURL) {
@@ -49,6 +51,7 @@ final class AIReviewController: ObservableObject {
     }
 
     func reload() {
+        readFailed = false
         do {
             guard FileManager.default.fileExists(atPath: configURL.path) else {
                 document = [:]
@@ -81,6 +84,7 @@ final class AIReviewController: ObservableObject {
             syncPath = value["sync_path"] as? String ?? ""
             errorMessage = nil
         } catch {
+            readFailed = true
             document = [:]
             models = []
             selectedModelID = nil
@@ -95,22 +99,30 @@ final class AIReviewController: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) {
+        guard canSave else { return }
+        guard !enabled || selectedModel != nil else {
+            errorMessage = "请先配置审核模型，再启用 AI reviewer"
+            return
+        }
         isEnabled = enabled
         persist()
     }
 
     func select(_ modelID: String) {
+        guard canSave else { return }
         guard models.contains(where: { $0.id == modelID }) else { return }
         selectedModelID = modelID
         persist()
     }
 
     func setLearningEnabled(_ enabled: Bool) {
+        guard canSave else { return }
         learningEnabled = enabled
         persist()
     }
 
     func setSyncEnabled(_ enabled: Bool) {
+        guard canSave else { return }
         syncEnabled = enabled
         if enabled && syncPath.isEmpty {
             syncPath = Self.defaultSyncURL.path
@@ -125,13 +137,16 @@ final class AIReviewController: ObservableObject {
         model: String,
         apiKeyEnv: String
     ) -> Bool {
+        guard canSave else { return false }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let endpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         let model = model.trimmingCharacters(in: .whitespacesAndNewlines)
         let apiKeyEnv = apiKeyEnv.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !model.isEmpty,
               let url = URL(string: endpoint),
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else {
             errorMessage = "请填写名称、模型 ID，以及有效的 HTTP(S) 地址"
             return false
         }
@@ -149,16 +164,17 @@ final class AIReviewController: ObservableObject {
             apiKeyEnv: apiKeyEnv,
             timeoutSeconds: 10,
             attempts: 2,
-            maxResponseTokens: 800
+            maxResponseTokens: 800,
+            wireAPI: Self.wireAPI(for: endpoint)
         )
         models.append(value)
         selectedModelID = value.id
         errorMessage = nil
-        persist()
-        return true
+        return persist()
     }
 
     func remove(_ modelID: String) {
+        guard canSave else { return }
         models.removeAll(where: { $0.id == modelID })
         if selectedModelID == modelID {
             selectedModelID = models.first?.id
@@ -169,7 +185,16 @@ final class AIReviewController: ObservableObject {
         persist()
     }
 
-    private func persist() {
+    private var canSave: Bool {
+        guard !readFailed else {
+            errorMessage = "配置读取失败，请修复配置文件后重新打开模型设置；未覆盖原文件"
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    private func persist() -> Bool {
         var value = document
         value["enabled"] = isEnabled
         value["learning_enabled"] = learningEnabled
@@ -177,7 +202,12 @@ final class AIReviewController: ObservableObject {
         if !syncPath.isEmpty {
             value["sync_path"] = syncPath
         }
-        value["models"] = models.map(Self.dictionary(from:))
+        let originals = document["models"] as? [[String: Any]] ?? []
+        value["models"] = models.map { model in
+            var entry = originals.first { $0["id"] as? String == model.id } ?? [:]
+            entry.merge(Self.dictionary(from: model)) { _, new in new }
+            return entry
+        }
         if let selectedModelID {
             value["selected_model_id"] = selectedModelID
         } else {
@@ -191,6 +221,11 @@ final class AIReviewController: ObservableObject {
             value["timeout_seconds"] = selected.timeoutSeconds
             value["attempts"] = selected.attempts
             value["max_response_tokens"] = selected.maxResponseTokens
+            value["wire_api"] = selected.wireAPI
+        } else {
+            for key in ["endpoint", "model", "api_key_env", "timeout_seconds", "attempts", "max_response_tokens", "wire_api"] {
+                value.removeValue(forKey: key)
+            }
         }
 
         do {
@@ -209,14 +244,18 @@ final class AIReviewController: ObservableObject {
             )
             document = value
             errorMessage = nil
+            return true
         } catch {
-            errorMessage = "保存审批模型失败：\(error.localizedDescription)"
+            let message = "保存审批模型失败：\(error.localizedDescription)"
+            reload()
+            errorMessage = message
+            return false
         }
     }
 
     private static func models(from document: [String: Any]) -> [AIReviewModel] {
-        if let values = document["models"] as? [[String: Any]] {
-            return values.enumerated().compactMap { index, value in
+        if let values = document["models"] as? [[String: Any]], !values.isEmpty {
+            let parsed: [AIReviewModel] = values.enumerated().compactMap { index, value in
                 guard let endpoint = value["endpoint"] as? String,
                       let model = value["model"] as? String,
                       !endpoint.isEmpty, !model.isEmpty else { return nil }
@@ -229,9 +268,11 @@ final class AIReviewController: ObservableObject {
                     apiKeyEnv: value["api_key_env"] as? String ?? "",
                     timeoutSeconds: value["timeout_seconds"] as? Double ?? 10,
                     attempts: value["attempts"] as? Int ?? 2,
-                    maxResponseTokens: value["max_response_tokens"] as? Int ?? 800
+                    maxResponseTokens: value["max_response_tokens"] as? Int ?? 800,
+                    wireAPI: value["wire_api"] as? String ?? wireAPI(for: endpoint)
                 )
             }
+            if !parsed.isEmpty { return parsed }
         }
 
         guard let endpoint = document["endpoint"] as? String,
@@ -246,9 +287,18 @@ final class AIReviewController: ObservableObject {
                 apiKeyEnv: document["api_key_env"] as? String ?? "",
                 timeoutSeconds: document["timeout_seconds"] as? Double ?? 10,
                 attempts: document["attempts"] as? Int ?? 2,
-                maxResponseTokens: document["max_response_tokens"] as? Int ?? 800
+                maxResponseTokens: document["max_response_tokens"] as? Int ?? 800,
+                wireAPI: document["wire_api"] as? String ?? wireAPI(for: endpoint)
             )
         ]
+    }
+
+    private static func wireAPI(for endpoint: String) -> String {
+        switch URL(string: endpoint)?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).components(separatedBy: "/").last {
+        case "messages": return "anthropic"
+        case "responses": return "responses"
+        default: return "chat"
+        }
     }
 
     private static func dictionary(from model: AIReviewModel) -> [String: Any] {
@@ -261,6 +311,7 @@ final class AIReviewController: ObservableObject {
             "timeout_seconds": model.timeoutSeconds,
             "attempts": model.attempts,
             "max_response_tokens": model.maxResponseTokens,
+            "wire_api": model.wireAPI,
         ]
     }
 

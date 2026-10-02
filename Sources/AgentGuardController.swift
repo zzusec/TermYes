@@ -16,6 +16,26 @@ struct AgentGuardClient: Decodable, Identifiable {
     let permissionMode: String
     let permissionReady: Bool
     let permissionReason: String
+    let liveStatus: String?
+    let liveReason: String?
+    let liveCheckedAt: String?
+    let requestStatus: String?
+    let requestReason: String?
+    let guardLiveStatus: String?
+    let guardLiveReason: String?
+    let reviewerConfigured: Bool?
+    let reviewerStatus: String?
+    let reviewerReason: String?
+    let reviewerCheckedAt: String?
+
+    var configurationReady: Bool {
+        detected && permissionReady && guardReady && serviceError == nil
+    }
+
+    var isVerified: Bool {
+        configurationReady && liveStatus == "passed" && requestStatus == "passed"
+            && guardLiveStatus == "passed"
+    }
 }
 
 @MainActor
@@ -40,10 +60,28 @@ final class AgentGuardController: ObservableObject {
     func repairUnready() { run("repair-unready") }
     func repair(_ client: AgentGuardClient) { run("repair-client", client: client.id) }
     func checkPolicy() { run("policy-update") }
+    func verifyAll() { run("verify") }
+    func verify(_ client: AgentGuardClient) { run("verify-client", client: client.id) }
+    func verifyReviewer() { run("verify-reviewer") }
 
     @objc private func checkAgain() { run("monitor") }
 
-    var diagnosticDetails: String { details.isEmpty ? message : details }
+    var diagnosticDetails: String {
+        guard !clients.isEmpty else { return details.isEmpty ? message : details }
+        let reports = clients.filter(\.detected).map { client in
+            """
+            \(client.name)：\(client.isVerified ? "端到端实测通过" : "未就绪")
+            YOLO：\(client.permissionReason)
+            守卫配置：\(client.guardReason)
+            请求/免确认：\(client.requestReason ?? "尚未实测")
+            守卫加载：\(client.guardLiveReason ?? "尚未实测")
+            实测时间：\(client.liveCheckedAt ?? "无")
+            \(client.serviceError.map { "修复错误：" + $0 } ?? "")
+            """
+        }
+        let reviewer = clients.first?.reviewerReason ?? "尚未实测"
+        return ([message, "危险清单：" + policyDetails, "Ctrl-C reviewer：" + reviewer] + reports).joined(separator: "\n\n")
+    }
 
     var policyDetails: String { clients.first?.policyStatus ?? message }
 
@@ -57,16 +95,21 @@ final class AgentGuardController: ObservableObject {
         isWorking = true
         message = action == "status"
             ? "正在检测 Agent 权限与守卫配置…"
-            : action == "monitor" || action == "repair-unready" || action == "repair-client"
-                ? "正在检查并修复 Agent YOLO 与命令守卫…"
-                : "正在处理守卫文件，请稍候…"
+            : action == "verify" || action == "verify-client"
+                ? "正在真实请求 Agent 并验证免确认与命令守卫…"
+                : action == "verify-reviewer"
+                    ? "正在真实请求 Ctrl-C AI reviewer…"
+                    : action == "monitor" || action == "repair-unready" || action == "repair-client"
+                        ? "正在检查并修复 Agent YOLO 与命令守卫…"
+                        : "正在处理守卫文件，请稍候…"
         let arguments = [script.path, action] + (client.map { [$0] } ?? [])
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 Self.execute(arguments)
             }.value
             details = String(decoding: result.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            if action == "status" || action == "monitor" || action == "policy-update" || action == "repair-unready" || action == "repair-client" {
+            let statusActions = ["status", "monitor", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "verify-reviewer"]
+            if statusActions.contains(action) {
                 do {
                     clients = try JSONDecoder().decode([AgentGuardClient].self, from: result.1)
                     let detected = clients.filter(\.detected)
@@ -76,17 +119,31 @@ final class AgentGuardController: ObservableObject {
                         (action != "repair-client" || candidate.id == client) &&
                             (!candidate.permissionReady || !candidate.guardReady || candidate.serviceError != nil)
                     }
-                    lastCheckFailed = result.0 != 0 || clients.first?.policyError == true || failed != nil
+                    let verificationFailed = (action == "verify" || action == "verify-client") && detected.contains {
+                        (action != "verify-client" || $0.id == client) && $0.liveStatus != "passed"
+                    }
+                    let reviewerFailed = action == "verify-reviewer" && clients.first?.reviewerStatus != "passed"
+                    lastCheckFailed = result.0 != 0 || clients.first?.policyError == true || failed != nil || verificationFailed || reviewerFailed
                     let repaired = action == "repair-client" ? detected.first(where: { $0.id == client }) : nil
                     let repairSucceeded = result.0 == 0 && repaired.map {
                         $0.permissionReady && $0.guardReady && $0.serviceError == nil
                     } == true
                     if let repaired, repairSucceeded {
-                        message = "\(repaired.name) 已就绪"
+                        message = "\(repaired.name) 配置已修复，待实测"
                     } else if result.0 != 0, let failed {
                         message = "\(failed.name) 未修复：\(failed.serviceError ?? (failed.permissionReady ? failed.guardReason : failed.permissionReason))"
                     } else if action == "repair-client" {
                         message = "\(repaired?.name ?? client ?? "Agent") 未修复：\(failed?.serviceError ?? failed?.guardReason ?? "未获取到就绪状态")"
+                    } else if action == "verify" || action == "verify-client" {
+                        let tested = action == "verify-client"
+                            ? detected.filter { $0.id == client }
+                            : detected
+                        let passed = tested.filter(\.isVerified).count
+                        message = "Agent 端到端实测通过 \(passed)/\(tested.count)"
+                    } else if action == "verify-reviewer" {
+                        message = clients.first?.reviewerStatus == "passed"
+                            ? "Ctrl-C AI reviewer 实测通过"
+                            : "Ctrl-C AI reviewer 实测失败：\(clients.first?.reviewerReason ?? "未返回原因")"
                     } else {
                         message = "已检测 \(detected.count) 个 Agent：YOLO \(ready)，守卫配置 \(guarded)" +
                             (result.0 == 0 ? "（客户端加载需验证）" : "；部分修复失败，请查看客户端详情")
@@ -106,7 +163,7 @@ final class AgentGuardController: ObservableObject {
             } else {
                 message = String(details.prefix(120))
             }
-            if result.0 == 0, action != "status" && action != "monitor" && action != "policy-update" && action != "repair-unready" && action != "repair-client" {
+            if result.0 == 0, !statusActions.contains(action) {
                 // Refresh counts without replacing the actionable install/restore result.
                 let status = await Task.detached(priority: .userInitiated) {
                     Self.execute([script.path, "status"])
@@ -121,7 +178,7 @@ final class AgentGuardController: ObservableObject {
 
     private func showRepairResult(name: String, success: Bool, detail: String) {
         let alert = NSAlert()
-        alert.messageText = "\(name) \(success ? "已就绪" : "未修复")"
+        alert.messageText = "\(name) \(success ? "配置已修复，待实测" : "未修复")"
         alert.informativeText = detail
         alert.alertStyle = success ? .informational : .warning
         alert.addButton(withTitle: "好")

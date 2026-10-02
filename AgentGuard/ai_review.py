@@ -193,6 +193,11 @@ def _resolve_config(config):
         raise ValueError("AI review models list has no valid entry")
     resolved = dict(config)
     resolved.update(selected)
+    # Flat fields describe the previous selection, not defaults for another model.
+    if "wire_api" not in selected:
+        path = urllib.parse.urlsplit(selected.get("endpoint", "")).path.rstrip("/")
+        resolved["wire_api"] = "anthropic" if path.endswith("/messages") else "responses" if path.endswith("/responses") else "chat"
+    resolved["api_key_env"] = selected.get("api_key_env", "")
     return resolved
 
 
@@ -307,6 +312,15 @@ def _effective_cwd(cwd, workspace_roots):
 
 
 def _extract_content(response):
+    if isinstance(response.get("content"), list):
+        content = "".join(
+            part.get("text", "")
+            for part in response["content"]
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+        if not content.strip():
+            raise ValueError("reviewer response has no Anthropic text")
+        return content
     if isinstance(response.get("output"), list):
         content = "".join(
             part.get("text", "")
@@ -396,6 +410,21 @@ def _call_reviewer(config, payload, system_prompt=SYSTEM_PROMPT):
             "max_output_tokens": max_response_tokens,
             "store": False,
         }
+    elif config.get("wire_api") == "anthropic":
+        request_body = {
+            "model": model,
+            "system": system_prompt,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": system_prompt + "\n\nUntrusted request JSON:\n"
+                    + json.dumps(payload, ensure_ascii=False),
+                },
+            ],
+            "temperature": 0,
+            "max_tokens": max_response_tokens,
+            "stream": False,
+        }
     else:
         request_body = {
             "model": model,
@@ -407,6 +436,8 @@ def _call_reviewer(config, payload, system_prompt=SYSTEM_PROMPT):
             "max_tokens": max_response_tokens,
         }
     headers = {"Content-Type": "application/json"}
+    if config.get("wire_api") == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
     token = config.get("_bearer_token")
     if token:
         headers["Authorization"] = "Bearer " + token
@@ -844,14 +875,18 @@ def review_terminal_input(prompt_text, requested_input):
         prompt_text = prompt_text[-12000:]
     if requested_input not in ("\\u{3}", "\x03"):
         return _deny("只允许 Ctrl-C 控制输入")
+    prompt_text = prompt_text[prompt_text.rfind("Would you like to send input to terminal"):]
     required = ("Would you like to send input to terminal", "Yes, proceed", "No")
-    if not all(marker in prompt_text for marker in required):
+    inputs = re.findall(r'^\s*Input:\s*"([^"\r\n]*)"\s*$', prompt_text, re.M)
+    if (not all(marker in prompt_text for marker in required)
+            or len(re.findall(r"^\s*Input:", prompt_text, re.M)) != 1
+            or inputs not in (["\\u{3}"], ["\x03"])):
         return _deny("窗口不是明确的终端输入确认框")
 
     try:
         config = _resolve_config(_read_config() or {})
-    except Exception as error:
-        return _deny("窗口审批配置无效：" + str(error))
+    except Exception:
+        return _deny("窗口审批配置无效，请检查 ai-review.json")
     if not config or config.get("enabled") is not True:
         return _deny("AI 审批未启用")
     payload = {
@@ -862,8 +897,12 @@ def review_terminal_input(prompt_text, requested_input):
     try:
         response = _call_reviewer(config, payload, WINDOW_INPUT_SYSTEM_PROMPT)
         return _parse_decision(_extract_content(response), require_high_confidence=True)
+    except urllib.error.HTTPError as error:
+        return _deny("窗口 reviewer HTTP " + str(error.code))
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return _deny("窗口 reviewer 连接失败或超时")
     except Exception:
-        return _deny("窗口 reviewer 不可用或响应无效")
+        return _deny("窗口 reviewer 配置或响应无效")
 
 
 if __name__ == "__main__":

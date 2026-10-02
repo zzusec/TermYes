@@ -25,7 +25,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 - **减少桌面干扰。** 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。
 - **快捷键呼出。** 可配置全局快捷键，默认 `⌘O`；若要保留其他应用的“打开”命令，请修改它。
 - **统一管理 Agent 安全。** TermYes 启动时及此后每 5 分钟检查已检测到的 Agent，维护 YOLO/等效权限模式并安装、更新危险 Shell 命令守卫；被外部修改的守卫不会自动覆盖。
-- **菜单栏可见状态。** 菜单栏仅显示状态图标；展开「自动审批」可查看已检测 Agent 的免确认勾/叉状态，点击待修复项单独修复，或一键修复所有未就绪项。单独修复会显示结果；诊断详情可复制。守卫文件就绪不等于客户端 Hook 已加载。
+- **以实测确认 Agent 状态。** 展开「自动审批」可分别查看配置、真实请求与守卫加载结果。只有 YOLO/等效免确认、安全 Shell 执行和客户端实际调用守卫均通过，才显示勾选；安装文件或修复配置不等于就绪。单项和全面实测会产生模型请求，失败原因可查看、滚动与复制。
 - **启动前双重检查。** 新开的 zsh 终端会在启动 Agent 前检查守卫配置与 YOLO；检查失败会拒绝启动。守卫文件就绪不等于客户端实际加载并信任 Hook。
 - **应用内更新。** 通过公开 GitHub Release 跳转检查版本（不占用匿名 API 配额），下载对应版本的安装包，验证校验和与应用签名，保留备份后替换并重新启动。
 
@@ -33,7 +33,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.20 构建产物位于 `dist/TermYes-v1.6.20-macOS.dmg`。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.21 构建产物位于 `dist/TermYes-v1.6.21-macOS.dmg`。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -48,7 +48,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- v1.6.20 另有 **`Termosaic-v1.6.20-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
+- v1.6.21 另有 **`Termosaic-v1.6.21-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 
@@ -62,11 +62,11 @@ GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重�
 
 在「自动排列」中可显示或隐藏终端；配置的全局快捷键用于呼出并在鼠标所在显示器重新平铺。TermYes 不会向现有 Agent 会话自动或手动发送「继续」。
 
-**定时激活5h窗口 → 设置时间**可设置起始时间，勾选 Claude、Codex 或两者。TermYes 运行期间每五小时检查一次选中 Agent 的守卫，缺少对应的 Terminal 会话时启动新窗口，并用当前 CLI 配置向模型发送一句简单问候；为避免把文字误发到 Shell，模型请求通过非交互 CLI 发出，不向 Terminal 标签页键入问候。菜单显示请求结果，可复制失败原因。此功能只能确认 CLI 请求成功，不能保证第三方供应商或账号的额度窗口一定重置；应用退出后不会定时触发。
+**定时激活5h窗口 → 设置时间**可设置起始时间，勾选 Claude、Codex 或两者。TermYes 运行期间每五小时检查所选 Agent 的守卫，再打开专用 Terminal 窗口发送 `hi`，并在窗口中显示模型的实际回复；不向正在工作的会话注入输入，也不再额外发送第二个后台请求。只有取得成功退出状态和回复才显示激活成功，失败原因可查看。**立即激活一次（发送 hi）**与 Timer 共用同一条执行路径，可不等五小时直接验收。请求可能产生模型费用；成功不能保证供应商或账号的额度窗口重置，应用退出后不会定时触发。
 
 ## Agent 命令守卫
 
-TermYes 启动后每 5 分钟检查检测到的客户端，并维护 YOLO/等效权限模式与命令守卫文件。在「自动审批」菜单可查看每个 Agent 的勾/叉状态并点击待修复项；守卫更新后请重启对应客户端，Codex 还需要在 `/hooks` 中检查并信任新 Hook。
+TermYes 启动后每 5 分钟检查检测到的客户端，并维护 YOLO/等效权限模式与命令守卫文件。在「自动审批」菜单可查看各项配置与实测状态，修复配置后仍需实测通过才能打钩；守卫更新后请重启对应客户端，Codex 还需要在 `/hooks` 中检查并信任新 Hook。
 
 内置适配器覆盖 Claude Code、Codex、CodeBuddy、zcode、pi、Qoder、Gemini CLI、Cursor、agy、OpenCode、Factory droid、Crush 和 GitHub Copilot CLI。
 
