@@ -17,9 +17,38 @@ struct FiveHourActivationTests {
         precondition(FiveHourActivation.nextFire(after: now, anchor: now.addingTimeInterval(60)) == now.addingTimeInterval(60))
         precondition(FiveHourActivation.nextFire(after: now, anchor: now) == now.addingTimeInterval(FiveHourActivation.interval))
         precondition(FiveHourActivation.nextFire(after: now.addingTimeInterval(2 * FiveHourActivation.interval + 1), anchor: now) == now.addingTimeInterval(3 * FiveHourActivation.interval))
+        arbitraryStartTimesAndFiveHourCadence()
         try activationCommands()
 
         print("Five-hour activation tests passed.")
+    }
+
+    static func arbitraryStartTimesAndFiveHourCadence() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let day = Date(timeIntervalSince1970: 86_400)
+        precondition(FiveHourActivation.interval == 5 * 3600, "The cadence must remain exactly five elapsed hours")
+        for minutes in 0..<1440 {
+            let selected = day.addingTimeInterval(TimeInterval(minutes * 60))
+            precondition(FiveHourActivation.firstAnchor(minutes: minutes, after: selected.addingTimeInterval(-1), calendar: calendar) == selected, "Any HH:mm must be selectable, including midnight and 23:59: \(minutes)")
+            for offset: TimeInterval in [0, 1] {
+                precondition(FiveHourActivation.firstAnchor(minutes: minutes, after: selected.addingTimeInterval(offset), calendar: calendar) == selected.addingTimeInterval(86_400), "A time already reached must start tomorrow, not fire immediately: \(minutes)")
+            }
+            precondition(FiveHourActivation.nextFire(after: selected.addingTimeInterval(-1), anchor: selected) == selected, "The initial firing must use the selected HH:mm: \(minutes)")
+            for cycle in 0...10 {
+                let boundary = selected.addingTimeInterval(TimeInterval(cycle) * FiveHourActivation.interval)
+                let following = boundary.addingTimeInterval(FiveHourActivation.interval)
+                precondition(FiveHourActivation.nextFire(after: boundary.addingTimeInterval(-1), anchor: selected) == boundary, "Cross-day firings must not snap back to the selected wall time: \(minutes), cycle \(cycle)")
+                for offset: TimeInterval in [0, 1] {
+                    precondition(FiveHourActivation.nextFire(after: boundary.addingTimeInterval(offset), anchor: selected) == following, "Exact or missed boundaries must advance along the same five-hour timeline: \(minutes), cycle \(cycle)")
+                }
+            }
+        }
+        // 05:17 is one example, not a fixed daily start: 20:17 is followed by 01:17.
+        let example = day.addingTimeInterval(TimeInterval((5 * 60 + 17) * 60))
+        let nextDay = FiveHourActivation.nextFire(after: example.addingTimeInterval(3 * FiveHourActivation.interval), anchor: example)
+        let components = calendar.dateComponents([.day, .hour, .minute], from: nextDay)
+        precondition(components.day == 3 && components.hour == 1 && components.minute == 17, "A five-hour cycle must continue across midnight rather than repeat 05:17 every day")
     }
 
     static func activationCommands() throws {

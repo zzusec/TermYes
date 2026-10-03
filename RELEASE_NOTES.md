@@ -1,3 +1,19 @@
+# TermYes v1.6.23
+
+## 简体中文
+
+- 修复 Terminal 已可见时 `unhide()` 的无操作返回值被误判为连接失败，导致 `⌘O` 无法显示/重排的问题；已显示、已隐藏与重复快捷键操作实测通过。
+- 重复确认相同的自选首次时间也会重新安排，而非沿用旧日期起点；保留首次触发后每五小时一轮。
+- 菜单显示实际 Timer 的下次日期、24 小时时间和本机时区；选择器明确今天已过则明天首次，避免只显示旧的“05:17 起”。
+- 保留命令守卫与原生 Ctrl-C；不恢复 AI reviewer 或自动确认输入。
+
+## English
+
+- Treat `unhide()` as a no-op when Terminal is already visible, fixing false connection errors and failed Command-O re-tiling; visible, hidden, and repeated-key cases passed live checks.
+- Reconfirming a selected HH:mm rearms its next occurrence instead of retaining an obsolete anchor; the subsequent five-hour interval remains unchanged.
+- Show the actual next Timer date, 24-hour time, and local timezone, with explicit next-day behavior for a time already passed.
+- Preserve command guards and native Ctrl-C without restoring AI approval or automatic input confirmation.
+
 # TermYes v1.6.22
 
 ## 简体中文

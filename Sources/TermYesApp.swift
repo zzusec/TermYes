@@ -247,9 +247,10 @@ struct TermYesApp: App {
                     scheduledActivation.activateNow()
                 }
                 .disabled(scheduledActivation.activating || scheduledActivation.windowAgents.isEmpty)
-                Button("设置时间：\(scheduledActivation.windowScheduleDescription)") {
+                Button("设置首次时间：\(scheduledActivation.windowScheduleDescription)") {
                     WindowSchedulePicker.shared.show()
                 }
+                Text("下次触发：\(scheduledActivation.nextActivationDescription)")
                 if let status = scheduledActivation.lastActivationStatus {
                     Text(status)
                 }

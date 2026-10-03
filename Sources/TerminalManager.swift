@@ -83,8 +83,14 @@ final class TerminalManager: NSObject, ObservableObject {
         targetScreen = screenUnderPointer() ?? NSScreen.main
 
         if let terminal = terminalApplication() {
-            guard terminal.unhide(), terminal.activate(options: [.activateAllWindows]) else {
-                updatePhase(.error("无法显示或激活 Terminal"))
+            // unhide() returns false when the app is already visible. That is
+            // a no-op, not a connection failure; hotkeys must still re-tile it.
+            if terminal.isHidden && !terminal.unhide() {
+                updatePhase(.error("无法显示 Terminal"))
+                return
+            }
+            guard terminal.isActive || terminal.activate(options: [.activateAllWindows]) else {
+                updatePhase(.error("无法激活 Terminal"))
                 return
             }
             updatePhase(.visible)
@@ -101,7 +107,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func hideDashboard(activateManager: Bool = true) {
         dashboardRequested = false
-        if let terminal = terminalApplication(), !terminal.hide() {
+        if let terminal = terminalApplication(), !terminal.isHidden && !terminal.hide() {
             updatePhase(.error("无法隐藏 Terminal"))
             return
         }

@@ -30,7 +30,7 @@ final class WindowSchedulePicker: NSObject, NSWindowDelegate {
         let controller = ScheduledActivationController.shared
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 155),
+            contentRect: NSRect(x: 0, y: 0, width: 390, height: 180),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -42,10 +42,12 @@ final class WindowSchedulePicker: NSObject, NSWindowDelegate {
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
 
-        let label = NSTextField(labelWithString: "起始时间")
+        let label = NSTextField(labelWithString: "首次时间（24 小时）")
         let picker = ScrollDatePicker()
         picker.datePickerStyle = .textFieldAndStepper
         picker.datePickerElements = .hourMinute
+        picker.locale = Locale(identifier: "zh_CN")
+        picker.timeZone = .current
         picker.dateValue = controller.windowStartDate ?? Date()
 
         let claudeCheckbox = NSButton(checkboxWithTitle: "Claude", target: self, action: #selector(updateConfirm))
@@ -53,7 +55,7 @@ final class WindowSchedulePicker: NSObject, NSWindowDelegate {
         let codexCheckbox = NSButton(checkboxWithTitle: "Codex", target: self, action: #selector(updateConfirm))
         codexCheckbox.state = controller.windowAgents.contains(.codex) ? .on : .off
 
-        let hint = NSTextField(labelWithString: "打开专用窗口发送 hi；每 5 小时一轮")
+        let hint = NSTextField(wrappingLabelWithString: "点“好”按所选时间重新开始；今天已过则明天首次。\n首次触发后每 5 小时发送 hi。")
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
 

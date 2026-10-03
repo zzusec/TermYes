@@ -8,6 +8,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
 
     @Published private(set) var windowStartMinutes: Int?
     @Published private(set) var windowAgents: Set<ScheduledAgent>
+    @Published private(set) var nextActivationDate: Date?
     @Published private(set) var lastActivationStatus: String?
     @Published private(set) var lastActivationDetail: String?
 
@@ -51,8 +52,6 @@ final class ScheduledActivationController: NSObject, ObservableObject {
     func setWindowSchedule(minutes: Int?, agents: Set<ScheduledAgent>) {
         if let minutes, !(0..<1440).contains(minutes) { return }
         if minutes != nil && agents.isEmpty { return }
-        let timeChanged = minutes != windowStartMinutes
-        if !timeChanged && agents == windowAgents { return }
         scheduleRevision += 1
         windowAgents = agents
         defaults.set(agents.map(\.rawValue).sorted(), forKey: "autoContinueWindowAgents")
@@ -61,10 +60,10 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         lastActivationDetail = nil
         if let minutes {
             defaults.set(minutes, forKey: "autoContinueWindowStartMinutes")
-            if timeChanged {
-                windowAnchor = FiveHourActivation.firstAnchor(minutes: minutes, after: Date())
-                defaults.set(windowAnchor, forKey: "autoContinueWindowAnchorDate")
-            }
+            // Confirming the picker is an explicit new schedule, even when the
+            // selected HH:mm and agents match yesterday's saved values.
+            windowAnchor = FiveHourActivation.firstAnchor(minutes: minutes, after: Date())
+            defaults.set(windowAnchor, forKey: "autoContinueWindowAnchorDate")
         } else {
             defaults.set(-1, forKey: "autoContinueWindowStartMinutes")
             defaults.removeObject(forKey: "autoContinueWindowAnchorDate")
@@ -75,7 +74,17 @@ final class ScheduledActivationController: NSObject, ObservableObject {
 
     var windowScheduleDescription: String {
         guard let windowStartMinutes else { return "关闭" }
-        return String(format: "%02d:%02d 起", windowStartMinutes / 60, windowStartMinutes % 60)
+        return String(format: "%02d:%02d", windowStartMinutes / 60, windowStartMinutes % 60)
+    }
+
+    var nextActivationDescription: String {
+        guard let nextActivationDate else { return "未启用" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.calendar = .current
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm z"
+        return formatter.string(from: nextActivationDate)
     }
 
     /// Today's anchor date, used to seed the time picker.
@@ -92,6 +101,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
     private func scheduleWindow() {
         windowTimer?.invalidate()
         windowTimer = nil
+        nextActivationDate = nil
         guard let windowStartMinutes, !windowAgents.isEmpty else { return }
         if windowAnchor == nil {
             windowAnchor = FiveHourActivation.firstAnchor(minutes: windowStartMinutes, after: Date())
@@ -99,6 +109,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         }
         guard let windowAnchor else { return }
         let fireDate = FiveHourActivation.nextFire(after: Date(), anchor: windowAnchor)
+        nextActivationDate = fireDate
 
         let timer = Timer(fireAt: fireDate, interval: 0, target: self, selector: #selector(windowOpened), userInfo: nil, repeats: false)
         RunLoop.main.add(timer, forMode: .common)
