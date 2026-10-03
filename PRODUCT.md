@@ -33,9 +33,8 @@ Show every existing Terminal.app shell window as one balanced wall on the curren
 - At each configured five-hour boundary, open dedicated Terminal windows for selected Codex/Claude greetings and show their actual replies; manual activation shares the same path and never injects input into active user sessions.
 - Bundle thirteen shell-guard adapters from bypass-yes with per-client installation and exact restore; dangerous/warning rules and captured input/bridge errors deny.
 - Keep detected agents in YOLO-equivalent modes while maintaining independently installed command guards; refuse to launch through managed entry points when readiness fails. Installed files alone are not proof of runtime protection.
-- Deny Shell commands only when shared explicit danger rules or high-impact rm target rules match; permit valid unmatched commands without a Codex AI veto. Keep optional AI review for Ctrl-C terminal-input prompts separate.
-- Optionally merge learned approval memory through iCloud Drive so the same command and pattern memory follows the user across Macs without a backend database.
-- With Accessibility permission, auto-confirm only verified terminal-input prompts whose requested input is exactly Ctrl-C; all text, Enter, credentials, and permission prompts remain manual.
+- Deny Shell commands only when shared explicit danger rules or high-impact rm target rules match; permit valid unmatched commands without a Codex AI veto.
+- Do not inspect terminal text for input prompts, auto-send confirmation keys, or run AI approval. Ctrl-C and business dialogs remain under the user’s control.
 
 ## Durable Constraints
 

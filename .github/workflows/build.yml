@@ -29,17 +29,12 @@ jobs:
         run: |
           swiftc Sources/AgentGuardController.swift Tests/AgentGuardReadinessTests.swift -o /tmp/termyes-readiness-tests
           /tmp/termyes-readiness-tests
-      - name: Test AI review settings
-        run: |
-          swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termosaic-ai-settings-tests
-          /tmp/termosaic-ai-settings-tests
       - name: Test Agent guards and five-hour activation
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_permission_modes.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_activation.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_policy_update.py
-          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_ai_review.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh

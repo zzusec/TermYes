@@ -1,3 +1,7 @@
+# 当前功能范围（v1.6.22）
+
+用户已明确要求删除 Ctrl-C 自动确认。下文是历史 v1.6.21 验收记录，不代表当前仍提供 AI reviewer、审核模型设置或辅助功能按键投递。当前只保留 YOLO、危险清单、真实 Agent 验证、专用窗口定时 hi 与终端管理。新版移除功能的回归与旧安装记录迁移检查见新的本地验证记录。历史记录保留作变更依据，不复活退役功能。
+
 # TermYes 全菜单回归记录
 
 验收日期：2026-10-02（America/Los_Angeles）。实际安装对象为 `/Applications/TermYes.app`，本地构建仍使用版本号 1.6.20；未推送、发布或创建远程 release。测试结果只代表本次设备、配置和实测时点，不保证外部服务的持续可用性。
@@ -76,3 +80,11 @@ SKIP_INSTALL=1 ./build.sh
 新包签名变更后，系统列表的旧 TermYes 勾选为 on，但应用的 `AXIsProcessTrusted()` 仍为 false。仅重开设置或重启应用未恢复。对 TermYes 的 Accessibility 记录使用系统 `tccutil reset Accessibility io.github.zzusec.termosaic` 清理旧记录，再通过应用“授予 Ctrl-C 辅助功能权限…”及系统开关重新授权后，安装中的应用实际显示“正在监听 Ctrl-C 确认窗口”。没有修改 TCC 数据库或撤销其他应用权限。本次不重复模型请求。
 
 最终窗口版激活自动回归 23/23 步通过，激活 helper 7 项回归通过；两个最终 DMG 与更新安装器检查通过。用户原来的 05:17 起始设置、Claude/Codex 选择与五小时 anchor 已恢复。
+
+## v1.6.22 退役验收
+
+Ctrl-C 自动确认、窗口文本轮询、确认键投递、审核模型界面、reviewer 状态与 `verify-reviewer` 已删除；新应用包不包含 `ai_review.py`。旧安装记录只允许迁移本客户端准确的受管 AI 文件，普通 Hook、YOLO 模式和模型账号配置保持原有边界，外部改动不覆盖。
+
+本地代码回归 20/20 步通过（包含 1063 项守卫检查及旧记录退役用例），两个兼容 DMG 与临时更新测试通过。本机实际菜单只有自动排列、命令守卫、定时激活，没有 Ctrl-C、AI reviewer、审核模型或辅助功能授权入口。原快捷键与五小时计划未改变。
+
+删除后的真实复核中，Claude、CodeBuddy、pi 通过；Codex 在仅重新信任内容已核对的两条 TermYes Hook 后通过。OpenCode 在本次复核中返回 `provider.invalid-output`，没有伪造保护通过。此验收不表示所有模型服务均可用；历史通过记录不能替代当下结果。

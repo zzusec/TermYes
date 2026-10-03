@@ -20,12 +20,10 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 - **一张终端画布。** 系统 Terminal 窗口无缝平铺：四个窗口组成 2×2，六个组成 3×2，奇数个窗口按左列多一个的两列排布；新增或关闭窗口后自动重排，保持稳定的顺时针顺序。
 - **明确的 Shell 危险清单与夜间静音。** Shell 守卫仅拒绝 GitHub 上版本化的 `AgentGuard/danger-policy.json`（离线时使用已验证缓存或内置规则）及 `AgentGuard/core.py` 中 `rm -rf` 目标分级命中的命令；有效命令未命中清单就放行，不让 AI 二次否决。22:00–08:00 静音只关闭提示音，不降低拦截强度。
-- **独立的 Ctrl-C 窗口审核。** 可以为严格识别的终端 Ctrl-C 确认框单独配置模型；不会影响 Shell 命令的放行。
-- **窗口级 Ctrl-C 审批。** 这是与 Agent 免确认不同的可选功能。开启它但尚未授权时，菜单才显示「Ctrl-C 辅助功能权限」；获得权限后只会在明确匹配的终端输入确认框中选择 Ctrl-C，回车、文本、密码和权限弹窗仍保持人工处理。
 - **减少桌面干扰。** 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。
 - **快捷键呼出。** 可配置全局快捷键，默认 `⌘O`；若要保留其他应用的“打开”命令，请修改它。
 - **统一管理 Agent 安全。** TermYes 启动时及此后每 5 分钟检查已检测到的 Agent，维护 YOLO/等效权限模式并安装、更新危险 Shell 命令守卫；被外部修改的守卫不会自动覆盖。
-- **以实测确认 Agent 状态。** 展开「自动审批」可分别查看配置、真实请求与守卫加载结果。只有 YOLO/等效免确认、安全 Shell 执行和客户端实际调用守卫均通过，才显示勾选；安装文件或修复配置不等于就绪。单项和全面实测会产生模型请求，失败原因可查看、滚动与复制。
+- **以实测确认 Agent 状态。** 展开「命令守卫」可分别查看配置、真实请求与守卫加载结果。只有 YOLO/等效免确认、安全 Shell 执行和客户端实际调用守卫均通过，才显示勾选；安装文件或修复配置不等于就绪。单项和全面实测会产生模型请求，失败原因可查看、滚动与复制。
 - **启动前双重检查。** 新开的 zsh 终端会在启动 Agent 前检查守卫配置与 YOLO；检查失败会拒绝启动。守卫文件就绪不等于客户端实际加载并信任 Hook。
 - **应用内更新。** 通过公开 GitHub Release 跳转检查版本（不占用匿名 API 配额），下载对应版本的安装包，验证校验和与应用签名，保留备份后替换并重新启动。
 
@@ -33,7 +31,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.21 构建产物位于 `dist/TermYes-v1.6.21-macOS.dmg`。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；本地 v1.6.22 构建产物位于 `dist/TermYes-v1.6.22-macOS.dmg`。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -48,7 +46,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- v1.6.21 另有 **`Termosaic-v1.6.21-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
+- v1.6.22 另有 **`Termosaic-v1.6.22-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 
@@ -66,7 +64,7 @@ GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重�
 
 ## Agent 命令守卫
 
-TermYes 启动后每 5 分钟检查检测到的客户端，并维护 YOLO/等效权限模式与命令守卫文件。在「自动审批」菜单可查看各项配置与实测状态，修复配置后仍需实测通过才能打钩；守卫更新后请重启对应客户端，Codex 还需要在 `/hooks` 中检查并信任新 Hook。
+TermYes 启动后每 5 分钟检查检测到的客户端，并维护 YOLO/等效权限模式与命令守卫文件。在「命令守卫」菜单可查看各项配置与实测状态，修复配置后仍需实测通过才能打钩；守卫更新后请重启对应客户端，Codex 还需要在 `/hooks` 中检查并信任新 Hook。
 
 内置适配器覆盖 Claude Code、Codex、CodeBuddy、zcode、pi、Qoder、Gemini CLI、Cursor、agy、OpenCode、Factory droid、Crush 和 GitHub Copilot CLI。
 
@@ -86,6 +84,8 @@ TermYes 启动后每 5 分钟检查检测到的客户端，并维护 YOLO/等效
 
 安装器合并默认用户级配置、保留其他 Hook，并保存私有恢复记录；启动协调会开启受支持的 YOLO/等效权限模式，只能通过启动参数控制的客户端使用受管 wrapper。不管理自定义配置根目录或项目级配置。路径、错误边界和命令行用法见[守卫文档](AgentGuard/README.md)。
 
+**不提供 Ctrl-C 自动确认或 AI 审批。** 普通命令采用 YOLO／等效免确认，危险命令按清单硬拦截；原生 Ctrl-C 与业务弹窗保持人工操作。
+
 ## 源码构建与测试
 
 构建需要 Xcode Command Line Tools。守卫测试使用 Python；插件测试需要已安装、支持 `node:module.stripTypeScriptTypes` 的 Node.js，CI 使用 Node.js 24。
@@ -103,7 +103,6 @@ SKIP_INSTALL=1 ./build.sh
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
-PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_ai_review.py
 PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
 bash AgentGuard/test.sh
 PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
@@ -112,8 +111,6 @@ swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /
 /tmp/termyes-activation-tests
 swiftc Sources/GridLayout.swift Tests/main.swift -o /tmp/termyes-grid-tests
 /tmp/termyes-grid-tests
-swiftc Sources/AIReviewSettings.swift Tests/AIReviewSettingsTests.swift -o /tmp/termyes-ai-settings-tests
-/tmp/termyes-ai-settings-tests
 swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termyes-version-tests
 /tmp/termyes-version-tests
 swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termyes-release-location-tests

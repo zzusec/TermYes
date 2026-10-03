@@ -17,7 +17,7 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 
 ## Interaction
 
-- The top level starts with three workflows: “自动排列”, “自动审批”, and “定时激活5h窗口”.
+- The top level starts with three workflows: “自动排列”, “命令守卫”, and “定时激活5h窗口”.
 - “自动排列” contains a show/hide toggle and one configurable global shortcut to show and re-tile; re-tiling uses the display under the pointer, and hiding on app switch is always on.
 - Version and update checking stay in the main menu.
 - Failures show a short, contextual “查看原因…” action; full details and an optional copy action live in a dialog, not in the main menu.
@@ -26,4 +26,6 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 - The menu-bar control is the sole interface and holds every action and online-update state.
 
 - Guard controls distinguish installation records from verified protection. Show pending/known-gap states, never a green “protected” claim without real-client evidence; errors stay in the menu with copyable details.
-- “自动审批” shows agent readiness, repairs, and dangerous-command policy updates; it does not imply model review of shell commands.
+- “命令守卫” shows agent readiness, repairs, and dangerous-command policy updates; it does not imply model review of shell commands.
+
+- No Ctrl-C automatic confirmation, AI reviewer controls, model-review settings, or Accessibility permission prompts. Agent verification makes real requests only when the user explicitly invokes it; command enforcement uses YOLO and explicit danger rules.

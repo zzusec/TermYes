@@ -176,20 +176,19 @@ def verification_fingerprint(home, client):
 def read_verification(home):
     path = verification_path(home)
     if not path.exists():
-        return {"version": 1, "clients": {}, "reviewer": None}
+        return {"version": 1, "clients": {}}
     checked_path(path)
     value = mapping(json.loads(path.read_bytes()))
     clients = value.get("clients")
     if not isinstance(clients, dict):
         raise ValueError("实测记录格式无效")
-    reviewer = value.get("reviewer")
-    if reviewer is not None and not isinstance(reviewer, dict):
-        raise ValueError("AI 审批实测记录格式无效")
-    return {"version": 1, "clients": clients, "reviewer": reviewer}
+    return {"version": 1, "clients": clients}
 
 
 def write_verification(home, value):
-    atomic_write(verification_path(home), json_bytes(value))
+    atomic_write(verification_path(home), json_bytes({
+        "version": 1, "clients": mapping(value["clients"]),
+    }))
 
 
 def live_status(home, client, verification=None):
@@ -238,69 +237,6 @@ def live_status(home, client, verification=None):
         }
 
 
-def reviewer_config_path(home):
-    return home / "Library/Application Support/Termosaic/AgentGuard/ai-review.json"
-
-
-def reviewer_fingerprint(home):
-    value = {
-        "config": _file_fingerprint(reviewer_config_path(home), content=True),
-        "script": _file_fingerprint(SOURCE / "ai_review.py", content=True),
-    }
-    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
-
-
-def reviewer_configuration(home):
-    path = reviewer_config_path(home)
-    if not path.is_file():
-        return False, "未配置 AI 审批模型"
-    try:
-        config = mapping(json.loads(path.read_bytes()))
-    except Exception as error:
-        return False, "AI 审批配置无效：" + str(error)
-    if config.get("enabled") is not True:
-        return False, "AI 审批未启用"
-    models = config.get("models")
-    if isinstance(models, list) and models:
-        selected_id = config.get("selected_model_id")
-        selected = next((model for model in models if isinstance(model, dict)
-                         and model.get("id") == selected_id), None)
-        selected = selected or next((model for model in models if isinstance(model, dict)), None)
-        if selected:
-            config = {**config, **selected}
-    if not isinstance(config.get("endpoint"), str) or not isinstance(config.get("model"), str):
-        return False, "AI 审批模型未配置完整"
-    return True, "AI 审批模型已配置"
-
-
-def reviewer_status(home, verification=None):
-    configured, configured_reason = reviewer_configuration(home)
-    if not configured:
-        return {
-            "reviewerConfigured": False,
-            "reviewerStatus": "disabled" if configured_reason == "AI 审批未启用" else "failed",
-            "reviewerReason": configured_reason,
-        }
-    try:
-        verification = verification or read_verification(home)
-        record = verification.get("reviewer")
-        if not isinstance(record, dict):
-            return {"reviewerConfigured": True, "reviewerStatus": "untested",
-                    "reviewerReason": "AI 审批尚未发起真实模型实测"}
-        result = {
-            "reviewerConfigured": True,
-            "reviewerStatus": record.get("status", "untested"),
-            "reviewerReason": record.get("reason", "AI 审批实测记录不完整"),
-            "reviewerCheckedAt": record.get("checkedAt"),
-        }
-        if record.get("fingerprint") != reviewer_fingerprint(home):
-            result.update({"reviewerStatus": "stale", "reviewerReason": "审批模型配置已变化，请重新实测"})
-        return result
-    except Exception as error:
-        return {"reviewerConfigured": True, "reviewerStatus": "failed",
-                "reviewerReason": "无法读取 AI 审批实测记录：" + str(error)}
-
-
 def owns(entry, paths):
     if not isinstance(entry, dict):
         raise ValueError("Hook 条目格式错误，未修改")
@@ -344,7 +280,7 @@ def merge_hooks(container, event, desired, paths, nested=True):
 def desired_files(home, client):
     root, config, runtime, adapter = locations(home, client)
     files = {runtime / name: (SOURCE / name).read_bytes()
-             for name in ("core.py", "rules.py", "ai_review.py", adapter, "chime.wav")}
+             for name in ("core.py", "rules.py", adapter, "chime.wav")}
     script = runtime / adapter
     legacy = root / ("guard" if client == "pi" else "hooks") / adapter
     paths = {str(script), str(legacy)}
@@ -487,6 +423,46 @@ def without_managed_claude_hooks(current_config, paths):
     return restored
 
 
+def receipt_files(home, client, record, files):
+    # Accept only the old managed runtime AI file in addition to the current paths.
+    allowed = set(map(str, files))
+    retired = str(locations(home, client)[2] / "ai_review.py")
+    before = mapping(record.get("before"))
+    installed = mapping(record.get("installed"))
+    if (record.get("client") != client or set(before) != set(installed)
+            or set(before) not in (allowed, allowed | {retired})):
+        raise ValueError("安装记录与客户端路径不一致")
+    return ({name: value for name, value in before.items() if name in allowed},
+            {name: value for name, value in installed.items() if name in allowed})
+
+
+def receipt_needs_retirement(home, client):
+    snapshot = read_file(receipt_path(home, client))
+    if snapshot is None:
+        return False
+    record = mapping(json.loads(base64.b64decode(snapshot["data"])))
+    return str(locations(home, client)[2] / "ai_review.py") in record["installed"]
+
+
+def retire_ai_file(home, client, record):
+    path = locations(home, client)[2] / "ai_review.py"
+    name = str(path)
+    if not record or name not in record["installed"]:
+        return None, ""
+    preserved = "旧 AI 文件已有外部改动，已保留并退出管理。"
+    try:
+        snapshot = read_file(path)
+    except ValueError:
+        # A replaced symlink/directory is an external edit, never a managed file.
+        return None, preserved
+    if snapshot is None:
+        return None, ""  # Keep an external deletion; do not recreate the user's baseline.
+    if snapshot != record["installed"][name]:
+        return None, preserved
+    restore_file(path, record["before"][name])
+    return (path, snapshot), ""
+
+
 def install(home, client):
     receipt = receipt_path(home, client)
     previous = read_file(receipt) if client == "claude" else None
@@ -497,20 +473,19 @@ def install(home, client):
         previous = read_file(receipt)
     old = mapping(json.loads(base64.b64decode(previous["data"]))) if previous else None
     snapshots = {str(p): read_file(p) for p in files}
-    before = old["before"] if old else snapshots
-    if old and set(before) != set(snapshots):
-        raise ValueError("安装文件集合已变化；请先撤销旧安装")
+    before, installed = (receipt_files(home, client, old, files)
+                         if old is not None else (snapshots, None))
     updated = {str(p): {"data": base64.b64encode(content).decode(),
                        "mode": snapshots[str(p)]["mode"] if snapshots[str(p)] else 0o600}
                for p, content in files.items()}
     # Refuse to overwrite a file edited since our last install; preserve user changes.
-    if old and snapshots != old["installed"]:
+    if old is not None and snapshots != installed:
         config = locations(home, client)[1]
-        changed = {name for name in snapshots if snapshots[name] != old["installed"][name]}
+        changed = {name for name in snapshots if snapshots[name] != installed[name]}
         if client not in ("agy", "claude", "codebuddy", "qoder") or config is None or changed != {str(config)}:
             raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
         key = str(config)
-        stored = old["installed"][key]
+        stored = installed[key]
         current = snapshots[key]
         if not stored or not current or (client == "agy" and stored["mode"] != current["mode"]):
             raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
@@ -542,20 +517,25 @@ def install(home, client):
     if client == "claude" and previous:
         permission_modes.repair(home, client)
     changed = []
+    retired = None
+    retirement_note = ""
     try:
         for p, content in files.items():
             key = str(p)
             if snapshots[key] != updated[key]:
                 atomic_write(p, content, updated[key]["mode"])
                 changed.append(p)
+        retired, retirement_note = retire_ai_file(home, client, old)
         payload = json_bytes({"client": client, "before": before, "installed": updated})
         if not previous or base64.b64decode(previous["data"]) != payload:
             atomic_write(receipt, payload)
     except Exception:
+        if retired:
+            restore_file(*retired)
         for p in reversed(changed):
             restore_file(p, snapshots[str(p)])
         raise
-    return "守卫已安装，Agent 权限模式已检测/修复；重启客户端，Codex 需在 /hooks 检查并信任。"
+    return "守卫已安装，Agent 权限模式已检测/修复；重启客户端，Codex 需在 /hooks 检查并信任。" + retirement_note
 
 
 def uninstall(home, client):
@@ -565,24 +545,26 @@ def uninstall(home, client):
         raise ValueError("没有 TermYes 安装记录；未删除任何旧 Hook")
     record = mapping(json.loads(base64.b64decode(snapshot["data"])))
     # Receipts are not authority to write arbitrary paths.
-    allowed = set(map(str, desired_files(home, client)))
-    if (record.get("client") != client or set(record["before"]) != allowed
-            or set(record["installed"]) != allowed):
-        raise ValueError("安装记录与客户端路径不一致")
-    for name, installed in record["installed"].items():
+    before, installed_files = receipt_files(home, client, record, desired_files(home, client))
+    for name, installed in installed_files.items():
         if read_file(Path(name)) != installed:
             raise ValueError("文件已有后续改动，未自动恢复：" + name)
     restored = []
+    retired = None
+    retirement_note = ""
     try:
-        for name, original in record["before"].items():
+        for name, original in before.items():
             restore_file(Path(name), original)
             restored.append(name)
+        retired, retirement_note = retire_ai_file(home, client, record)
         path.unlink()
     except Exception:
+        if retired:
+            restore_file(*retired)
         for name in restored:
-            restore_file(Path(name), record["installed"][name])
+            restore_file(Path(name), installed_files[name])
         raise
-    return "已恢复守卫安装前文件；YOLO/等效权限模式保持不变。"
+    return "已恢复守卫安装前文件；YOLO/等效权限模式保持不变。" + retirement_note
 
 
 def status(home, selected=None):
@@ -591,7 +573,6 @@ def status(home, selected=None):
         verification = read_verification(home)
     except Exception:
         verification = None
-    review_status = reviewer_status(home, verification)
     result = []
     for client, (name, _, _, _) in CLIENTS.items():
         if selected and client not in selected:
@@ -604,12 +585,9 @@ def status(home, selected=None):
             try:
                 record = mapping(json.loads(receipt.read_bytes()))
                 files = desired_files(home, client)
-                allowed = set(map(str, files))
-                if (record.get("client") != client or set(record["installed"]) != allowed
-                        or set(record["before"]) != allowed):
-                    raise ValueError("安装记录与客户端文件不一致")
+                _, installed_files = receipt_files(home, client, record, files)
                 if any(read_file(Path(name)) != snapshot
-                       for name, snapshot in record["installed"].items()):
+                       for name, snapshot in installed_files.items()):
                     raise ValueError("守卫配置或文件已被修改")
                 if any(read_file(path)["data"] != base64.b64encode(content).decode()
                        for path, content in files.items()):
@@ -628,7 +606,6 @@ def status(home, selected=None):
             "guardReady": guard_ready,
             "guardReason": guard_reason,
             "approvalReason": reason(client),
-            **review_status,
             **live_status(home, client, verification),
             **permission_modes.inspect(home, client),
         })
@@ -658,7 +635,8 @@ def locked_action(home, client, action):
 
 def repair_unready(home, selected=None):
     pending = [client["id"] for client in status(home, selected)
-               if client["detected"] and (not client["permissionReady"] or not client["guardReady"])]
+               if client["detected"] and (not client["permissionReady"] or not client["guardReady"]
+                                          or receipt_needs_retirement(home, client["id"]))]
     failures = {}
     for client in pending:
         try:
@@ -912,88 +890,19 @@ def verify_clients(home, selected=None):
             write_verification(home, verification)
             if record["liveStatus"] != "passed":
                 failures[client] = record["liveReason"]
+    if not candidates:
+        write_verification(home, verification)
     return status(home), failures
-
-
-def run_reviewer_probe(home, timeout=60):
-    environment = dict(os.environ)
-    environment.update({
-        "HOME": str(home),
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "TERMOSAIC_AI_REVIEW_CONFIG": str(reviewer_config_path(home)),
-    })
-    process = subprocess.Popen(
-        ["/usr/bin/python3", "-B", str(SOURCE / "ai_review.py")],
-        cwd=str(home),
-        env=environment,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    request = json.dumps({
-        "prompt": (
-            "Would you like to send input to terminal?\n"
-            'Input: "\\u{3}"\n'
-            "1. Yes, proceed\n2. No"
-        ),
-        "input": "\\u{3}",
-    }).encode()
-    try:
-        stdout, stderr = process.communicate(request, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=3)
-        except (ProcessLookupError, subprocess.TimeoutExpired):
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
-        return 124, b"", b"AI reviewer timeout"
-    return process.returncode, stdout[-1048576:], stderr[-16384:]
-
-
-def verify_reviewer(home):
-    configured, reason_text = reviewer_configuration(home)
-    record = {
-        "fingerprint": reviewer_fingerprint(home),
-        "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    }
-    if not configured:
-        return {**record, "status": "disabled" if reason_text == "AI 审批未启用" else "failed",
-                "reason": reason_text}
-    try:
-        code, stdout, stderr = run_reviewer_probe(home)
-        if code != 0:
-            return {**record, "status": "failed",
-                    "reason": "AI reviewer 执行失败（%s）：%s" % (
-                        code, output_reason(stderr.decode("utf-8", errors="replace"))
-                    )}
-        value = mapping(json.loads(stdout))
-        if value.get("behavior") == "allow":
-            return {**record, "status": "passed", "reason": "Ctrl-C AI reviewer 真实请求与允许决策通过"}
-        return {**record, "status": "failed", "reason": value.get("reason", "AI reviewer 未允许 Ctrl-C")}
-    except Exception as error:
-        return {**record, "status": "failed", "reason": "AI reviewer 返回无效：" + str(error)}
-
 
 def verify_all(home):
-    _, failures = verify_clients(home)
-    verification = read_verification(home)
-    verification["reviewer"] = verify_reviewer(home)
-    write_verification(home, verification)
-    if verification["reviewer"]["status"] not in ("passed", "disabled"):
-        failures["reviewer"] = verification["reviewer"]["reason"]
-    return status(home), failures
+    return verify_clients(home)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "verify-reviewer"),
+        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client"),
     )
     parser.add_argument("client", nargs="?", choices=CLIENTS)
     parser.add_argument("--home", type=Path, default=Path.home(), help="User root; tests use a temporary home")
@@ -1013,14 +922,6 @@ def main():
         if failures:
             sys.exit(1)
         return
-    if args.action == "verify-reviewer":
-        verification = read_verification(args.home)
-        verification["reviewer"] = verify_reviewer(args.home)
-        write_verification(args.home, verification)
-        print(json.dumps(status(args.home), ensure_ascii=False))
-        if verification["reviewer"]["status"] != "passed":
-            sys.exit(1)
-        return
     if args.action in ("verify", "verify-client"):
         if args.action == "verify-client" and not args.client:
             parser.error("client required")
@@ -1036,6 +937,7 @@ def main():
         if args.action == "ensure":
             clients = status(args.home, [args.client])
             if clients and all(item["detected"] and item["permissionReady"] and item["guardReady"]
+                               and not receipt_needs_retirement(args.home, item["id"])
                                for item in clients):
                 print(json.dumps(clients, ensure_ascii=False))
                 return

@@ -26,7 +26,7 @@ struct MenuActivationRegression {
     @MainActor
     static func terminalScripts() throws {
         var scripts: [String] = []
-        var result = NSAppleEventDescriptor(string: "12\u{1f}\u{1f}\u{1e}13\u{1f}Claude\u{1f}ready\u{1e}")
+        var result = NSAppleEventDescriptor(boolean: true)
         var error: NSDictionary?
         let manager = TerminalManager(scriptExecutor: { source in
             scripts.append(source)
@@ -34,18 +34,9 @@ struct MenuActivationRegression {
             expect(NSAppleScript(source: source)!.compileAndReturnError(&compilationError), "Terminal script must compile: \(compilationError?.description ?? source)")
             return (result, error)
         })
-        let snapshots = manager.terminalWindowSnapshots()!
-        expect(snapshots.count == 2, "Empty titles/contents must not discard Terminal windows")
-        expect(snapshots[0].name.isEmpty && snapshots[0].contents.isEmpty, "Empty fields must remain empty")
-        expect(snapshots[1].id == 13 && snapshots[1].contents == "ready", "Snapshots must preserve window IDs and contents")
-        result = .init(string: "")
-        expect(manager.terminalWindowSnapshots()?.isEmpty == true, "An empty Terminal window list is valid")
-        result = .init(string: "bad-id\u{1f}title\u{1f}text\u{1e}")
-        expect(manager.terminalWindowSnapshots() == nil, "Malformed snapshots must not masquerade as an empty successful scan")
         result = .init(boolean: true)
         expect(manager.openAgentActivationWindows([.claude, .codex], scriptPath: "/a'b/with \"quotes\"/activate.py", resultDirectory: "/result's/with \"quotes\"").isEmpty, "Window-start scripts must compile with quoted bundle paths")
         expect(scripts.suffix(2).allSatisfy { $0.contains("do script ") && !$0.contains("every window") && !$0.contains("tabRef") && !$0.contains("in window") && !$0.contains("selected tab") && !$0.contains("return false") && !$0.contains("try") }, "Each activation must create a dedicated window without inspecting, skipping, or targeting user sessions")
-        expect(manager.activateTerminalWindow(id: 42), "Target-window activation script must compile")
         expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)]), "Layout script must compile")
         expect(scripts.last?.contains("try") == false, "Layout must not silently report success after per-window errors")
         error = [NSAppleScript.errorNumber: -1743, NSAppleScript.errorMessage: "Not authorized"]
@@ -53,11 +44,11 @@ struct MenuActivationRegression {
         expect(!manager.automationAuthorized && manager.phase == .needsAutomationPermission, "Permission denial must expose the automation-settings route")
         expect(!manager.openAgentActivationWindows([.claude], scriptPath: "/fake/activate.py", resultDirectory: "/fake/results").isEmpty, "Denied window creation must report a failure")
         error = [NSAppleScript.errorNumber: -10000, NSAppleScript.errorMessage: "Window write failed"]
-        expect(!manager.activateTerminalWindow(id: 42), "Activation script failures must be returned")
+        expect(!manager.applyWindowLayout(windowIDs: [12], frames: [.zero]), "Layout failures must be returned")
         expect(manager.phase == .error("Terminal 自动化失败：Window write failed"), "Automation failures must retain actual error details")
         error = nil
         result = .init(string: "")
-        _ = manager.terminalWindowSnapshots()
+        _ = manager.applyWindowLayout(windowIDs: [12], frames: [.zero])
         expect(manager.automationAuthorized, "A successful automation call must clear the permission-denied flag")
     }
 

@@ -1,3 +1,23 @@
+# TermYes v1.6.22
+
+## 简体中文
+
+- 删除未要求的 Ctrl-C 自动确认、窗口监听、AI reviewer、审核模型设置与独立辅助功能授权入口。原生 Ctrl-C 与业务弹窗保持人工操作。
+- 命令安全入口改名为“命令守卫”，仅保留 YOLO／等效免确认、危险命令清单和真实 Agent 验证；不使用 AI 审批普通命令。
+- 保留 Codex / Claude 的专用窗口定时 `hi`、立即激活、终端排列、快捷键与更新。
+- 新版不再安装 AI 审核模块；兼容旧守卫安装记录，避免删除功能导致现有守卫失效。
+- 自动回归 20/20 步、13 类客户端旧安装记录迁移检查及两个兼容 DMG 检查通过。真实 Agent 请求仍取决于客户端认证、服务额度和模型协议，失败项不会打钩。
+- 这次删除的是自动确认功能，不是键盘 Ctrl-C。没有新增模型服务，也不会把设备账号或密钥打进安装包。
+
+## English
+
+- Remove Ctrl-C automatic confirmation, window polling, AI reviewer/model settings, and the separate Accessibility authorization entry. Native Ctrl-C and business prompts remain manual.
+- Rename the safety menu to Command Guard, retaining only YOLO-equivalent execution, explicit danger rules, and live Agent verification.
+- Keep dedicated Codex/Claude scheduled `hi` windows, manual activation, terminal arrangement, shortcuts, and updates.
+- Retire the AI review module with migration of existing guard receipts so command protection remains intact.
+- All 20 code-regression steps, migration checks across 13 adapters, and both compatibility-image checks passed. Authentication, quota, and model-protocol errors remain visible and unverified.
+- This removes automatic confirmation, not native keyboard Ctrl-C. No new model service is added and local account credentials are not packaged.
+
 # TermYes v1.6.21
 
 ## 简体中文

@@ -13,7 +13,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalHotKeyController.shared.activateSavedShortcut()
         TerminalManager.shared.start()
         ScheduledActivationController.shared.start()
-        WindowApprovalController.shared.start()
         AgentGuardController.shared.start()
         UpdateController.shared.start()
     }
@@ -46,8 +45,6 @@ struct TermYesApp: App {
     @StateObject private var scheduledActivation = ScheduledActivationController.shared
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
-    @StateObject private var aiReview = AIReviewController.shared
-    @StateObject private var windowApproval = WindowApprovalController.shared
 
     private var updateVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -144,17 +141,6 @@ struct TermYesApp: App {
         return "questionmark.square"
     }
 
-    private var reviewerStatusText: String {
-        guard let client = agentGuard.clients.first else { return "检测中…" }
-        switch client.reviewerStatus {
-        case "passed": return "实测通过"
-        case "failed": return "实测失败"
-        case "stale": return "配置已变化，待重测"
-        case "disabled": return "未启用"
-        default: return "待实测"
-        }
-    }
-
     private var agentMenuStatus: String {
         if agentGuard.isWorking { return "正在检查…" }
         let message = agentGuard.message
@@ -212,7 +198,7 @@ struct TermYesApp: App {
                 Divider()
                 shortcutMenuContent
             }
-            Menu("自动审批") {
+            Menu("命令守卫") {
                 Text(agentSafetyText)
                 Button(agentGuard.isWorking ? "正在全面实测…" : "全面实测（会产生模型请求）") {
                     agentGuard.verifyAll()
@@ -240,54 +226,6 @@ struct TermYesApp: App {
                         Label("\(client.name) · \(agentStatusText(client))", systemImage: agentStatusIcon(client))
                     }
                     .disabled(agentGuard.isWorking)
-                }
-                Divider()
-                Text("Ctrl-C AI 审批")
-                Toggle(
-                    "启用 AI reviewer",
-                    isOn: Binding(
-                        get: { aiReview.isEnabled },
-                        set: {
-                            aiReview.setEnabled($0)
-                            agentGuard.refresh()
-                        }
-                    )
-                )
-                .disabled(aiReview.models.isEmpty)
-                Text("审核模型：\(aiReview.selectedModel?.name ?? "未配置")")
-                Button("配置审核模型…") {
-                    AIReviewModelPicker.shared.show()
-                }
-                if let error = aiReview.errorMessage {
-                    Button("审批模型设置失败 · 查看原因…") {
-                        showIssue("审批模型设置失败", detail: error)
-                    }
-                }
-                Toggle(
-                    "自动确认 Ctrl-C 窗口",
-                    isOn: Binding(
-                        get: { windowApproval.isEnabled },
-                        set: { windowApproval.setEnabled($0) }
-                    )
-                )
-                if windowApproval.isEnabled && !windowApproval.isAccessibilityTrusted {
-                    Button("授予 Ctrl-C 辅助功能权限…") {
-                        windowApproval.requestAccessibility()
-                    }
-                    Button("打开辅助功能设置…") {
-                        windowApproval.openAccessibilitySettings()
-                    }
-                }
-                Text("Reviewer：\(reviewerStatusText) · 窗口：\(windowApproval.statusMessage)")
-                Button(agentGuard.isWorking ? "正在实测 reviewer…" : "实测 Ctrl-C AI reviewer") {
-                    agentGuard.verifyReviewer()
-                }
-                .disabled(agentGuard.isWorking || !aiReview.isEnabled || aiReview.models.isEmpty)
-                if let reason = agentGuard.clients.first?.reviewerReason,
-                   agentGuard.clients.first?.reviewerStatus == "failed" {
-                    Button("查看 reviewer 失败原因…") {
-                        showIssue("Ctrl-C AI reviewer 实测失败", detail: reason)
-                    }
                 }
                 Divider()
                 Text("危险命令清单 v\(agentGuard.clients.first?.policyVersion ?? 0)\(agentGuard.clients.first?.policyError == true ? " · 异常" : "")")

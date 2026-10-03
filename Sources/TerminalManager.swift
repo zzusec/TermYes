@@ -2,12 +2,6 @@
 import Combine
 import os
 
-struct TerminalWindowSnapshot {
-    let id: Int
-    let name: String
-    let contents: String
-}
-
 @MainActor
 final class TerminalManager: NSObject, ObservableObject {
     static let shared = TerminalManager()
@@ -140,65 +134,6 @@ final class TerminalManager: NSObject, ObservableObject {
             """
             return executeAppleScript(source) == nil ? "\(agent.rawValue)：无法打开激活窗口" : nil
         }
-    }
-
-    func terminalWindowSnapshots() -> [TerminalWindowSnapshot]? {
-        let source = """
-        set fieldSeparator to ASCII character 31
-        set recordSeparator to ASCII character 30
-        set output to ""
-        tell application id "com.apple.Terminal"
-            repeat with windowRef in every window
-                set currentWindow to contents of windowRef
-                set currentID to id of currentWindow
-                set currentName to name of currentWindow as text
-                set currentText to contents of selected tab of currentWindow
-                set output to output & currentID & fieldSeparator & currentName & fieldSeparator & currentText & recordSeparator
-            end repeat
-        end tell
-        return output
-        """
-        guard let result = executeAppleScript(source) else { return nil }
-        let recordSeparator = Character(UnicodeScalar(30))
-        let fieldSeparator = Character(UnicodeScalar(31))
-        guard let output = result.stringValue else {
-            updatePhase(.error("Terminal 窗口快照未返回文本"))
-            return nil
-        }
-        var snapshots: [TerminalWindowSnapshot] = []
-        for record in output.split(separator: recordSeparator, omittingEmptySubsequences: true) {
-            let fields = record.split(separator: fieldSeparator, maxSplits: 2, omittingEmptySubsequences: false)
-            guard fields.count == 3, let id = Int(fields[0]), id > 0 else {
-                updatePhase(.error("Terminal 窗口快照格式无效"))
-                return nil
-            }
-            snapshots.append(TerminalWindowSnapshot(
-                id: id,
-                name: String(fields[1]),
-                contents: String(fields[2])
-            ))
-        }
-        return snapshots
-    }
-
-    func terminalWindowNeedsAttention() -> Bool {
-        let source = "tell application id \"com.apple.Terminal\" to get name of every window"
-        guard let result = executeAppleScript(source) else { return false }
-        guard result.numberOfItems > 0 else { return false }
-        return (1...result.numberOfItems).contains { index in
-            result.atIndex(index)?.stringValue?.contains("Action Required") == true
-        }
-    }
-
-    func activateTerminalWindow(id: Int) -> Bool {
-        let source = """
-        tell application id "com.apple.Terminal"
-            set targetWindow to first window whose id is \(id)
-            set frontmost of targetWindow to true
-            activate
-        end tell
-        """
-        return executeAppleScript(source) != nil
     }
 
     func prepareForTermination() {

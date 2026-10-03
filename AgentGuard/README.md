@@ -18,7 +18,7 @@
 
 “修复配置”只修复配置与守卫文件，结果仍是“待实测”；“全面实测”与单个 Agent 实测会产生真实模型请求和相应费用。第三方追加的 CodeBuddy/Qoder Hook 会安全保留；已有 Hook 被改写或守卫脚本被外部修改仍会拒绝覆盖并显示原因。未验证或不支持验证的客户端不勾选，可从菜单查看详情。
 
-自动回归可运行 `/usr/bin/python3 -B Tools/run-regression.py`；打包后增加 `--release` 验证更新安装器和两个兼容 DMG。自动测试不替代本机菜单操作、真实 Agent 请求与辅助功能按键投递验收。
+自动回归可运行 `/usr/bin/python3 -B Tools/run-regression.py`；打包后增加 `--release` 验证更新安装器和两个兼容 DMG。自动测试不替代本机菜单操作、真实 Agent 请求验收。
 
 ## Shell 危险清单
 
@@ -28,26 +28,9 @@ Shell Hook 仅以 GitHub 仓库 `main` 分支的 `AgentGuard/danger-policy.json`
 
 清单包含磁盘格式化/抹盘、物理磁盘覆写、fork bomb、关机重启、递归修改系统目录权限、覆写 `/etc`、下载后直接交给 shell 执行、强制推送、`git reset --hard`、`git clean -f`、`npm publish`、删除定时任务、Docker 卷清理，以及针对根目录、家目录、整个项目等高影响目标的 `rm -rf`。具体正则与路径分级分别以 `rules.py`、`core.py` 为准。清单不能识别任意脚本的真实副作用，也不保护非 Shell 工具或 Hook 未加载时的命令。
 
-旧版本在 `ai-review-history.jsonl` 中保存的模型判断只供人工排查，不再影响 Shell 放行；旧学习记忆不再参与 Shell 判定。窗口级 Ctrl-C 审核仍可选择独立模型。
+## 命令与输入的边界
 
-## 窗口级 Ctrl-C 审批
-
-菜单中的 **Ctrl-C 窗口审核** 可配置独立 AI 模型。**自动确认 Ctrl-C 窗口输入** 开启后，TermYes 会轮询 Terminal 窗口文本，只在完整匹配以下条件时自动选择确认：
-
-- 窗口正在询问是否向现有终端发送输入
-- 同时存在明确的 Yes/No 选项
-- 发送内容严格为 `\u{3}`（Ctrl-C）
-- 独立 reviewer 再次确认允许，且发送前窗口内容没有变化
-
-回车、普通文本、未知控制序列、密码、权限和无法完整读取的弹窗不会自动处理。该功能需要辅助功能权限，并会把每次窗口审批写入本机 `window-approval-history.jsonl`。
-
-配置示例见 `ai-review.example.json`，默认读取：
-
-```text
-~/Library/Application Support/Termosaic/AgentGuard/ai-review.json
-```
-
-窗口 AI 审核会将对应窗口的提示文本发送到配置的模型端点；Shell 命令不会因为窗口审核而发送给模型。不要使用不受信任的远程模型端点。
+TermYes 不提供 Ctrl-C 自动确认、AI reviewer 或独立审核模型设置，不读取终端提示文本来替用户确认输入。原生 Ctrl-C 与业务弹窗由用户自己操作。普通 Shell 命令采用 YOLO／等效免确认，危险命令只由明确的清单和路径规则硬拦截；没有模型参与放行或否决。
 
 ## 夜间静音
 
