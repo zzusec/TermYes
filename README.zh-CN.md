@@ -31,7 +31,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；v1.6.23 构建产物位于 `dist/TermYes-v1.6.23-macOS.dmg`。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；v1.6.24 构建产物位于 `dist/TermYes-v1.6.24-macOS.dmg`。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -46,7 +46,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- v1.6.23 另有 **`Termosaic-v1.6.23-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
+- v1.6.24 另有 **`Termosaic-v1.6.24-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 
@@ -60,7 +60,7 @@ GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重�
 
 在「自动排列」中可显示或隐藏终端；配置的全局快捷键用于呼出并在鼠标所在显示器重新平铺。TermYes 不会向现有 Agent 会话自动或手动发送「继续」。
 
-**定时激活5h窗口 → 设置时间**可设置起始时间，勾选 Claude、Codex 或两者。TermYes 运行期间每五小时检查所选 Agent 的守卫，再打开专用 Terminal 窗口发送 `hi`，并在窗口中显示模型的实际回复；不向正在工作的会话注入输入，也不再额外发送第二个后台请求。只有取得成功退出状态和回复才显示激活成功，失败原因可查看。**立即激活一次（发送 hi）**与 Timer 共用同一条执行路径，可不等五小时直接验收。请求可能产生模型费用；成功不能保证供应商或账号的额度窗口重置，应用退出后不会定时触发。
+**定时激活5h窗口 → 设置时间**可设置起始时间，勾选 Claude、Codex 或两者。TermYes 运行期间每五小时检查所选 Agent 的守卫，再打开专用 Terminal 窗口发送 `hi`，并在窗口中显示模型的实际回复，激活完成后自动关闭这些专用窗口（不影响用户自己的终端窗口）；不向正在工作的会话注入输入，也不再额外发送第二个后台请求。只有取得成功退出状态和回复才显示激活成功，失败原因可查看。**立即激活一次（发送 hi）**与 Timer 共用同一条执行路径，可不等五小时直接验收。请求可能产生模型费用；成功不能保证供应商或账号的额度窗口重置，应用退出后不会定时触发。
 
 ## Agent 命令守卫
 

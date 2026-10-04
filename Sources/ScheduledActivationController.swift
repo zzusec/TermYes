@@ -21,6 +21,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
     private let home: String
     private let managerPath: String?
     private let openAgentWindows: @MainActor ([ScheduledAgent], String, String) -> [String]
+    private let closeAgentWindows: @MainActor () -> Void
 
     init(
         defaults: UserDefaults = .standard,
@@ -28,12 +29,16 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         manager: String? = Bundle.main.url(forResource: "manage", withExtension: "py", subdirectory: "AgentGuard")?.path,
         openAgentWindows: @escaping @MainActor ([ScheduledAgent], String, String) -> [String] = {
             TerminalManager.shared.openAgentActivationWindows($0, scriptPath: $1, resultDirectory: $2)
+        },
+        closeAgentWindows: @escaping @MainActor () -> Void = {
+            TerminalManager.shared.closeAgentActivationWindows()
         }
     ) {
         self.defaults = defaults
         self.home = home
         managerPath = manager
         self.openAgentWindows = openAgentWindows
+        self.closeAgentWindows = closeAgentWindows
         let savedMinutes = defaults.object(forKey: "autoContinueWindowStartMinutes") as? Int
         windowStartMinutes = savedMinutes.flatMap { (0..<1440).contains($0) ? $0 : nil }
         windowAgents = Set(FiveHourActivation.selectedAgents(
@@ -152,6 +157,9 @@ final class ScheduledActivationController: NSObject, ObservableObject {
             defer {
                 activating = false
                 try? FileManager.default.removeItem(at: resultDirectory)
+                // Every path — success, failure, timeout, or cancellation — retires the
+                // dedicated windows this activation opened. User windows are never touched.
+                closeAgentWindows()
             }
             let checks = await Task.detached(priority: .utility) {
                 selectedAgents.map { agent in

@@ -24,6 +24,7 @@ final class TerminalManager: NSObject, ObservableObject {
     private let pollInterval: TimeInterval = 0.2
     private var pollTimer: Timer?
     private var menuTrackingObservers: [NSObjectProtocol] = []
+    private var activationWindowIDs: [Int] = []
     private var lastTiledWindowIDs: [Int] = []
     private var lastWindowServerCandidateCount = -1
     private var pendingWindowIDPasses = 0
@@ -128,18 +129,51 @@ final class TerminalManager: NSObject, ObservableObject {
     }
 
     func openAgentActivationWindows(_ agents: [ScheduledAgent], scriptPath: String, resultDirectory: String) -> [String] {
-        agents.compactMap { agent in
+        var failures: [String] = []
+        var openedWindowIDs: [Int] = []
+        for agent in agents {
             let command = agent.activationCommand(scriptPath: scriptPath, resultDirectory: resultDirectory)
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
             // Always create a dedicated window; never send input into a user's active Agent session.
+            // `do script` without a target creates a new front window; its id lets us close exactly
+            // that window later instead of touching any user window.
             let source = """
             tell application id "com.apple.Terminal"
                 do script "\(command)"
+                return id of front window
             end tell
             """
-            return executeAppleScript(source) == nil ? "\(agent.rawValue)：无法打开激活窗口" : nil
+            guard let result = executeAppleScript(source), result.descriptorType == typeSInt32,
+                  result.int32Value > 0 else {
+                failures.append("\(agent.rawValue)：无法打开激活窗口")
+                continue
+            }
+            openedWindowIDs.append(Int(result.int32Value))
         }
+        // One batch per activation; the previous batch is closed when its own activation finishes.
+        activationWindowIDs = openedWindowIDs
+        return failures
+    }
+
+    /// Closes only the dedicated windows opened by the most recent activation batch and leaves every
+    /// other Terminal window untouched. Windows the user already closed are skipped instead of
+    /// raising an automation error.
+    func closeAgentActivationWindows() {
+        let windowIDs = activationWindowIDs
+        activationWindowIDs = []
+        guard !windowIDs.isEmpty else { return }
+        let windowIDList = windowIDs.map(String.init).joined(separator: ", ")
+        let source = """
+        tell application id "com.apple.Terminal"
+            repeat with currentID in {\(windowIDList)}
+                if exists (first window whose id is currentID) then
+                    close (first window whose id is currentID)
+                end if
+            end repeat
+        end tell
+        """
+        _ = executeAppleScript(source)
     }
 
     func prepareForTermination() {

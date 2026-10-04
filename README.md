@@ -31,7 +31,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The v1.6.23 build artifact is at `dist/TermYes-v1.6.23-macOS.dmg`.
+1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The v1.6.24 build artifact is at `dist/TermYes-v1.6.24-macOS.dmg`.
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -46,7 +46,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- v1.6.23 includes a **`Termosaic-v1.6.23-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
+- v1.6.24 includes a **`Termosaic-v1.6.24-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -60,7 +60,7 @@ Switching to another application hides the canvas. Hiding windows does not stop 
 
 Auto Arrange lets you show or hide the terminal canvas. Its configurable global shortcut shows and re-tiles the canvas on the display under the pointer. TermYes does not send Continue into existing agent sessions, manually or automatically.
 
-**Scheduled 5h Windows → Set time** lets you choose the start time and Claude, Codex, or both. Every five hours while TermYes runs, it checks the selected guards, opens dedicated Terminal windows, sends `hi`, and displays the actual model replies. It never injects input into active user sessions or sends a duplicate background request. Success requires a successful exit and a reply; failures remain visible. **Activate now (send hi)** uses the same path as the Timer without waiting five hours. Requests may incur model usage charges and do not guarantee a provider's quota window resets; no timer runs while the app is closed.
+**Scheduled 5h Windows → Set time** lets you choose the start time and Claude, Codex, or both. Every five hours while TermYes runs, it checks the selected guards, opens dedicated Terminal windows, sends `hi`, displays the actual model replies, and then closes those dedicated windows once the activation finishes, leaving user windows alone. It never injects input into active user sessions or sends a duplicate background request. Success requires a successful exit and a reply; failures remain visible. **Activate now (send hi)** uses the same path as the Timer without waiting five hours. Requests may incur model usage charges and do not guarantee a provider's quota window resets; no timer runs while the app is closed.
 
 **No Ctrl-C auto-confirmation or AI approval.** Native Ctrl-C and business dialogs remain manual; Shell enforcement uses YOLO and explicit danger rules.
 

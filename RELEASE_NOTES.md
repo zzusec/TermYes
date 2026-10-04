@@ -1,3 +1,19 @@
+# TermYes v1.6.24
+
+## 简体中文
+
+- 「定时激活5h窗口」与「立即激活一次（发送 hi）」打开的专用 Terminal 窗口，现在会在激活流程结束后自动关闭：成功、失败、超时与取消都会收尾，模型的实际回复仍先在窗口中完整显示。
+- 只关闭 TermYes 自己打开的窗口：打开时记录窗口 ID，关闭脚本仅针对这批 ID 并逐窗口检查存在性，用户自己的终端窗口不受影响；无记录时不执行任何脚本，权限拒绝时不会留下可误关的记录。
+- 回归新增覆盖：开窗脚本返回并记录窗口 ID、关闭脚本仅含记录 ID 且带存在性保护、无记录不关闭、权限拒绝不留记录、手动与定时激活完成后必被调用、未激活的控制器不关闭任何窗口；20/20 代码回归通过。
+- 真实冒烟：新建窗口记录 ID 后由同一关闭脚本关闭，窗口数 3→4→3，用户窗口不受影响；本机安装版已同步更新到本版本。
+
+## English
+
+- Dedicated Terminal windows opened by **Scheduled 5h Windows** and **Activate now (send hi)** now close themselves once the activation finishes: success, failure, timeout, and cancellation all retire the windows after the model replies have been shown in them.
+- Only windows opened by TermYes are closed: window IDs are recorded at open time, and the close script targets exactly that batch with a per-window existence check, leaving user windows untouched; nothing runs without a recorded batch, and denied automation never leaves closable records behind.
+- Regression now covers: open scripts returning and recording window IDs, close-script content (recorded IDs only, existence-guarded), no script without a recorded batch, denied automation leaving no closable records, manual and timer activations invoking the close, and idle controllers never closing anything; 20/20 code-regression steps pass.
+- Live smoke: a new window's recorded ID was closed by the same script, window count 3→4→3 with user windows unaffected; the local install has been updated to this version.
+
 # TermYes v1.6.23
 
 ## 简体中文

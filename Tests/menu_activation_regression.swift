@@ -45,6 +45,8 @@ struct MenuActivationRegression {
             let controller = ScheduledActivationController(defaults: defaults, home: FileManager.default.temporaryDirectory.path, manager: nil, openAgentWindows: { _, _, _ in
                 expect(false, "Reconfirming or restoring a schedule must not open any agent window")
                 return []
+            }, closeAgentWindows: {
+                expect(false, "Reconfirming or restoring a schedule must not close any window")
             })
             defer { controller.setWindowSchedule(minutes: nil, agents: []) }
             expect(controller.nextActivationDate == nil, "A controller not yet started must not advertise an unscheduled timer")
@@ -71,6 +73,8 @@ struct MenuActivationRegression {
             let restored = ScheduledActivationController(defaults: defaults, home: FileManager.default.temporaryDirectory.path, manager: nil, openAgentWindows: { _, _, _ in
                 expect(false, "Restart restoration must only schedule, never open an agent window")
                 return []
+            }, closeAgentWindows: {
+                expect(false, "Restart restoration must only schedule, never close a window")
             })
             defer { restored.setWindowSchedule(minutes: nil, agents: []) }
             restored.start()
@@ -117,15 +121,26 @@ struct MenuActivationRegression {
             expect(NSAppleScript(source: source)!.compileAndReturnError(&compilationError), "Terminal script must compile: \(compilationError?.description ?? source)")
             return (result, error)
         })
-        result = .init(boolean: true)
+        result = .init(int32: 345)
         expect(manager.openAgentActivationWindows([.claude, .codex], scriptPath: "/a'b/with \"quotes\"/activate.py", resultDirectory: "/result's/with \"quotes\"").isEmpty, "Window-start scripts must compile with quoted bundle paths")
         expect(scripts.suffix(2).allSatisfy { $0.contains("do script ") && !$0.contains("every window") && !$0.contains("tabRef") && !$0.contains("in window") && !$0.contains("selected tab") && !$0.contains("return false") && !$0.contains("try") }, "Each activation must create a dedicated window without inspecting, skipping, or targeting user sessions")
+        let scriptsAfterWindows = scripts.count
+        manager.closeAgentActivationWindows()
+        expect(scripts.count == scriptsAfterWindows + 1, "A finished activation must close the dedicated windows it opened")
+        let closeScript = scripts.last ?? ""
+        expect(closeScript.contains("exists (first window whose id is currentID)") && closeScript.contains("close (first window whose id is currentID)") && closeScript.contains("345") && !closeScript.contains("front window") && !closeScript.contains("every window"), "Closing must target only the recorded activation window IDs and leave user windows alone")
+        let scriptsAfterClose = scripts.count
+        manager.closeAgentActivationWindows()
+        expect(scripts.count == scriptsAfterClose, "Closing without a recorded activation batch must not run a script")
         expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)]), "Layout script must compile")
         expect(scripts.last?.contains("try") == false, "Layout must not silently report success after per-window errors")
         error = [NSAppleScript.errorNumber: -1743, NSAppleScript.errorMessage: "Not authorized"]
         expect(!manager.applyWindowLayout(windowIDs: [12], frames: [.zero]), "Denied automation must fail layout")
         expect(!manager.automationAuthorized && manager.phase == .needsAutomationPermission, "Permission denial must expose the automation-settings route")
         expect(!manager.openAgentActivationWindows([.claude], scriptPath: "/fake/activate.py", resultDirectory: "/fake/results").isEmpty, "Denied window creation must report a failure")
+        let scriptsAfterDeniedOpen = scripts.count
+        manager.closeAgentActivationWindows()
+        expect(scripts.count == scriptsAfterDeniedOpen, "Denied window creation must not leave closable window records")
         error = [NSAppleScript.errorNumber: -10000, NSAppleScript.errorMessage: "Window write failed"]
         expect(!manager.applyWindowLayout(windowIDs: [12], frames: [.zero]), "Layout failures must be returned")
         expect(manager.phase == .error("Terminal 自动化失败：Window write failed"), "Automation failures must retain actual error details")
@@ -237,6 +252,7 @@ struct MenuActivationRegression {
         try write("request-mode", "success")
         var windowFailures: [ScheduledAgent: String] = [:]
         var windowCalls = 0
+        var closeCalls = 0
         var openedAgents: [[ScheduledAgent]] = []
         var resultDirectories: [String] = []
         var fakeWindows: [Task<Void, Never>] = []
@@ -266,12 +282,15 @@ struct MenuActivationRegression {
                 })
             }
             return agents.compactMap { agent in windowFailures[agent].map { agent.rawValue + "：" + $0 } }
+        }, closeAgentWindows: {
+            closeCalls += 1
         })
         defer { controller.setWindowSchedule(minutes: nil, agents: []) }
         expect(controller.windowStartMinutes == nil && controller.windowAgents == [.claude, .codex], "A new schedule must be disabled and default to both supported agents")
         controller.activateNow()
         await waitUntil { !controller.activating }
         expect(controller.lastActivationStatus == "激活请求成功（2/2）" && controller.lastActivationDetail == nil, "Manual activation must consume the two window receipts")
+        expect(closeCalls == 1, "A finished manual activation must close the dedicated windows it opened")
         expect(controller.windowStartMinutes == nil && defaults.object(forKey: "autoContinueWindowAnchorDate") == nil && controller.nextActivationDate == nil && scheduledTimer(controller) == nil, "Manual activation must not enable a timer, advertise a next firing, or create an anchor")
         expect(callCount(.claude) == 1 && callCount(.codex) == 1 && windowCalls == 1, "Only the fake windows may make a request; no second background model request is allowed")
         for agent in ScheduledAgent.allCases {
@@ -294,14 +313,18 @@ struct MenuActivationRegression {
         expect(confirmedAnchor == FiveHourActivation.firstAnchor(minutes: 600, after: beforeAgentConfirmation) || confirmedAnchor == FiveHourActivation.firstAnchor(minutes: 600, after: afterAgentConfirmation), "Confirming only an agent change must also start at the next selected HH:mm")
         expectScheduledTimer(controller)
         expect(defaults.stringArray(forKey: "autoContinueWindowAgents") == ["codex"], "Selections must persist deterministically")
-        let restored = ScheduledActivationController(defaults: defaults, home: root.path, manager: managerURL.path, openAgentWindows: { _, _, _ in [] })
+        let restored = ScheduledActivationController(defaults: defaults, home: root.path, manager: managerURL.path, openAgentWindows: { _, _, _ in [] }, closeAgentWindows: {
+            expect(false, "Restoring saved settings must not close any window")
+        })
         defer { restored.setWindowSchedule(minutes: nil, agents: []) }
         expect(restored.windowStartMinutes == 600 && restored.windowAgents == [.codex], "Saved schedule settings must restore")
         controller.setWindowSchedule(minutes: 600, agents: [.claude, .codex])
         let beforeTimer = windowCalls
+        let beforeTimerClose = closeCalls
         trigger(controller)
         await waitUntil { !controller.activating }
         expect(controller.lastActivationStatus == "激活请求成功（2/2）" && windowCalls == beforeTimer + 1, "Timer activation must share the dedicated-window receipt path")
+        expect(closeCalls == beforeTimerClose + 1, "A finished timer activation must also close its windows")
         expectScheduledTimer(controller)
         expect(callCount(.claude) == 2 && callCount(.codex) == 2, "Each timer firing must make exactly one request per selected agent")
         expect(ScheduledActivationController.ensureReady(.claude, home: root.path, manager: nil) == "缺少守卫管理器", "A missing bundled manager must be a visible prerequisite failure")
