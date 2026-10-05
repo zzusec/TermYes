@@ -55,9 +55,9 @@ TermYes 启动时和运行期间每 5 分钟检测已安装的 Agent，并在需
 - pi → 本身不进行命令审批
 - Gemini / Cursor / agy / OpenCode / droid / Crush / Copilot → `~/.local/bin` 下的受管启动 wrapper
 
-自动修复是幂等的，只处理检测到的客户端；外部修改过的守卫文件不会被覆盖。wrapper 会强制附加对应免确认参数并设置 `DANGER_GUARD_BYPASS=1`，使没有确认框的客户端仍由守卫硬拒危险命令。菜单栏 **Agent 命令守卫 → 立即检查并修复 YOLO 与守卫** 可手动重跑。
+自动修复是幂等的，只处理检测到的客户端；外部修改过的守卫文件不会被覆盖。启动检查仅作尽力修复：协调器缺失、安装锁冲突或修复失败时显示警告，不阻止 Agent 启动，也不把该状态报告为守卫就绪。已加载的 Hook 仍照常拒绝危险命令；缺失或未加载的 Hook 不能保证保护。wrapper 会强制附加对应免确认参数并设置 `DANGER_GUARD_BYPASS=1`，使没有确认框的客户端仍由守卫硬拒危险命令。菜单栏 **Agent 命令守卫 → 立即检查并修复 YOLO 与守卫** 可手动重跑。
 
-新开的 zsh 终端会加载 `~/.local/bin/termyes-agent-yolo-shell`。每个已安装 Agent 在启动前都会先调用 `ensure <client>`：守卫文件及权限模式就绪才启动，否则拒绝启动。参数型客户端的受管 wrapper 同样检查。这样不需要为了加载 YOLO 重启客户端，但已运行的客户端不会因此自动加载 Hook。无论客户端是否自动批准命令，已正确加载的 TermYes `danger-guard` 都会在命令执行前硬拒绝命中的危险操作。
+新开的 zsh 终端会加载 `~/.local/bin/termyes-agent-yolo-shell`。每个已安装 Agent 在启动前都会先调用 `ensure <client>`，尽力检查和修复守卫文件及权限模式；检查失败或协调器缺失时只警告，仍继续启动。参数型客户端的受管 wrapper 同样采用这一行为。这样不需要为了加载 YOLO 重启客户端，但已运行的客户端不会因此自动加载 Hook。无论客户端是否自动批准命令，已正确加载的 TermYes `danger-guard` 都会在命令执行前硬拒绝命中的危险操作。
 
 Hook 是否被真实客户端加载、信任和调用仍需逐客户端验证；脚本单测通过不等于客户端端到端已验证。Copilot 宿主超时、agy turbo 等兼容性边界仍需实际取证。
 

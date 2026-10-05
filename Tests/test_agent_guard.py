@@ -510,7 +510,7 @@ with tempfile.TemporaryDirectory(prefix="termosaic-event-error-") as tmp:
     output = hook("codex", {**payload("codex"), "hook_event_name": "PermissionRequest"}, source=target)
 check(output["hookSpecificOutput"]["decision"]["behavior"] == "deny", "missing core retains permission channel")
 
-# The terminal startup loader must repair the selected client before launching it.
+# Startup checks are advisory; CLI launch retains YOLO even when repair fails.
 with tempfile.TemporaryDirectory(prefix="termosaic-shell-yolo-") as tmp:
     home = Path(tmp).resolve()
     local_bin = home / ".local/bin"
@@ -545,7 +545,8 @@ with tempfile.TemporaryDirectory(prefix="termosaic-shell-yolo-") as tmp:
         timeout=5,
     )
     check(result.returncode == 0, "terminal loader launches command")
-    check(result.stdout.strip() == "agent:hello", "terminal loader preserves arguments")
+    check(result.stdout.strip() == "agent:--dangerously-bypass-approvals-and-sandbox hello",
+          "terminal loader preserves arguments and enforces Codex YOLO")
     check(manage_log.read_text().strip() == "ensure codex",
           "terminal loader checks guard and YOLO before launch")
     fake_manage.write_text("#!/usr/bin/python3\nimport sys\nsys.exit(1)\n")
@@ -554,8 +555,9 @@ with tempfile.TemporaryDirectory(prefix="termosaic-shell-yolo-") as tmp:
         env={**ENV, "HOME": str(home), "PATH": str(home) + ":" + ENV["PATH"],
              "TERMYES_MANAGE_PY": str(fake_manage)}, timeout=5,
     )
-    check(blocked.returncode != 0 and "agent:hello" not in blocked.stdout,
-          "terminal loader refuses to start unguarded agent")
+    check(blocked.returncode == 0 and "agent:--dangerously-bypass-approvals-and-sandbox hello" in blocked.stdout
+          and "继续启动" in blocked.stderr,
+          "terminal loader warns and starts Codex with YOLO when repair fails")
     check(core.classify("rm -rf /", str(ROOT), bypass=True)[0] == "block",
           "TermYes guard still blocks danger under YOLO")
 
@@ -911,8 +913,9 @@ with tempfile.TemporaryDirectory(prefix="termosaic-wrapper-ensure-") as tmp:
         env={**ENV, "HOME": str(home), "PATH": str(home / ".local/bin") + ":" + str(vendor) + ":/usr/bin:/bin",
              "TERMYES_MANAGE_PY": str(manager)}, timeout=5,
     )
-    check(result.returncode != 0 and "launched:" not in result.stdout,
-          "agy wrapper refuses to start without guard")
+    check(result.returncode == 0 and "launched:--dangerously-skip-permissions --version" in result.stdout
+          and "继续启动" in result.stderr,
+          "agy wrapper warns and starts with YOLO when guard check fails")
 
 
 

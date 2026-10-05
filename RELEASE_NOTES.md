@@ -1,3 +1,19 @@
+# TermYes v1.6.25
+
+## 简体中文
+
+- 修复 TermYes 因命令守卫或 YOLO 就绪检查失败而阻止 Codex 等 Agent 启动的问题。启动检查改为尽力修复：协调器缺失、安装锁冲突或修复失败时仅显示警告，仍启动客户端；检查成功时不输出状态 JSON。
+- 保留失败详情，不再只显示笼统的「已阻止启动」提示；失败不会被报告为守卫就绪。已加载的 Hook 仍照常拒绝危险命令，缺失或未加载的 Hook 不能保证保护。
+- 保留受管 wrapper 的 YOLO 参数、PATH 优先级与权限降级参数冲突检查；Codex、Claude Code、CodeBuddy 的 Shell 入口也显式附加免确认参数，不依赖启动修复成功。
+- 新增回归覆盖协调器缺失、空错误、JSON 错误报告、stderr 保留、成功输出不污染 CLI、检查失败仍继续启动及 YOLO 参数保留。受管 wrapper 缺失时仍以对应免确认参数调用 PATH 中的客户端，并避免重复添加 Codex 已有的 `--yolo` 或等效参数。本机已验证 Codex 交互界面能打开并显示 YOLO mode；本次未发送模型请求，也不声称所有客户端已完成端到端守卫验收。
+
+## English
+
+- Fix TermYes preventing Codex and other agents from starting when the Command Guard or YOLO readiness check fails. Startup repair is now best-effort: a missing coordinator, installation lock contention, or a repair failure produces a warning but does not block the CLI. Successful status JSON remains silent.
+- Preserve failure details instead of showing only a generic startup-blocked message, without reporting failed checks as guard readiness. Loaded hooks still reject dangerous commands; missing or unloaded hooks cannot guarantee protection.
+- Retain managed-wrapper YOLO flags, PATH precedence, and checks against permission downgrade arguments. The Codex, Claude Code, and CodeBuddy shell launchers also pass explicit automatic-execution flags independently of repair success.
+- Add regression coverage for missing coordinators, empty failures, JSON error reports, stderr preservation, clean successful output, continued startup after failed checks, and retained YOLO flags. Missing managed wrappers still launch the CLI on PATH with its automatic-execution flags, and existing Codex `--yolo` or equivalent flags are not duplicated. A local Codex interactive launch displayed YOLO mode; no model request was sent, and this release does not claim end-to-end guard verification for every client.
+
 # TermYes v1.6.24
 
 ## 简体中文

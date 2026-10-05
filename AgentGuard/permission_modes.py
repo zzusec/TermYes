@@ -364,9 +364,13 @@ for dir in "$HOME/.local/share/Termosaic/vendor/bin" "${{path[@]}}" {fallback}; 
     header="$(/usr/bin/head -c 256 "$candidate")"
     [[ "$header" == '#!'*$'\n{marker}\n'* ]] && continue
     manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
-    if [[ ! -r "$manage_path" ]] || ! /usr/bin/python3 -B "$manage_path" ensure "$client" >/dev/null; then
-      print -u2 "[TermYes] $entry_name 的命令守卫或 YOLO 未就绪，已阻止启动。"
-      exit 1
+    if [[ ! -r "$manage_path" ]]; then
+      print -u2 "[TermYes] 缺少权限协调器：$manage_path；继续启动 $entry_name。"
+    elif ! ensure_output="$(/usr/bin/python3 -B "$manage_path" ensure "$client")"; then
+      if [[ -n "$ensure_output" ]]; then
+        print -ru2 -- "$ensure_output"
+      fi
+      print -u2 "[TermYes] $entry_name 的命令守卫或 YOLO 检查失败；继续启动，请稍后检查守卫配置。"
     fi
     export DANGER_GUARD_BYPASS=1
     # --auto belongs to the run command, not the root parser, in current OpenCode.
@@ -396,31 +400,62 @@ def _shell_wrapper_content():
                 f'{name}() {{ _termyes_agent_yolo {client} {name} "$@"; }}; fi'
             )
     wrapped = "|".join(WRAPPER_FLAGS)
+    flag_cases = "\n".join(
+        f"    {client}) flags=({' '.join(flags)}) ;;"
+        for client, flags in WRAPPER_FLAGS.items()
+    )
     return """{marker}
 _termyes_manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
 
 {argument_check}
 _termyes_agent_yolo() {{
   emulate -L zsh
-  local client="$1" entry="$2"
+  local client="$1" entry="$2" ensure_output arg
+  local -a flags=() header_lines=()
   shift 2
   _termyes_check_yolo_arguments "$client" "$@" || return $?
   if [[ ! -r "$_termyes_manage_path" ]]; then
-    print -u2 "[TermYes] 缺少权限协调器：$_termyes_manage_path"
-    return 1
-  elif ! /usr/bin/python3 -B "$_termyes_manage_path" ensure "$client" >/dev/null; then
-    print -u2 "[TermYes] $client 的命令守卫或 YOLO 未就绪，已阻止启动。"
-    return 1
+    print -u2 "[TermYes] 缺少权限协调器：$_termyes_manage_path；继续启动 $client。"
+  elif ! ensure_output="$(/usr/bin/python3 -B "$_termyes_manage_path" ensure "$client")"; then
+    if [[ -n "$ensure_output" ]]; then
+      print -ru2 -- "$ensure_output"
+    fi
+    print -u2 "[TermYes] $client 的命令守卫或 YOLO 检查失败；继续启动，请稍后检查守卫配置。"
   fi
   case "$client" in
-    {wrapped}) command "$HOME/.local/bin/$entry" "$@" ;;
-    *) command "$entry" "$@" ;;
+    {wrapped})
+      if [[ -x "$HOME/.local/bin/$entry" ]]; then
+        header_lines=("${{(@f)$(/usr/bin/head -c 256 "$HOME/.local/bin/$entry")}}")
+        if [[ "${{header_lines[1]:-}}" == '#!'* && "${{header_lines[2]:-}}" == "{marker}" ]]; then
+          command "$HOME/.local/bin/$entry" "$@"
+          return $?
+        fi
+      fi ;;
   esac
+  case "$client" in
+{flag_cases}
+    codex) flags=(--dangerously-bypass-approvals-and-sandbox) ;;
+    claude|codebuddy) flags=(--dangerously-skip-permissions) ;;
+  esac
+  for arg in "$@"; do
+    [[ "$arg" == "--" ]] && break
+    case "$client:$arg" in
+      codex:--yolo|codex:--dangerously-bypass-approvals-and-sandbox|\
+      claude:--dangerously-skip-permissions|codebuddy:--dangerously-skip-permissions)
+        flags=(); break ;;
+    esac
+  done
+  if [[ "$client" == "opencode" && "${{1:-}}" == "run" ]]; then
+    shift
+    DANGER_GUARD_BYPASS=1 command "$entry" run "${{flags[@]}}" "$@"
+  else
+    DANGER_GUARD_BYPASS=1 command "$entry" "${{flags[@]}}" "$@"
+  fi
 }}
 
 {functions}
 """.format(marker=MANAGED_MARKER, argument_check=_permission_arguments_content(),
-           wrapped=wrapped, functions="\n".join(functions))
+           wrapped=wrapped, flag_cases=flag_cases, functions="\n".join(functions))
 
 
 def _wrapper_names(client):

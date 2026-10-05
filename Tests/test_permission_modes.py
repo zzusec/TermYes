@@ -43,10 +43,12 @@ class PermissionModesTests(unittest.TestCase):
         return self.write((directory or self.bin) / name,
                           '#!/bin/sh\nprintf "%s\\n" "$0" "$@"\n', True)
 
-    def manager(self, success=True):
+    def manager(self, success=True, stdout="", stderr=""):
         return self.write(self.home / "manage.py",
                           'import pathlib, sys\n'
                           f'pathlib.Path({str(self.home / "ensure.log")!r}).write_text(" ".join(sys.argv[1:]))\n'
+                          f'sys.stdout.write({stdout!r})\n'
+                          f'sys.stderr.write({stderr!r})\n'
                           f'sys.exit({0 if success else 1})\n')
 
     def run_wrapper(self, name, args=(), path=None):
@@ -214,14 +216,138 @@ class PermissionModesTests(unittest.TestCase):
         for flag in ("--allow-all-tools",):
             self.assertIn(flag, result.stdout.splitlines())
 
-    def test_wrapper_still_fails_closed_when_guard_fails(self):
+    def test_wrapper_starts_with_yolo_when_guard_check_fails(self):
         self.cli("gemini")
         modes.repair(self.home, "gemini")
         env = {**os.environ, "TERMYES_MANAGE_PY": str(self.manager(False))}
         result = subprocess.run([str(self.home / ".local/bin/gemini"), "--version"],
                                 capture_output=True, text=True, env=env, timeout=5)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--yolo", result.stdout.splitlines())
+        self.assertIn("继续启动", result.stderr)
+
+    def test_shell_without_managed_wrapper_starts_path_cli_with_yolo(self):
+        local_bin = self.home / ".local/bin"
+        for client, flags in modes.WRAPPER_FLAGS.items():
+            name = modes.COMMANDS[client][0]
+            for directory in (self.bin, local_bin):
+                actual = self.write(directory / name,
+                                    '#!/bin/sh\nprintf "%s\\n" "$0" "$DANGER_GUARD_BYPASS" "$@"\nexit 37\n', True)
+                modes._ensure_zsh_path(self.home)
+                if directory == self.bin:
+                    self.assertFalse((local_bin / name).exists())
+                for missing in (False, True):
+                    args = (["run", "prompt with spaces", "--", "--no-yolo"] if client == "opencode"
+                            else ["prompt with spaces", "--", "--no-yolo"])
+                    with self.subTest(client=client, directory=directory, missing=missing):
+                        manager = self.home / "missing.py" if missing else self.manager(False)
+                        result = subprocess.run(
+                            ["/bin/zsh", "-f", "-c",
+                             'source "$HOME/.local/bin/termyes-agent-yolo-shell"; ' + name + ' "$@"',
+                             "test", *args], capture_output=True, text=True,
+                            env={**os.environ, "PATH": str(local_bin) + ":" + str(self.bin),
+                                 "DANGER_GUARD_BYPASS": "", "TERMYES_MANAGE_PY": str(manager)}, timeout=5)
+                        self.assertEqual(result.returncode, 37, result.stderr)
+                        expected = ["run", *flags, *args[1:]] if client == "opencode" else [*flags, *args]
+                        self.assertEqual(result.stdout.splitlines(), [str(actual), "1", *expected])
+                        self.assertIn("继续启动", result.stderr)
+
+    def test_shell_requires_managed_marker_on_second_line(self):
+        local_bin = self.home / ".local/bin"
+        for second_line in ("# Original CLI launcher", ""):
+            with self.subTest(second_line=second_line):
+                actual = self.write(local_bin / "gemini",
+                                    "#!/bin/sh\n" + second_line + "\n" + modes.MANAGED_MARKER + "\n"
+                                    + 'printf "%s\\n" "$0" "$DANGER_GUARD_BYPASS" "$@"\nexit 37\n', True)
+                self.assertFalse(modes._is_managed_wrapper(actual))
+                modes._ensure_zsh_path(self.home)
+                result = subprocess.run(
+                    ["/bin/zsh", "-f", "-c",
+                     'source "$HOME/.local/bin/termyes-agent-yolo-shell"; gemini --version'],
+                    capture_output=True, text=True,
+                    env={**os.environ, "PATH": str(local_bin) + ":" + str(self.bin),
+                         "DANGER_GUARD_BYPASS": "", "TERMYES_MANAGE_PY": str(self.home / "missing.py")}, timeout=5)
+                self.assertEqual(result.returncode, 37, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), [str(actual), "1", "--yolo", "--version"])
+
+    def test_codex_shell_does_not_duplicate_explicit_yolo_flags(self):
+        actual = self.cli("codex")
+        modes._ensure_zsh_path(self.home)
+        for args in (["--yolo", "--version"],
+                     ["--dangerously-bypass-approvals-and-sandbox", "--version"],
+                     ["--", "--yolo"]):
+            with self.subTest(args=args):
+                result = subprocess.run(
+                    ["/bin/zsh", "-f", "-c",
+                     'source "$HOME/.local/bin/termyes-agent-yolo-shell"; codex "$@"',
+                     "test", *args], capture_output=True, text=True,
+                    env={**os.environ, "TERMYES_MANAGE_PY": str(self.manager())}, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = ["--dangerously-bypass-approvals-and-sandbox", *args] if args[0] == "--" else args
+                self.assertEqual(result.stdout.splitlines(), [str(actual), *expected])
+
+    def run_ensure_launch(self, shell, manage_path):
+        client = "codex" if shell else "gemini"
+        self.cli(client)
+        modes.repair(self.home, client)
+        if shell:
+            command = ["/bin/zsh", "-f", "-c",
+                       'source "$HOME/.local/bin/termyes-agent-yolo-shell"; codex --version']
+        else:
+            command = [str(self.home / ".local/bin/gemini"), "--version"]
+        return subprocess.run(command, capture_output=True, text=True,
+                              env={**os.environ, "TERMYES_MANAGE_PY": str(manage_path)}, timeout=5)
+
+    def test_ensure_failure_reports_json_and_preserves_stderr_for_both_wrappers(self):
+        report = json.dumps([
+            {"client": "gemini", "serviceError": "服务未启动"},
+            {"client": "claude", "permissionReason": "权限配置不可写",
+             "guardReason": "命令守卫缺失"},
+        ], ensure_ascii=False, indent=2) + "\n"
+        for shell in (False, True):
+            for stderr in ("", "manage ensure: concrete failure\n"):
+                with self.subTest(shell=shell, stderr=stderr):
+                    result = self.run_ensure_launch(
+                        shell, self.manager(False, stdout=report, stderr=stderr))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = "--dangerously-bypass-approvals-and-sandbox" if shell else "--yolo"
+                    self.assertIn(expected, result.stdout.splitlines())
+                    self.assertIn(report, result.stderr)
+                    if stderr:
+                        self.assertIn(stderr, result.stderr)
+                    self.assertIn("继续启动", result.stderr)
+
+    def test_ensure_success_hides_json_for_both_wrappers(self):
+        report = '[{"permissionReady": true, "guardReady": true}]\n'
+        stderr = "manage ensure: diagnostic\n"
+        for shell in (False, True):
+            with self.subTest(shell=shell):
+                result = self.run_ensure_launch(
+                    shell, self.manager(stdout=report, stderr=stderr))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = [str(self.bin / ("codex" if shell else "gemini")),
+                            "--dangerously-bypass-approvals-and-sandbox" if shell else "--yolo"]
+                self.assertEqual(result.stdout.splitlines(), [*expected, "--version"])
+                self.assertEqual(result.stderr, stderr)
+
+    def test_ensure_empty_failure_does_not_block_either_wrapper(self):
+        for shell in (False, True):
+            with self.subTest(shell=shell):
+                result = self.run_ensure_launch(shell, self.manager(False))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--version", result.stdout.splitlines())
+                self.assertIn("继续启动", result.stderr)
+
+    def test_missing_manager_reports_path_for_both_wrappers(self):
+        missing = self.home / "missing coordinator/manage.py"
+        for shell in (False, True):
+            with self.subTest(shell=shell):
+                result = self.run_ensure_launch(shell, missing)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("--version", result.stdout.splitlines())
+                self.assertIn("缺少权限协调器", result.stderr)
+                self.assertIn(str(missing), result.stderr)
+                self.assertFalse((self.home / "ensure.log").exists())
 
     def test_shell_loader_prevents_path_bypass_and_handles_qodercli(self):
         self.cli("gemini")
