@@ -1,3 +1,17 @@
+# TermYes v1.6.26
+
+## 简体中文
+
+- 新增 Agent 与插件自动更新：启动即检查一次，之后每 30 分钟检测已安装客户端（Claude Code、Codex、OpenCode、CodeBuddy、Qoder、agy、pi、zcode）及其插件市场，发现新版本立即用各自官方命令更新（`claude/codex/opencode/codebuddy/qoder/pi/agy update`、`claude plugin update`、`codex plugin marketplace upgrade`、`opencode plugin update`、`codebuddy plugin update`、`qoder plugins update`、`zcode plugins update` + `marketplace update`、`pi update` 含 extensions 与模型目录）。
+- 菜单栏「命令守卫」新增自动更新区块：显示上次检查时间、更新汇总，可手动「立即检测并更新」、复制更新详情。
+- 未安装的客户端（如 Gemini CLI、Crush、Copilot、Cursor、droid）自动跳过；更新失败按项记录详情，不阻塞其它客户端。
+
+## English
+
+- Add automatic Agent and plugin updates: check once at launch, then every 30 minutes for installed clients (Claude Code, Codex, OpenCode, CodeBuddy, Qoder, agy, pi, zcode) and their plugin marketplaces, applying new versions immediately via each client's official command (`claude/codex/opencode/codebuddy/qoder/pi/agy update`, `claude plugin update`, `codex plugin marketplace upgrade`, `opencode plugin update`, `codebuddy plugin update`, `qoder plugins update`, `zcode plugins update` + `marketplace update`, and `pi update` covering extensions and model catalogs).
+- The menu-bar Command Guard menu gains an auto-update section showing the last check time and summary, with manual "check and update now" and copyable details.
+- Uninstalled clients (Gemini CLI, Crush, Copilot, Cursor, droid) are skipped; per-item failures are recorded without blocking other clients.
+
 # TermYes v1.6.25
 
 ## 简体中文
