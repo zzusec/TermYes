@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalManager.shared.start()
         ScheduledActivationController.shared.start()
         AgentGuardController.shared.start()
+        AgentAutoUpdateController.shared.start()
         UpdateController.shared.start()
     }
 
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AgentGuardController.shared.stop()
+        AgentAutoUpdateController.shared.stop()
         if !UpdateController.shared.isInstallingUpdate {
             TerminalManager.shared.prepareForTermination()
         }
@@ -45,6 +47,7 @@ struct TermYesApp: App {
     @StateObject private var scheduledActivation = ScheduledActivationController.shared
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
+    @StateObject private var agentAutoUpdate = AgentAutoUpdateController.shared
 
     private var updateVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -231,6 +234,18 @@ struct TermYesApp: App {
                 Text("危险命令清单 v\(agentGuard.clients.first?.policyVersion ?? 0)\(agentGuard.clients.first?.policyError == true ? " · 异常" : "")")
                 Button("更新危险命令清单") { agentGuard.checkPolicy() }
                     .disabled(agentGuard.isWorking)
+                Divider()
+                Text("Agent 自动更新 · 上次：\(agentAutoUpdate.lastRunDescription)")
+                Text(agentAutoUpdate.message)
+                Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
+                    agentAutoUpdate.runNow()
+                }
+                .disabled(agentAutoUpdate.isRunning)
+                if !agentAutoUpdate.details.isEmpty {
+                    Button("查看更新详情…") {
+                        showIssue("Agent 与插件更新详情", detail: agentAutoUpdate.details)
+                    }
+                }
                 if agentGuard.clients.first?.policyError == true {
                     Button("查看清单问题…") {
                         showIssue("危险命令清单异常", detail: agentGuard.policyDetails)

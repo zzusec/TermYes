@@ -39,6 +39,7 @@ sources=(
   "$ROOT/Sources/GridLayout.swift"
   "$ROOT/Sources/FiveHourActivation.swift"
   "$ROOT/Sources/AgentGuardController.swift"
+  "$ROOT/Sources/AgentAutoUpdateController.swift"
   "$ROOT/Sources/TerminalManager.swift"
   "$ROOT/Sources/GlobalHotKeyController.swift"
   "$ROOT/Sources/ScheduledActivationController.swift"
