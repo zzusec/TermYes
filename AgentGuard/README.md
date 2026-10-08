@@ -22,11 +22,11 @@
 
 ## Shell 危险清单
 
-Shell Hook 仅以 GitHub 仓库 `main` 分支的 `AgentGuard/danger-policy.json`（离线时使用已验证本地缓存或 `rules.py` 内置清单）和 `core.py` 中的 `rm -rf` 目标分级为拒绝依据；清单外的有效命令直接放行，不再让 AI 增加隐性拒绝规则。`PreToolUse` 与 `PermissionRequest` 均遵循这一判定。无效 Hook 输入、缺少工作目录、引号或命令替换表达式未闭合、运行时无法判定时仍拒绝；这类输入无法作为有效命令匹配清单。
+Shell Hook 仅以 GitHub 仓库 `main` 分支的 `AgentGuard/danger-policy.json` 为业务拒绝依据；清单外的有效命令直接放行，不使用 AI 审核或确认框。`PreToolUse` 与 `PermissionRequest` 均遵循这一判定。无效 Hook 输入、缺少工作目录、引号或命令替换表达式未闭合、运行时无法判定时仍拒绝；这类输入无法作为有效命令匹配清单。专用端到端验证只有在私有探针授权存在时才会拒绝测试标记，不参与普通命令的判定。
 
-维护者更新 `danger-policy.json` 的 `block`/`warn` 正则与原因时须递增整数 `version`。TermYes 启动与运行期间每两小时检查 GitHub，也可从菜单手动检查；只采纳校验通过的较高版本并原子写入 `~/Library/Application Support/Termosaic/AgentGuard/danger-policy.json`，Hook 下次运行即读取。网络故障、格式无效或回退版本不清空现有规则，错误在菜单显示。`rm -rf` 目标分级仍随应用版本发布；修改 JSON 不会改变此逻辑。已安装旧版应用不会自动获得独立清单更新能力。
+维护者更新 `danger-policy.json` 时须递增整数 `version`。v3 把 `rm -rf` 的目标类型、临时目录和拒绝原因也纳入 JSON 的 `rm` 字段；`core.py` 只解析并分类，是否拒绝由清单决定。TermYes 启动与运行期间每两小时检查 GitHub，也可从菜单手动检查；只采纳校验通过的较高版本，同版本内容变化会报错。清单原子写入 `~/Library/Application Support/Termosaic/AgentGuard/danger-policy.json`，Hook 下次运行即读取。离线时使用已验证缓存或随应用打包的同一 JSON 副本；没有另一套 Python 内置危险规则。旧版客户端需升级后才能解析 v3。
 
-清单包含磁盘格式化/抹盘、物理磁盘覆写、fork bomb、关机重启、递归修改系统目录权限、覆写 `/etc`、下载后直接交给 shell 执行、强制推送、`git reset --hard`、`git clean -f`、`npm publish`、删除定时任务、Docker 卷清理，以及针对根目录、家目录、整个项目等高影响目标的 `rm -rf`。具体正则与路径分级分别以 `rules.py`、`core.py` 为准。清单不能识别任意脚本的真实副作用，也不保护非 Shell 工具或 Hook 未加载时的命令。
+清单包含磁盘格式化/抹盘、物理磁盘覆写、fork bomb、关机重启、递归修改系统目录权限、覆写 `/etc`、下载后直接交给 shell 执行、强制推送、`git reset --hard`、`git clean -f`、`npm publish`、删除定时任务、Docker 卷清理，以及针对根目录、家目录、整个项目等高影响目标的 `rm -rf`。具体业务规则均以 `danger-policy.json` 为准。清单不能识别任意脚本的真实副作用，也不保护非 Shell 工具或 Hook 未加载时的命令。
 
 ## 命令与输入的边界
 
@@ -54,6 +54,10 @@ TermYes 启动时和运行期间每 5 分钟检测已安装的 Agent，并在需
 - zcode → `permission.mode=yolo`
 - pi → 本身不进行命令审批
 - Gemini / Cursor / agy / OpenCode / droid / Crush / Copilot → `~/.local/bin` 下的受管启动 wrapper
+
+CodeBuddy 的受管终端入口额外向该子进程传入 `CODEBUDDY_IS_SANDBOX=1` 和 `--dangerously-skip-permissions`，跳过原生 HIGH/CRITICAL 确认；变量不写入 `settings.json`，不导出到终端或其他 Agent。TermYes 的危险命令 Hook 继续硬拒绝命中清单的操作。已运行的 CodeBuddy 需要退出后重新启动；已有终端先执行 `source ~/.local/bin/termyes-agent-yolo-shell` 加载更新的入口。
+
+安装和修复会移除旧 Shell `deny`/`ask`/`disallowedTools` 策略、旧 Codex `danger-guard.rules` 和旧 `danger-guard-canary.sh` 的 Hook 注册，统一使用当前清单；非 Shell 权限、模型配置及第三方通知 Hook 保留。安全探针、守卫探针和定时激活同样显式使用对应客户端的免确认模式。
 
 自动修复是幂等的，只处理检测到的客户端；外部修改过的守卫文件不会被覆盖。启动检查仅作尽力修复：协调器缺失、安装锁冲突或修复失败时显示警告，不阻止 Agent 启动，也不把该状态报告为守卫就绪。已加载的 Hook 仍照常拒绝危险命令；缺失或未加载的 Hook 不能保证保护。wrapper 会强制附加对应免确认参数并设置 `DANGER_GUARD_BYPASS=1`，使没有确认框的客户端仍由守卫硬拒危险命令。菜单栏 **Agent 命令守卫 → 立即检查并修复 YOLO 与守卫** 可手动重跑。
 

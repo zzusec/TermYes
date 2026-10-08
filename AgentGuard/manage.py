@@ -247,6 +247,8 @@ def owns(entry, paths):
             args = shlex.split(entry.get("command", ""))
         except (ValueError, TypeError):
             return False
+    if len(args) == 1 and args[0] in paths and Path(args[0]).name == "danger-guard-canary.sh":
+        return True
     return (len(args) >= 2 and Path(args[0]).name in ("python", "python3")
             and args[1] in paths)
 
@@ -280,10 +282,10 @@ def merge_hooks(container, event, desired, paths, nested=True):
 def desired_files(home, client):
     root, config, runtime, adapter = locations(home, client)
     files = {runtime / name: (SOURCE / name).read_bytes()
-             for name in ("core.py", "rules.py", adapter, "chime.wav")}
+             for name in ("core.py", "rules.py", "danger-policy.json", adapter, "chime.wav")}
     script = runtime / adapter
     legacy = root / ("guard" if client == "pi" else "hooks") / adapter
-    paths = {str(script), str(legacy)}
+    paths = {str(script), str(legacy), str(root / "hooks/danger-guard-canary.sh")}
     command = shlex.join(["/usr/bin/python3", str(script)])
     hook = {"type": "command", "command": command, "timeout": 10}
     if client in ("pi", "opencode"):
@@ -335,56 +337,36 @@ def desired_files(home, client):
     return files
 
 
+def without_retired_canary(config, paths):
+    retired = {path for path in paths if Path(path).name == "danger-guard-canary.sh"}
+    groups = config.get("hooks", {})
+    if not any(owns(hook, retired) for entries in groups.values() if isinstance(entries, list)
+               for group in entries for hook in group.get("hooks", [])):
+        return config
+    return without_managed_claude_hooks(config, retired)
+
+
 def rebase_claude_hooks(installed_config, current_config, restored_config, paths):
-    if ({key: value for key, value in installed_config.items() if key != "hooks"}
-            != {key: value for key, value in current_config.items() if key != "hooks"}):
-        raise ValueError("Claude 配置的非 Hook 设置已被修改")
-    installed_hooks = mapping(installed_config["hooks"])
-    current_hooks = mapping(current_config["hooks"])
-    if not installed_hooks.keys() <= current_hooks.keys():
-        raise ValueError("Claude 原有 Hook 事件已被删除")
+    # Only managed hooks are an ownership boundary. Preserve all current user hooks/settings.
+    primary = {path for path in paths if Path(path).name != "danger-guard-canary.sh"}
 
-    def check_unmanaged(groups):
-        if not isinstance(groups, list):
-            raise ValueError("Claude 新增 Hook 事件不是数组")
-        for group in groups:
-            hooks = mapping(group).get("hooks")
-            if not isinstance(hooks, list) or any(owns(hook, paths) for hook in hooks):
-                raise ValueError("Claude 新增 Hook 组无效或包含受管 Hook")
-
-    additions = {}
-    for event, groups in current_hooks.items():
-        if event == "PreToolUse":
-            original = installed_hooks[event]
-            if not isinstance(original, list) or not isinstance(groups, list):
-                raise ValueError("Claude PreToolUse 不是数组")
-            added = []
-            position = 0
+    def managed_groups(config):
+        found = []
+        for event, groups in mapping(config.get("hooks", {})).items():
+            if not isinstance(groups, list):
+                raise ValueError("Agent Hook 事件不是数组")
             for group in groups:
-                if position < len(original) and group == original[position]:
-                    position += 1
-                else:
-                    added.append(group)
-            if position != len(original):
-                raise ValueError("Claude 原有 PreToolUse 组已被修改")
-            check_unmanaged(added)
-            if added:
-                additions[event] = added
-        elif event in installed_hooks:
-            if groups != installed_hooks[event]:
-                raise ValueError("Claude 原有 Hook 事件已被修改")
-        else:
-            check_unmanaged(groups)
-            additions[event] = groups
-    if not additions:
-        raise ValueError("Claude Hook 没有可安全重基的新增项")
-    restored_hooks = restored_config.setdefault("hooks", {})
-    for event, groups in additions.items():
-        if event == "PreToolUse":
-            restored_hooks.setdefault(event, []).extend(groups)
-        else:
-            restored_hooks[event] = groups
-    return restored_config
+                entries = mapping(group).get("hooks")
+                if not isinstance(entries, list):
+                    raise ValueError("Agent Hook 列表格式错误")
+                owned = [entry for entry in entries if owns(entry, primary)]
+                if owned:
+                    found.append((event, {**group, "hooks": owned}))
+        return found
+
+    if managed_groups(installed_config) != managed_groups(current_config):
+        raise ValueError("Agent 原有受管 Hook 已被修改；未覆盖")
+    return without_managed_claude_hooks(current_config, paths)
 
 
 def claude_config_was_replaced(installed_config, current_config):
@@ -429,11 +411,13 @@ def receipt_files(home, client, record, files):
     retired = str(locations(home, client)[2] / "ai_review.py")
     before = mapping(record.get("before"))
     installed = mapping(record.get("installed"))
+    policy = str(locations(home, client)[2] / "danger-policy.json")
+    legacy = allowed - {policy}
     if (record.get("client") != client or set(before) != set(installed)
-            or set(before) not in (allowed, allowed | {retired})):
+            or set(before) not in (allowed, allowed | {retired}, legacy, legacy | {retired})):
         raise ValueError("安装记录与客户端路径不一致")
-    return ({name: value for name, value in before.items() if name in allowed},
-            {name: value for name, value in installed.items() if name in allowed})
+    return ({str(path): before.get(str(path)) for path in files},
+            {str(path): installed.get(str(path)) for path in files})
 
 
 def receipt_needs_retirement(home, client):
@@ -464,6 +448,7 @@ def retire_ai_file(home, client, record):
 
 
 def install(home, client):
+    permission_modes._retire_shell_policies(home, client)
     receipt = receipt_path(home, client)
     previous = read_file(receipt) if client == "claude" else None
     if client != "claude" or not previous:
@@ -482,38 +467,56 @@ def install(home, client):
     if old is not None and snapshots != installed:
         config = locations(home, client)[1]
         changed = {name for name in snapshots if snapshots[name] != installed[name]}
-        if client not in ("agy", "claude", "codebuddy", "qoder") or config is None or changed != {str(config)}:
+        if client not in ("agy", "claude", "codex", "codebuddy", "qoder", "zcode") or config is None or changed != {str(config)}:
             raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
         key = str(config)
         stored = installed[key]
         current = snapshots[key]
         if not stored or not current or (client == "agy" and stored["mode"] != current["mode"]):
             raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
-        installed_config = mapping(json.loads(base64.b64decode(stored["data"])))
-        current_config = mapping(json.loads(base64.b64decode(current["data"])))
+        installed_config = permission_modes.without_shell_policies(mapping(json.loads(base64.b64decode(stored["data"]))))
+        current_config = permission_modes.without_shell_policies(mapping(json.loads(base64.b64decode(current["data"]))))
         previous_config = before[key]
         restored_config = (mapping(json.loads(base64.b64decode(previous_config["data"])))
                            if previous_config else {})
+        restored_config = permission_modes.without_shell_policies(restored_config)
         if client == "agy":
-            additions = current_config.keys() - installed_config.keys()
-            if not additions or any(current_config.get(name) != value for name, value in installed_config.items()):
+            if current_config.get("bypass-yes") != installed_config.get("bypass-yes"):
                 raise ValueError("安装后文件已被外部修改；未覆盖，请先检查配置")
-            restored_config.update({name: current_config[name] for name in additions})
+            baseline_hooks = restored_config.get("bypass-yes")
+            restored_config = {key: value for key, value in current_config.items() if key != "bypass-yes"}
+            if baseline_hooks is not None:
+                restored_config["bypass-yes"] = baseline_hooks
         else:
             root, _, runtime, adapter = locations(home, client)
-            paths = {str(runtime / adapter), str(root / "hooks" / adapter)}
+            paths = {str(runtime / adapter), str(root / "hooks" / adapter),
+                     str(root / "hooks/danger-guard-canary.sh")}
             if installed_config != current_config:
-                if client == "claude" and claude_config_was_replaced(installed_config, current_config):
+                if client != "claude" and installed_config.get("hooks") == current_config.get("hooks"):
+                    baseline_hooks = restored_config.get("hooks")
+                    restored_config = {key: value for key, value in current_config.items() if key != "hooks"}
+                    if baseline_hooks is not None:
+                        restored_config["hooks"] = baseline_hooks
+                elif client == "claude" and claude_config_was_replaced(installed_config, current_config):
                     permission_modes.repair(home, client)
                     current_config = mapping(json.loads(config.read_bytes()))
                     restored_config = without_managed_claude_hooks(current_config, paths)
                     files = desired_files(home, client)
                     updated[key]["data"] = base64.b64encode(files[config]).decode()
                 else:
-                    rebase_claude_hooks(installed_config, current_config, restored_config, paths)
+                    restored_config = rebase_claude_hooks(installed_config, current_config, restored_config, paths)
             updated[key]["mode"] = stored["mode"] & current["mode"] & 0o600
         before = {**before, key: {"data": base64.b64encode(json_bytes(restored_config)).decode(),
                                   "mode": previous_config["mode"] if previous_config else current["mode"]}}
+    config = locations(home, client)[1]
+    if config is not None and before.get(str(config)):
+        key = str(config)
+        baseline = json.loads(base64.b64decode(before[key]["data"]))
+        root = locations(home, client)[0]
+        cleaned = without_retired_canary(permission_modes.without_shell_policies(baseline),
+                                         {str(root / "hooks/danger-guard-canary.sh")})
+        if cleaned != baseline:
+            before[key] = {**before[key], "data": base64.b64encode(json_bytes(cleaned)).decode()}
     if client == "claude" and previous:
         permission_modes.repair(home, client)
     changed = []
@@ -549,6 +552,14 @@ def uninstall(home, client):
     for name, installed in installed_files.items():
         if read_file(Path(name)) != installed:
             raise ValueError("文件已有后续改动，未自动恢复：" + name)
+    root, config, _, _ = locations(home, client)
+    if config is not None and before.get(str(config)):
+        key = str(config)
+        baseline = json.loads(base64.b64decode(before[key]["data"]))
+        cleaned = without_retired_canary(permission_modes.without_shell_policies(baseline),
+                                         {str(root / "hooks/danger-guard-canary.sh")})
+        if cleaned != baseline:
+            before[key] = {**before[key], "data": base64.b64encode(json_bytes(cleaned)).decode()}
     restored = []
     retired = None
     retirement_note = ""
@@ -677,11 +688,11 @@ def monitor(home, selected=None):
 
 def probe_arguments(client, prompt):
     if client == "claude":
-        return ["-p", "--output-format", "text", "--no-session-persistence", prompt]
+        return ["--dangerously-skip-permissions", "-p", "--output-format", "text", "--no-session-persistence", prompt]
     if client == "codex":
-        return ["exec", "--skip-git-repo-check", "--ephemeral", "--color", "never", prompt]
+        return ["--dangerously-bypass-approvals-and-sandbox", "exec", "--skip-git-repo-check", "--ephemeral", "--color", "never", prompt]
     if client == "codebuddy":
-        return ["-p", "--output-format", "text", "--no-session-persistence", prompt]
+        return ["--dangerously-skip-permissions", "-p", "--output-format", "text", "--no-session-persistence", prompt]
     if client == "zcode":
         return ["--prompt", prompt, "--mode", "yolo", "--no-color"]
     if client == "pi":
@@ -710,6 +721,8 @@ def run_probe(command, arguments, home, extra_env=None, timeout=VERIFY_TIMEOUT_S
         "PYTHONDONTWRITEBYTECODE": "1",
         "DANGER_GUARD_SILENT": "1",
     })
+    if "--dangerously-skip-permissions" in arguments and Path(command).name == "codebuddy":
+        environment["CODEBUDDY_IS_SANDBOX"] = "1"
     if extra_env:
         environment.update(extra_env)
     with tempfile.TemporaryFile() as output:

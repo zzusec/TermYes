@@ -79,6 +79,7 @@ lipo -create \
 # Installed hooks receive independent copies; they do not depend on this app's lifetime.
 mkdir -p "$APP/Contents/Resources/AgentGuard"
 for file in "$ROOT/AgentGuard/"*.py "$ROOT/AgentGuard/"*.js "$ROOT/AgentGuard/"*.ts \
+            "$ROOT/AgentGuard/danger-policy.json" \
             "$ROOT/AgentGuard/chime.wav" "$ROOT/AgentGuard/LICENSE" "$ROOT/AgentGuard/README.md"; do
   cp "$file" "$APP/Contents/Resources/AgentGuard/"
 done

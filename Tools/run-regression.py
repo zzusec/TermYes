@@ -27,7 +27,7 @@ def main():
         for name, sources in suites:
             binary = str(Path(temp) / name)
             commands.extend([(name + ' build', ['swiftc', *sources, '-o', binary]), (name, [binary])])
-        for test in ('test_agent_guard.py', 'test_permission_modes.py', 'test_activation.py', 'test_policy_update.py', 'test_quiet_hours.py'):
+        for test in ('test_agent_guard.py', 'test_permission_modes.py', 'test_activation.py', 'test_policy_update.py', 'test_quiet_hours.py', 'test_strict_policy.py', 'test_shell_syntax.py'):
             commands.append((test, ['/usr/bin/python3', '-B', 'Tests/' + test]))
         commands.extend([
             ('danger-list', ['bash', 'AgentGuard/test.sh']),

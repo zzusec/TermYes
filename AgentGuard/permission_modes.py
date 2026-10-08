@@ -448,6 +448,8 @@ _termyes_agent_yolo() {{
   if [[ "$client" == "opencode" && "${{1:-}}" == "run" ]]; then
     shift
     DANGER_GUARD_BYPASS=1 command "$entry" run "${{flags[@]}}" "$@"
+  elif [[ "$client" == "codebuddy" ]]; then
+    CODEBUDDY_IS_SANDBOX=1 DANGER_GUARD_BYPASS=1 command "$entry" "${{flags[@]}}" "$@"
   else
     DANGER_GUARD_BYPASS=1 command "$entry" "${{flags[@]}}" "$@"
   fi
@@ -595,7 +597,7 @@ def inspect(home, client):
             else "需要设置为 " + expected
         )
         if client == "codebuddy" and result["permissionReady"]:
-            result["permissionReason"] = "bypassPermissions 已配置；原生 HIGH/CRITICAL 审批仍可能保留，需验证安全 Shell 免确认"
+            result["permissionReason"] = "bypassPermissions 已配置；受管终端入口追加 CODEBUDDY_IS_SANDBOX=1 与免确认参数，守卫加载需实测"
         return result
     if client == "codex":
         path = home / ".codex/config.toml"
@@ -646,6 +648,7 @@ def repair(home, client):
     before = inspect(home, client)
     if not before["detected"]:
         return {**before, "repaired": False}
+    _retire_shell_policies(home, client)
     _ensure_zsh_path(home)
     if before["permissionReady"]:
         return {**before, "repaired": False}
@@ -672,6 +675,44 @@ def repair(home, client):
         _ensure_wrapper(home, client)
     after = inspect(home, client)
     return {**after, "repaired": bool(after["permissionReady"])}
+
+
+def _retire_shell_policies(home, client):
+    spec = _json_spec(client)
+    if spec:
+        relative, _, _ = spec
+        root = home / ROOTS[client]
+        paths = [root / relative]
+        if client in ("claude", "codebuddy", "qoder"):
+            paths.append(root / "settings.local.json")
+        for path in paths:
+            if not path.exists():
+                continue
+            _checked_path(path)
+            data = _read_json(path)
+            before = json.dumps(data, sort_keys=True)
+            data = without_shell_policies(data)
+            if json.dumps(data, sort_keys=True) != before:
+                _write_json(path, data)
+    if client == "codex":
+        path = home / ".codex/rules/danger-guard.rules"
+        if path.exists():
+            _checked_path(path)
+            if path.read_text().startswith("# 本文件由 gen_codex_rules.py 从 rules.py 生成,请勿手改"):
+                path.unlink()
+
+
+def without_shell_policies(data):
+    data = json.loads(json.dumps(data))
+    for owner in (data, data.get("permissions", {}), data.get("permission", {})):
+        if not isinstance(owner, dict):
+            continue
+        for key in ("deny", "ask", "disallowedTools"):
+            entries = owner.get(key)
+            if isinstance(entries, list):
+                owner[key] = [x for x in entries if not (isinstance(x, str)
+                              and re.match(r"^(?:Bash|shell|run_shell_command)(?:\(|$)", x))]
+    return data
 
 
 def reconcile(home, clients=None):

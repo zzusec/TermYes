@@ -286,6 +286,34 @@ class PermissionModesTests(unittest.TestCase):
                 expected = ["--dangerously-bypass-approvals-and-sandbox", *args] if args[0] == "--" else args
                 self.assertEqual(result.stdout.splitlines(), [str(actual), *expected])
 
+    def test_codebuddy_shell_passes_full_bypass_only_to_its_process(self):
+        for client in ("codebuddy", "claude"):
+            self.write(self.bin / client,
+                       '#!/bin/sh\nprintf "%s\\n" "${CODEBUDDY_IS_SANDBOX-unset}" '
+                       '"$DANGER_GUARD_BYPASS" "$@"\nexit 37\n', True)
+        modes._ensure_zsh_path(self.home)
+        for manager_state in ("success", "failed", "missing"):
+            manager = (self.home / "missing.py" if manager_state == "missing"
+                       else self.manager(manager_state == "success"))
+            for args in (["-c"], ["--dangerously-skip-permissions", "-c"],
+                         ["--", "--dangerously-skip-permissions"]):
+                with self.subTest(manager=manager, args=args):
+                    result = subprocess.run(
+                        ["/bin/zsh", "-f", "-c",
+                         'unset CODEBUDDY_IS_SANDBOX; '
+                         'source "$HOME/.local/bin/termyes-agent-yolo-shell"; '
+                         'codebuddy "$@"; result=$?; '
+                         'printf "parent=%s\\n" "${CODEBUDDY_IS_SANDBOX-unset}"; '
+                         'claude --version; exit "$result"', "test", *args],
+                        capture_output=True, text=True,
+                        env={**os.environ, "TERMYES_MANAGE_PY": str(manager)}, timeout=5)
+                    self.assertEqual(result.returncode, 37, result.stderr)
+                    expected = (args if args[0] == "--dangerously-skip-permissions"
+                                else ["--dangerously-skip-permissions", *args])
+                    self.assertEqual(result.stdout.splitlines(),
+                                     ["1", "1", *expected, "parent=unset", "unset", "1",
+                                      "--dangerously-skip-permissions", "--version"])
+
     def run_ensure_launch(self, shell, manage_path):
         client = "codex" if shell else "gemini"
         self.cli(client)

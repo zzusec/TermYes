@@ -16,9 +16,10 @@ import policy_update
 import rules
 
 
-def encoded(version, block=None, warn=None):
+def encoded(version, block=None, warn=None, rm=None):
     return json.dumps({"version": version, "block": block if block is not None else rules.BLOCK,
-                       "warn": warn if warn is not None else rules.WARN}, ensure_ascii=False).encode()
+                       "warn": warn if warn is not None else rules.WARN,
+                       "rm": rm if rm is not None else rules.BUNDLED_POLICY["rm"]}, ensure_ascii=False).encode()
 
 
 def codex_decision(home, command):
@@ -31,7 +32,8 @@ def codex_decision(home, command):
 
 
 initial = rules.validate_policy((SOURCE / "danger-policy.json").read_bytes())
-assert initial["version"] > rules.BUILTIN_VERSION
+assert initial == rules.BUNDLED_POLICY
+base = rules.BUILTIN_VERSION
 
 with tempfile.TemporaryDirectory(prefix="termyes-policy-") as temp:
     home = Path(temp).resolve()
@@ -39,8 +41,8 @@ with tempfile.TemporaryDirectory(prefix="termyes-policy-") as temp:
         assert core.classify("shutdown", str(home))[0] == "block"
         assert core.classify("echo hello", str(home))[0] == "safe"
         version, message, failed = policy_update.check(
-            home, manage.atomic_write, now=10000, fetch=lambda: encoded(2, [[r"\bmkfs\b", "disk"]], []))
-        assert version == 2 and not failed, message
+            home, manage.atomic_write, now=10000, fetch=lambda: encoded(base + 1, [[r"\bmkfs\b", "disk"]], []))
+        assert version == base + 1 and not failed, message
         assert core.classify("shutdown", str(home))[0] == "safe"
         assert core.classify("mkfs", str(home))[0] == "block"
         assert core.classify("rm -rf /", str(home))[0] == "block"
@@ -51,40 +53,66 @@ with tempfile.TemporaryDirectory(prefix="termyes-policy-") as temp:
             raise AssertionError("same interval should not fetch")
 
         policy_update.check(home, manage.atomic_write, now=10001, fetch=should_not_fetch)
-        policy_update.check(home, manage.atomic_write, now=17200, fetch=lambda: encoded(1))
-        assert policy_update.status(home)[0] == 2
+        policy_update.check(home, manage.atomic_write, now=17200, fetch=lambda: encoded(base))
+        assert policy_update.status(home)[0] == base + 1
         assert core.classify("shutdown", str(home))[0] == "safe"
-        policy_update.check(home, manage.atomic_write, now=24400, fetch=lambda: encoded(2))
-        assert policy_update.status(home)[0] == 2
+        policy_update.check(home, manage.atomic_write, now=24400, fetch=lambda: encoded(base + 1))
+        assert policy_update.status(home)[0] == base + 1
 
-        invalid = [encoded(3, [["(", "bad regex"]], []), encoded(3, [], []),
+        invalid = [encoded(base + 2, [["(", "bad regex"]], []), encoded(base + 2, [], []),
                    encoded(True), b"{" * (rules.MAX_POLICY_BYTES + 1),
                    json.dumps({"version": 3, "block": [], "warn": [], "code": "x"}).encode()]
         for value in invalid:
             version, message, failed = policy_update.check(home, manage.atomic_write, force=True,
                                                             fetch=lambda value=value: value)
-            assert version == 2 and failed, message
+            assert version == base + 1 and failed, message
             assert core.classify("mkfs", str(home))[0] == "block"
 
         def offline():
             raise OSError("offline")
 
         version, message, failed = policy_update.check(home, manage.atomic_write, force=True, fetch=offline)
-        assert version == 2 and failed and "offline" in message
+        assert version == base + 1 and failed and "offline" in message
         version, message, failed = policy_update.check(
             home, manage.atomic_write, force=True,
-            fetch=lambda: encoded(3, [[r"\bmkfs\b", "disk"]], [[r"\bshutdown\b", "shutdown"]]))
-        assert version == 3 and not failed, message
+            fetch=lambda: encoded(base + 2, [[r"\bmkfs\b", "disk"]], [[r"\bshutdown\b", "shutdown"]]))
+        assert version == base + 2 and not failed, message
         assert core.classify("shutdown", str(home))[0] == "block"
         assert core.classify("echo hello", str(home))[0] == "safe"
 
         rules.policy_path(home).write_text("broken")
         version, message, failed = policy_update.status(home)
-        assert version == 1 and failed and "本地缓存无效" in message
+        assert version == base and failed and "本地缓存无效" in message
         assert core.classify("shutdown", str(home))[0] == "block"
         version, message, failed = policy_update.check(
-            home, manage.atomic_write, force=True, fetch=lambda: encoded(4, [[r"\bmkfs\b", "disk"]], []))
-        assert version == 4 and not failed, message
+            home, manage.atomic_write, force=True, fetch=lambda: encoded(base + 3, [[r"\bmkfs\b", "disk"]], []))
+        assert version == base + 3 and not failed, message
         assert core.classify("shutdown", str(home))[0] == "safe"
+
+        # The current JSON, including rm rules, is the only decision source.
+        rm = {**rules.BUNDLED_POLICY["rm"], "block": [], "warn": []}
+        policy_update.check(home, manage.atomic_write, force=True,
+                            fetch=lambda: encoded(base + 4, [[r"\bmkfs\b", "disk"]], [], rm))
+        assert core.classify("rm -rf /", str(home))[0] == "safe"
+        assert core.classify("rm -rf $UNKNOWN", str(home))[0] == "safe"
+        assert core.classify("git reset --hard", str(home))[0] == "safe"
+        assert core.classify("mkfs", str(home))[0] == "block"
+        rm["block"] = ["root"]
+        policy_update.check(home, manage.atomic_write, force=True,
+                            fetch=lambda: encoded(base + 5, [[r"\bmkfs\b", "disk"]], [], rm))
+        assert core.classify("rm -rf /", str(home))[0] == "block"
+        assert core.classify("rm -rf /tmp/smNps", str(home))[0] == "safe"
+        assert core.classify("rm -rf cache*", str(home))[0] == "safe"
+        assert core.classify("rm -rf ./cache*", str(home))[0] == "safe"
+        assert codex_decision(home, "rm -rf /tmp/smNps") == "allow"
+        assert codex_decision(home, "rm -rf /") == "deny"
+        for rm_change in ({"block": ["not-a-category"]}, {"temporaryRoots": ["/"]},
+                          {"warn": ["root"]}, {"warnReason": ""}):
+            try:
+                rules.validate_policy(encoded(base + 6, rm={**rm, **rm_change}))
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid rm rule accepted")
 
 print("danger policy updates: pass")

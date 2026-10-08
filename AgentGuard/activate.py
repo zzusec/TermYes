@@ -16,8 +16,8 @@ import permission_modes
 
 SOURCE = Path(__file__).resolve().parent
 ARGUMENTS = {
-    "claude": ["-p", "--output-format", "text", "--no-session-persistence", "hi"],
-    "codex": ["exec", "--skip-git-repo-check", "--ephemeral", "--color", "never", "hi"],
+    "claude": ["--dangerously-skip-permissions", "-p", "--output-format", "text", "--no-session-persistence", "hi"],
+    "codex": ["--dangerously-bypass-approvals-and-sandbox", "exec", "--skip-git-repo-check", "--ephemeral", "--color", "never", "hi"],
 }
 
 

@@ -54,7 +54,9 @@ def check(home, atomic_write, now=None, fetch=fetch_policy, force=False):
         data = fetch()
         incoming = rules.validate_policy(data)
         current, _ = rules.active_policy(home)
-        if incoming["version"] > current["version"]:
+        if incoming["version"] == current["version"] and incoming != current:
+            raise ValueError("同版本危险清单内容不一致；维护者必须递增版本")
+        if incoming["version"] >= current["version"]:
             atomic_write(rules.policy_path(home), data)
             updated, error = rules.active_policy(home)
             if error or updated["version"] != incoming["version"]:

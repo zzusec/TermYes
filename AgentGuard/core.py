@@ -37,27 +37,77 @@ GUARD_PROBE_RECEIPT_ENV = "TERMYES_GUARD_PROBE_RECEIPT"
 # 预处理:屏蔽「数据」,补扫「会被执行的代码」
 # ============================================================
 
+def strip_shell_comments(cmd):
+    """Mask comments at unquoted word boundaries, preserving offsets/newlines."""
+    out = []
+    quote = None
+    word_start = True
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if quote:
+            out.append(c)
+            if quote in ('"', "$'") and c == "\\" and i + 1 < n:
+                out.append(cmd[i + 1])
+                i += 2
+                continue
+            if c == quote[-1]:
+                quote = None
+            i += 1
+        elif c == "\\" and i + 1 < n:
+            out.append(cmd[i:i + 2])
+            if cmd[i + 1] != "\n":
+                word_start = False
+            i += 2
+        elif cmd.startswith("$'", i):
+            quote = "$'"
+            word_start = False
+            out.append("$'")
+            i += 2
+        elif c in ("'", '"'):
+            quote = c
+            word_start = False
+            out.append(c)
+            i += 1
+        elif c == "#" and word_start:
+            end = cmd.find("\n", i)
+            end = n if end < 0 else end
+            out.append(" " * (end - i))
+            i = end
+        else:
+            out.append(c)
+            word_start = c in " \t\n;|&()<>"
+            i += 1
+    return "".join(out)
+
+
 def mask_strings(cmd):
     """把引号内字符串内容替换为空格,使命令中的「数据词」(SQL、commit 信息、echo 文本、
     参数值等)不再误触危险规则;保留引号本身及引号外的 shell 结构(管道、重定向)。"""
+    cmd = strip_shell_comments(cmd)
     out = []
     quote = None
     i, n = 0, len(cmd)
     while i < n:
         c = cmd[i]
         if quote:
-            # 双引号内的反斜杠转义:跳过下一个字符
-            if quote == '"' and c == '\\' and i + 1 < n:
+            # 双引号与 ANSI-C 引号内的反斜杠转义。
+            if quote in ('"', "$'") and c == '\\' and i + 1 < n:
                 out.append('  ')
                 i += 2
                 continue
-            if c == quote:
+            if c == quote[-1]:
                 out.append(c)
                 quote = None
             else:
                 out.append('\n' if c == '\n' else ' ')
             i += 1
         else:
+            if cmd.startswith("$'", i):
+                quote = "$'"
+                out.append("$'")
+                i += 2
+                continue
             if c in ('"', "'"):
                 quote = c
             out.append(c)
@@ -68,13 +118,24 @@ def mask_strings(cmd):
 def extract_code(cmd):
     """提取会被 shell 重新执行的内联代码(bash -c / sh -c / eval),作为危险扫描的补充输入,
     防止把真正危险命令藏在引号里绕过 mask_strings()。"""
+    def literal_text(literal):
+        if literal.startswith("$'"):
+            # Decode ASCII escape sequences only; preserve surrounding Unicode.
+            return re.sub(
+                r"\\(?:[\\'\"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})",
+                lambda match: match[0].encode("ascii").decode("unicode_escape"),
+                literal[2:-1],
+            )
+        return literal[1:-1] if literal[0] in "'\"" else literal
+
     payloads = []
-    for m in re.finditer(r"\b(?:ba|z|da|t?c|k|a)?sh\b[^\n;|&]*?\s-c\s+('[^']*'|\"[^\"]*\"|\S+)", cmd):
+    literal_pattern = r"(\$'(?:\\.|[^'\\])*'|'[^']*'|\"[^\"]*\"|\S+)"
+    for m in re.finditer(r"\b(?:ba|z|da|t?c|k|a)?sh\b[^\n;|&]*?\s-c\s+" + literal_pattern, cmd):
         literal = m.group(1)
-        payloads.append(literal[1:-1] if literal[0] in "'\"" else literal)
-    for m in re.finditer(r"\beval\s+('[^']*'|\"[^\"]*\"|[^\n;|&]+)", cmd):
+        payloads.append(literal_text(literal))
+    for m in re.finditer(r"\beval\s+(\$'(?:\\.|[^'\\])*'|'[^']*'|\"[^\"]*\"|[^\n;|&]+)", cmd):
         literal = m.group(1)
-        payloads.append(literal[1:-1] if literal[0] in "'\"" else literal)
+        payloads.append(literal_text(literal))
     return payloads
 
 
@@ -118,8 +179,9 @@ def strip_heredocs(cmd):
 
 def build_scan_text(cmd):
     """用于危险匹配的文本 = 屏蔽数据后的命令 + 内联代码补扫。"""
+    cmd = strip_shell_comments(cmd)
     masked = mask_strings(cmd)
-    payloads = extract_code(cmd)
+    payloads = [strip_shell_comments(payload) for payload in extract_code(cmd)]
     if payloads:
         return masked + "\n" + "\n".join(payloads)
     return masked
@@ -223,7 +285,6 @@ def notify_user(cmd, reason):
 # rm 目标分级
 # ============================================================
 
-TEMP_ROOTS = rules.TEMP_ROOTS
 CMDSUB_TOKEN = "$__CMDSUB__"
 
 
@@ -233,7 +294,14 @@ def _skip_cmdsub(cmd, i):
     n = len(cmd)
     while i < n:
         c = cmd[i]
-        if c == "'":
+        if cmd.startswith("$'", i):
+            i += 2
+            while i < n and cmd[i] != "'":
+                i += 2 if cmd[i] == "\\" else 1
+            if i >= n:
+                return None
+            i += 1
+        elif c == "'":
             j = cmd.find("'", i + 1)
             if j < 0:
                 return None
@@ -271,6 +339,7 @@ def mask_cmd_subs(cmd):
     也被误拦。换成占位符后:沾到它的赋值/rm 目标展开不出值,照旧按「目标不明」判 warn,
     其余目标仍按真实路径分级。
     """
+    cmd = strip_shell_comments(cmd)
     out = []
     i, n = 0, len(cmd)
     in_dq = False
@@ -279,6 +348,14 @@ def mask_cmd_subs(cmd):
         if c == "\\" and i + 1 < n:
             out.append(cmd[i:i + 2])
             i += 2
+        elif not in_dq and cmd.startswith("$'", i):
+            j = i + 2
+            while j < n and cmd[j] != "'":
+                j += 2 if cmd[j] == "\\" else 1
+            if j >= n:
+                return None
+            out.append(cmd[i:j + 1])
+            i = j + 1
         elif not in_dq and c == "'":
             j = cmd.find("'", i + 1)
             if j < 0:
@@ -343,23 +420,31 @@ def shell_segments(cmd):
     return out
 
 
-def rm_target_level(path, cwd, home):
+def rm_level(kind, policy):
+    if kind in policy["block"]:
+        return "block"
+    if kind in policy["warn"]:
+        return "warn"
+    return "safe"
+
+
+def rm_target_level(path, cwd, home, policy):
     """单个 rm -rf 目标的级别:
     block = 根/家目录/整个用户目录/一级系统目录;
     warn  = 整个项目级(git 仓库根、家目录直接子项、当前所在目录)、系统路径、看不清的目标;
     safe  = 普通目录/文件(项目内子目录、临时目录等)。"""
     if re.search(r"[$`]", path):
-        return "warn"           # 变量/命令替换,目标真的看不清
+        return rm_level("unknown", policy)  # 变量/命令替换,目标真的看不清
     glob = re.search(r"[*?\[]", path)
     if glob:
         # 通配符不展开,只按它前面的固定父目录判级。
-        # 判成 block 时降级为 warn —— 通配符没真指到那一级(rm -rf /* 交人确认而非硬拒)。
+        # 通配符按固定父目录的清单分类判定。
         head = path[:glob.start()]
         prefix, stub = head.rsplit("/", 1) if "/" in head else ("", head)
-        if prefix in TEMP_ROOTS and stub:
-            return "safe"      # /tmp/foo-* 具名前缀;/tmp/* 清空整个临时目录仍要确认
-        level = rm_target_level(prefix or "/", cwd, home)
-        return "warn" if level == "block" else level
+        if prefix in policy["temporaryRoots"] and stub:
+            return "safe"      # /tmp/foo-* 具名前缀；清空整个临时目录按清单拒绝
+        parent = prefix or ("/" if path.startswith("/") else ".")
+        return rm_target_level(parent, cwd, home, policy)
     if path == "~":
         p = home
     elif path.startswith("~/"):
@@ -369,40 +454,42 @@ def rm_target_level(path, cwd, home):
     elif cwd:
         p = os.path.join(cwd, path)
     else:
-        return "warn"
+        return rm_level("unknown", policy)
     p = os.path.normpath(p)
 
-    if p == "/" or p == home:
-        return "block"
+    if p == "/":
+        return rm_level("root", policy)
+    if p == home:
+        return rm_level("home", policy)
     parts = p.strip("/").split("/")
     if len(parts) == 1:
-        return "block"  # /etc、/usr、/tmp 等一级目录整删
+        return rm_level("top_level", policy)  # /etc、/usr、/tmp 等一级目录整删
     if parts[0] == "Users" and len(parts) == 2:
-        return "block"  # 整个用户目录
+        return rm_level("user_home", policy)  # 整个用户目录
 
     if cwd:
         ncwd = os.path.normpath(cwd)
         if p == ncwd or ncwd.startswith(p + "/"):
-            return "warn"  # 删当前所在目录(所在项目)或其祖先
+            return rm_level("cwd_tree", policy)  # 删当前所在目录(所在项目)或其祖先
     inside_home = p.startswith(home + "/")
     if inside_home and "/" not in p[len(home) + 1:]:
-        return "warn"  # 家目录直接子项,多半是整个项目/重要目录
+        return rm_level("home_child", policy)  # 家目录直接子项,多半是整个项目/重要目录
 
     # 临时目录要在 .git 之前判掉:/tmp 下的一律算临时,包括临时 git clone。
     # 否则下面的 .git 检查会把 /tmp/某个仓库 当成「整个项目」拦下来 ——
     # 删不掉自己刚 clone 的目录,很常见也很烦。
-    if any(p.startswith(root + "/") for root in TEMP_ROOTS):
+    if any(p.startswith(root + "/") for root in policy["temporaryRoots"]):
         return "safe"
 
     try:
         if os.path.isdir(os.path.join(p, ".git")):
-            return "warn"  # git 仓库根 = 整个项目
-    except Exception:
-        return "warn"
+            return rm_level("git_root", policy)  # git 仓库根 = 整个项目
+    except OSError:
+        return rm_level("unknown", policy)
 
     if inside_home:
         return "safe"
-    return "warn"  # 系统路径、其他用户、外接卷等,交人确认
+    return rm_level("outside_home", policy)  # 系统路径、其他用户、外接卷等
 
 
 ASSIGN_RE = re.compile(r"^([A-Za-z_]\w*)=(.*)$", re.S)
@@ -425,7 +512,7 @@ def expand_vars(text, env):
     return None if unknown else out
 
 
-def classify_rm_targets(cmd, cwd):
+def classify_rm_targets(cmd, cwd, policy):
     """解析原始命令里所有直接执行的 rm -rf 目标,聚合为 block/warn/safe;解析不了一律 warn。
 
     同一条命令里 `DIR=/tmp/x; rm -rf $DIR` 这种字面量赋值会先展开再判定 —— 展开后按真实路径
@@ -433,7 +520,7 @@ def classify_rm_targets(cmd, cwd):
     """
     cmd = mask_cmd_subs(cmd)
     if cmd is None:
-        return "warn"   # 引号/命令替换不闭合,解析不了
+        return rm_level("unknown", policy)  # 引号/命令替换不闭合,解析不了
 
     home = os.path.expanduser("~")
     found = False
@@ -443,7 +530,7 @@ def classify_rm_targets(cmd, cwd):
         try:
             args = shlex.split(segment, posix=True)
         except ValueError:
-            return "warn"
+            return rm_level("unknown", policy)
         if not args:
             continue
 
@@ -480,17 +567,17 @@ def classify_rm_targets(cmd, cwd):
         if has_r and has_f:
             found = True
             if not operands:
-                return "warn"
+                return rm_level("unknown", policy)
             for path in operands:
                 path = expand_vars(path, env) or path
-                level = rm_target_level(path, cwd, home)
+                level = rm_target_level(path, cwd, home, policy)
                 if level == "block":
                     return "block"
                 if level == "warn":
                     worst = "warn"
 
     if not found:
-        return "warn"
+        return rm_level("unknown", policy)
     return worst
 
 
@@ -508,7 +595,7 @@ def rm_arg_windows(text):
     return out
 
 
-def classify_rm(text, raw_cmd, cwd):
+def classify_rm(text, raw_cmd, cwd, policy):
     """删根/家/用户目录级 → block;删整个项目/系统路径 → warn;普通目录 → safe。
     非递归 rm(如 `rm -f 单个文件`)不归本函数管,返回 None。"""
     rf_windows = [
@@ -518,17 +605,23 @@ def classify_rm(text, raw_cmd, cwd):
     ]
     if not rf_windows:
         return None
+    known = "safe"
     for w in rf_windows:
-        if re.search(r"(?:^|\s)(/|/\*|~|~/|~/\*|\$HOME|\$HOME/|\$HOME/\*|\$\{HOME\})(?:\s|$)", w):
-            return "block"
-    return classify_rm_targets(raw_cmd, cwd)
+        for match in re.finditer(r"(?:^|\s)(/|/\*|~|~/|~/\*|\$HOME|\$HOME/|\$HOME/\*|\$\{HOME\})(?:\s|$)", w):
+            level = rm_level("root" if match.group(1).startswith("/") else "home", policy)
+            if level == "block":
+                return level
+            if level == "warn":
+                known = level
+    parsed = classify_rm_targets(raw_cmd, cwd, policy)
+    return "warn" if parsed != "block" and known == "warn" else parsed
 
 
 # ============================================================
 # 对外唯一入口
 # ============================================================
 
-def _unwrap_rm(cmd, cwd, fallback, depth=0):
+def _unwrap_rm(cmd, cwd, fallback, policy, depth=0):
     """Only relax wrapper noise if every extracted deletion is safe.
 
     ponytail: bounded shell-wrapper inspection, not a full shell parser. An outer rm,
@@ -538,9 +631,9 @@ def _unwrap_rm(cmd, cwd, fallback, depth=0):
         return fallback
     saw_safe = False
     for inner in extract_code(cmd):
-        level = classify_rm(build_scan_text(inner), inner, cwd)
+        level = classify_rm(build_scan_text(inner), inner, cwd, policy)
         if level == "warn":
-            level = _unwrap_rm(inner, cwd, level, depth + 1)
+            level = _unwrap_rm(inner, cwd, level, policy, depth + 1)
         if level == "block":
             return "block"
         if level == "warn":
@@ -615,19 +708,20 @@ def _classify(cmd, cwd=None):
     cwd = cwd or os.getcwd()
     policy, _ = rules.active_policy()
 
-    rm = classify_rm(scan, core, cwd)
+    rm_policy = policy["rm"]
+    rm = classify_rm(scan, core, cwd, rm_policy)
     if rm == "warn":
-        rm = _unwrap_rm(cmd, cwd, rm)
+        rm = _unwrap_rm(cmd, cwd, rm, rm_policy)
 
     if rm == "block":
-        return "block", rules.RM_BLOCK_REASON
+        return "block", rm_policy["blockReason"]
 
     for pattern, reason in policy["block"]:
         if re.search(pattern, scan):
             return "block", reason
 
     if rm == "warn":
-        return "warn", rules.RM_WARN_REASON
+        return "warn", rm_policy["warnReason"]
 
     for pattern, reason in policy["warn"]:
         if re.search(pattern, scan):

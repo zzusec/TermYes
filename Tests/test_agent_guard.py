@@ -750,8 +750,6 @@ with tempfile.TemporaryDirectory(prefix="termosaic-claude-rebase-") as tmp:
 
         for label, mutate in (("managed group edit", changed_managed),
                               ("managed group removal", removed_managed),
-                              ("existing group edit", changed_existing_group),
-                              ("existing event edit", changed_existing_event),
                               ("duplicate managed group", new_managed_group),
                               ("managed hook in new event", new_managed_event)):
             manage.install(home, "claude")
@@ -768,7 +766,9 @@ with tempfile.TemporaryDirectory(prefix="termosaic-claude-rebase-") as tmp:
 
         for label, mutate in (("other existing setting", changed_existing_key),
                               ("permission mode edit", changed_permission_mode),
-                              ("new top-level setting", new_top_level_key)):
+                              ("new top-level setting", new_top_level_key),
+                              ("existing group edit", changed_existing_group),
+                              ("existing event edit", changed_existing_event)):
             manage.install(home, "claude")
             altered = json.loads(config.read_bytes())
             mutate(altered)
@@ -782,6 +782,8 @@ with tempfile.TemporaryDirectory(prefix="termosaic-claude-rebase-") as tmp:
                 check(repaired["custom"]["keep"] == "changed", "Claude keeps changed provider setting")
             if label == "new top-level setting":
                 check(repaired["other"] is True, "Claude keeps new provider setting")
+            if label in ("existing group edit", "existing event edit"):
+                check(repaired["hooks"] == altered["hooks"], "Claude preserves changes to unrelated hooks")
             manage.uninstall(home, "claude")
 
 with tempfile.TemporaryDirectory(prefix="termosaic-claude-provider-switch-") as tmp:

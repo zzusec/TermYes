@@ -35,6 +35,8 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_permission_modes.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_activation.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_policy_update.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_strict_policy.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_shell_syntax.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
