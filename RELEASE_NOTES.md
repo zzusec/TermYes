@@ -1,3 +1,21 @@
+# TermYes v1.6.27
+
+## 简体中文
+
+- 统一 Agent 的 YOLO／等效免确认启动与危险命令硬拦截：有效 Shell 命令仅按 GitHub 版本化清单判断，命中即拒绝，其余放行；无效 Hook 输入和未闭合 Shell 语法仍拒绝执行。
+- 危险清单升级为 v3，将 `rm` 路径分类规则纳入同一 JSON；应用和独立 Hook 运行时携带相同离线副本，不再保留独立 Python 危险规则。修复相对通配符、Shell 注释与 ANSI-C 引号的误判。
+- 迁移并清理旧 canary Hook 注册、原生 Shell deny／ask 和自动生成的 Codex rules；保留非 Shell 权限、第三方 Hook、模型与账户设置，旧安装记录直接卸载也不会恢复旧 Shell 限制。
+- CodeBuddy 启动和后台验证同时设置 `CODEBUDDY_IS_SANDBOX=1` 与免确认参数，解决其原生 HIGH／CRITICAL 确认；Codex、Claude 的验证与定时激活也显式使用免确认参数。已有 Agent 会话需退出后重新启动。
+- 本机 8 个已安装 Agent 的权限与守卫配置验收通过；Codex、CodeBuddy、agy 的真实免确认 Shell 与 Hook 拦截通过。Claude 请求超时，zcode／pi／Qoder 额度不足，OpenCode 上游 503，未将这些客户端标记为实测通过。
+
+## English
+
+- Unify Agent YOLO-equivalent launches with hard command guards: valid Shell commands are denied only when they match the versioned GitHub danger policy. Invalid hook inputs and unclosed Shell syntax still fail closed.
+- Upgrade the policy to v3, moving `rm` path categories into the same JSON and bundling identical offline copies with the app and independent hooks. Remove separate Python danger rules and fix false positives involving relative globs, Shell comments, and ANSI-C quoting.
+- Retire legacy canary hook registrations, native Shell deny/ask entries, and generated Codex rules while preserving non-Shell permissions, third-party hooks, model settings, and accounts. Direct removal of old installations no longer restores retired Shell restrictions.
+- Set `CODEBUDDY_IS_SANDBOX=1` together with the permission-bypass flag for CodeBuddy launches and live checks, removing native HIGH/CRITICAL confirmations. Codex and Claude checks and scheduled activation also pass explicit bypass flags. Existing Agent sessions must be restarted.
+- All eight installed clients passed local permission and guard configuration checks. Codex, CodeBuddy, and agy passed real automatic Shell execution and hook interception. Claude timed out; zcode, pi, and Qoder lacked quota; OpenCode returned an upstream 503. These clients remain unverified.
+
 # TermYes v1.6.26
 
 ## 简体中文
