@@ -1,3 +1,17 @@
+# TermYes v1.6.29
+
+## 简体中文
+
+- 修复专用 Agent 激活窗口在请求已经结束后仍停留的问题。TermYes 现在按 Agent 记录对应的 Terminal 窗口 ID，每个 Agent 的结果文件一到达就立即关闭自己的窗口，不再等待同批其它 Agent 全部完成。
+- 成功回复、模型错误、无回复和非零退出都会关闭对应窗口；超时、计划变更、取消或其它异常路径仍由整批收尾关闭任何遗漏窗口，用户原有 Terminal 窗口不受影响。
+- 新增逐 Agent 成功／失败关闭和交错完成回归，并在真实 Terminal 中验证成功与失败激活窗口均关闭且原有窗口集合保持不变。完整发布自动化仍不替代真实模型服务可用性验收。
+
+## English
+
+- Fix dedicated Agent activation windows remaining open after their requests finish. TermYes now records the Terminal window ID for each Agent and closes that Agent's window as soon as its receipt arrives, without waiting for every other Agent in the batch.
+- Successful replies, model errors, missing replies, and nonzero exits all close their corresponding windows. Batch cleanup still retires any remaining windows after timeouts, schedule changes, cancellation, or unexpected paths, without touching existing user Terminal windows.
+- Add per-Agent success/failure and staggered-completion regressions, plus a real Terminal smoke test proving both successful and failed activation windows close while the pre-existing window set remains unchanged. Release automation still does not certify external model-service availability.
+
 # TermYes v1.6.28
 
 ## 简体中文

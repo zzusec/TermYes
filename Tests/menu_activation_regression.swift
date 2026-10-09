@@ -115,20 +115,27 @@ struct MenuActivationRegression {
         var scripts: [String] = []
         var result = NSAppleEventDescriptor(boolean: true)
         var error: NSDictionary?
+        var nextActivationWindowID: Int32 = 345
         let manager = TerminalManager(scriptExecutor: { source in
             scripts.append(source)
             var compilationError: NSDictionary?
             expect(NSAppleScript(source: source)!.compileAndReturnError(&compilationError), "Terminal script must compile: \(compilationError?.description ?? source)")
+            if source.contains("do script "), error == nil {
+                defer { nextActivationWindowID += 1 }
+                return (.init(int32: nextActivationWindowID), nil)
+            }
             return (result, error)
         })
-        result = .init(int32: 345)
         expect(manager.openAgentActivationWindows([.claude, .codex], scriptPath: "/a'b/with \"quotes\"/activate.py", resultDirectory: "/result's/with \"quotes\"").isEmpty, "Window-start scripts must compile with quoted bundle paths")
         expect(scripts.suffix(2).allSatisfy { $0.contains("do script ") && !$0.contains("every window") && !$0.contains("tabRef") && !$0.contains("in window") && !$0.contains("selected tab") && !$0.contains("return false") && !$0.contains("try") }, "Each activation must create a dedicated window without inspecting, skipping, or targeting user sessions")
         let scriptsAfterWindows = scripts.count
+        manager.closeAgentActivationWindow(.claude)
+        expect(scripts.count == scriptsAfterWindows + 1 && scripts.last?.contains("345") == true && scripts.last?.contains("346") == false, "A completed Agent must close its own recorded window immediately")
+        let scriptsAfterAgentClose = scripts.count
         manager.closeAgentActivationWindows()
-        expect(scripts.count == scriptsAfterWindows + 1, "A finished activation must close the dedicated windows it opened")
+        expect(scripts.count == scriptsAfterAgentClose + 1, "A finished activation must close any remaining dedicated windows")
         let closeScript = scripts.last ?? ""
-        expect(closeScript.contains("exists (first window whose id is currentID)") && closeScript.contains("close (first window whose id is currentID)") && closeScript.contains("345") && !closeScript.contains("front window") && !closeScript.contains("every window"), "Closing must target only the recorded activation window IDs and leave user windows alone")
+        expect(closeScript.contains("exists (first window whose id is currentID)") && closeScript.contains("close (first window whose id is currentID)") && closeScript.contains("346") && !closeScript.contains("345") && !closeScript.contains("front window") && !closeScript.contains("every window"), "Batch cleanup must target only remaining activation window IDs and leave user windows alone")
         let scriptsAfterClose = scripts.count
         manager.closeAgentActivationWindows()
         expect(scripts.count == scriptsAfterClose, "Closing without a recorded activation batch must not run a script")
@@ -219,9 +226,12 @@ struct MenuActivationRegression {
         /usr/bin/printf 'request\\n' >> "$HOME/$agent-calls"
         /usr/bin/touch "$HOME/$agent-started"
         /bin/cat > "$HOME/$agent-stdin"
-        mode=$(/bin/cat "$HOME/request-mode")
+        mode_file="$HOME/$agent-request-mode"
+        if [ ! -f "$mode_file" ]; then mode_file="$HOME/request-mode"; fi
+        mode=$(/bin/cat "$mode_file")
         case "$mode" in
           delay) /bin/sleep 0.3; /usr/bin/printf 'received\\n' ;;
+          slow) /bin/sleep 1; /usr/bin/printf 'received\\n' ;;
           empty) exit 0 ;;
           stderr) /usr/bin/printf 'warning only\\n' >&2 ;;
           fail) /usr/bin/printf 'partial reply\\n'; /usr/bin/printf 'authentication failed\\n' >&2; exit 7 ;;
@@ -253,6 +263,7 @@ struct MenuActivationRegression {
         var windowFailures: [ScheduledAgent: String] = [:]
         var windowCalls = 0
         var closeCalls = 0
+        var closedAgents: [ScheduledAgent] = []
         var openedAgents: [[ScheduledAgent]] = []
         var resultDirectories: [String] = []
         var fakeWindows: [Task<Void, Never>] = []
@@ -282,6 +293,8 @@ struct MenuActivationRegression {
                 })
             }
             return agents.compactMap { agent in windowFailures[agent].map { agent.rawValue + "：" + $0 } }
+        }, closeAgentWindow: { agent in
+            closedAgents.append(agent)
         }, closeAgentWindows: {
             closeCalls += 1
         })
@@ -290,6 +303,7 @@ struct MenuActivationRegression {
         controller.activateNow()
         await waitUntil { !controller.activating }
         expect(controller.lastActivationStatus == "激活请求成功（2/2）" && controller.lastActivationDetail == nil, "Manual activation must consume the two window receipts")
+        expect(Set(closedAgents) == Set(ScheduledAgent.allCases), "Successful Agent windows must close as soon as their receipts arrive")
         expect(closeCalls == 1, "A finished manual activation must close the dedicated windows it opened")
         expect(controller.windowStartMinutes == nil && defaults.object(forKey: "autoContinueWindowAnchorDate") == nil && controller.nextActivationDate == nil && scheduledTimer(controller) == nil, "Manual activation must not enable a timer, advertise a next firing, or create an anchor")
         expect(callCount(.claude) == 1 && callCount(.codex) == 1 && windowCalls == 1, "Only the fake windows may make a request; no second background model request is allowed")
@@ -337,9 +351,11 @@ struct MenuActivationRegression {
             if mode == "stderr" { expect(controller.lastActivationDetail?.contains("warning only") == true, "Stderr-only diagnostics must remain visible") }
         }
         try write("request-mode", "fail")
+        let closedBeforeFailure = closedAgents.count
         controller.activateNow()
         await waitUntil { !controller.activating }
         expect(controller.lastActivationDetail?.contains("authentication failed") == true && controller.lastActivationStatus?.contains("0/1") == true, "A nonzero window request must fail even after returning partial stdout")
+        expect(closedAgents.count == closedBeforeFailure + 1 && closedAgents.last == .claude, "A failed Agent window must close after publishing its failure receipt")
         try write("ensure-mode", "fail")
         let beforeFailure = windowCalls
         let beforeGuardFailure = callCount(.claude)
@@ -404,6 +420,17 @@ struct MenuActivationRegression {
         expect(openedAgents.last == [.codex] && controller.lastActivationStatus == "激活请求成功（1/1）", "A subsequent activation must only use the current selection")
         expect(nextBeforeManual != nil && controller.nextActivationDate == nextBeforeManual && scheduledTimer(controller) === timerBeforeManual && defaults.object(forKey: "autoContinueWindowAnchorDate") as? Date == anchorBeforeManual, "Manual activation must not reset the confirmed anchor or replace/change its next timer")
         expectScheduledTimer(controller)
+        try write("claude-request-mode", "slow")
+        try write("codex-request-mode", "success")
+        controller.setWindowSchedule(minutes: 605, agents: [.claude, .codex])
+        let closedBeforeStaggered = closedAgents.count
+        controller.activateNow()
+        await waitUntil { closedAgents.dropFirst(closedBeforeStaggered).contains(.codex) }
+        expect(controller.activating && !closedAgents.dropFirst(closedBeforeStaggered).contains(.claude), "A completed Agent window must close while another Agent is still running")
+        await waitUntil { !controller.activating }
+        expect(Set(closedAgents.dropFirst(closedBeforeStaggered)) == Set(ScheduledAgent.allCases), "The remaining Agent window must close when its result arrives")
+        remove("claude-request-mode")
+        remove("codex-request-mode")
         expect(Set(resultDirectories).count == resultDirectories.count, "Every activation must have an isolated result directory; stale receipts cannot be reused")
         expect(resultDirectories.allSatisfy { !fm.fileExists(atPath: $0) }, "Success, failure, and cancelled window result directories must all be cleaned")
         for task in fakeWindows { await task.value }

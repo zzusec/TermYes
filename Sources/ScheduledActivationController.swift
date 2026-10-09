@@ -21,6 +21,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
     private let home: String
     private let managerPath: String?
     private let openAgentWindows: @MainActor ([ScheduledAgent], String, String) -> [String]
+    private let closeAgentWindow: @MainActor (ScheduledAgent) -> Void
     private let closeAgentWindows: @MainActor () -> Void
 
     init(
@@ -30,6 +31,9 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         openAgentWindows: @escaping @MainActor ([ScheduledAgent], String, String) -> [String] = {
             TerminalManager.shared.openAgentActivationWindows($0, scriptPath: $1, resultDirectory: $2)
         },
+        closeAgentWindow: @escaping @MainActor (ScheduledAgent) -> Void = {
+            TerminalManager.shared.closeAgentActivationWindow($0)
+        },
         closeAgentWindows: @escaping @MainActor () -> Void = {
             TerminalManager.shared.closeAgentActivationWindows()
         }
@@ -38,6 +42,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         self.home = home
         managerPath = manager
         self.openAgentWindows = openAgentWindows
+        self.closeAgentWindow = closeAgentWindow
         self.closeAgentWindows = closeAgentWindows
         let savedMinutes = defaults.object(forKey: "autoContinueWindowStartMinutes") as? Int
         windowStartMinutes = savedMinutes.flatMap { (0..<1440).contains($0) ? $0 : nil }
@@ -180,7 +185,9 @@ final class ScheduledActivationController: NSObject, ObservableObject {
             let results = await withTaskGroup(of: (ScheduledAgent, String?).self) { group in
                 for agent in launched {
                     group.addTask {
-                        (agent, Self.awaitWindowActivation(agent, resultDirectory: resultDirectory.path))
+                        let failure = Self.awaitWindowActivation(agent, resultDirectory: resultDirectory.path)
+                        await self.closeAgentWindow(agent)
+                        return (agent, failure)
                     }
                 }
                 var results: [(ScheduledAgent, String?)] = []

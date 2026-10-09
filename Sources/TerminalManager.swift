@@ -24,7 +24,7 @@ final class TerminalManager: NSObject, ObservableObject {
     private let pollInterval: TimeInterval = 0.2
     private var pollTimer: Timer?
     private var menuTrackingObservers: [NSObjectProtocol] = []
-    private var activationWindowIDs: [Int] = []
+    private var activationWindowIDs: [ScheduledAgent: Int] = [:]
     private var lastTiledWindowIDs: [Int] = []
     private var lastWindowServerCandidateIDs: Set<Int>?
     private var pendingWindowIDPasses = 0
@@ -141,7 +141,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func openAgentActivationWindows(_ agents: [ScheduledAgent], scriptPath: String, resultDirectory: String) -> [String] {
         var failures: [String] = []
-        var openedWindowIDs: [Int] = []
+        var openedWindowIDs: [ScheduledAgent: Int] = [:]
         for agent in agents {
             let command = agent.activationCommand(scriptPath: scriptPath, resultDirectory: resultDirectory)
                 .replacingOccurrences(of: "\\", with: "\\\\")
@@ -160,7 +160,7 @@ final class TerminalManager: NSObject, ObservableObject {
                 failures.append("\(agent.rawValue)：无法打开激活窗口")
                 continue
             }
-            openedWindowIDs.append(Int(result.int32Value))
+            openedWindowIDs[agent] = Int(result.int32Value)
         }
         // One batch per activation; the previous batch is closed when its own activation finishes.
         activationWindowIDs = openedWindowIDs
@@ -171,8 +171,17 @@ final class TerminalManager: NSObject, ObservableObject {
     /// other Terminal window untouched. Windows the user already closed are skipped instead of
     /// raising an automation error.
     func closeAgentActivationWindows() {
-        let windowIDs = activationWindowIDs
-        activationWindowIDs = []
+        let windowIDs = Array(activationWindowIDs.values)
+        activationWindowIDs = [:]
+        closeAgentActivationWindows(windowIDs)
+    }
+
+    func closeAgentActivationWindow(_ agent: ScheduledAgent) {
+        guard let windowID = activationWindowIDs.removeValue(forKey: agent) else { return }
+        closeAgentActivationWindows([windowID])
+    }
+
+    private func closeAgentActivationWindows(_ windowIDs: [Int]) {
         guard !windowIDs.isEmpty else { return }
         let windowIDList = windowIDs.map(String.init).joined(separator: ", ")
         let source = """
