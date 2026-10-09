@@ -76,6 +76,12 @@ expect(fourClockwise[0].minX < fourClockwise[1].minX && fourClockwise[0].minY ==
 expect(fourClockwise[2].minX > fourClockwise[3].minX && fourClockwise[2].minY == fourClockwise[3].minY, "clockwise order should return across the bottom row")
 expect(fourClockwise[0].minY > fourClockwise[2].minY, "top row should precede bottom row")
 
+let originalWindowOrder = [11, 12, 13, 14]
+let advancedWindowOrder = GridLayout.advancedClockwise(originalWindowOrder)
+expect(advancedWindowOrder == [14, 11, 12, 13], "advancing should move every window one clockwise position")
+expect(GridLayout.advancedClockwise(advancedWindowOrder) == [13, 14, 11, 12], "repeated advances should continue clockwise")
+expect(GridLayout.advancedClockwise([11]) == [11] && GridLayout.advancedClockwise([Int]()).isEmpty, "zero or one window should not change order")
+
 let fiveZeroGap = GridLayout.frames(count: 5, within: bounds, gap: 0)
 let fiveClockwise = GridLayout.clockwiseFrames(count: 5, within: bounds, gap: 0)
 expect(fiveZeroGap[0].minY == fiveZeroGap[1].maxY, "left-column windows should touch exactly with no gap")
@@ -95,4 +101,4 @@ let afterClose = GridLayout.frames(count: 3, within: bounds, gap: 10)
 expect(afterClose.count == 3, "closing a window should yield a complete three-window layout")
 expect(afterClose[2].height > afterClose[0].height, "remaining right window should span the full height after close")
 
-print("GridLayout tests passed (1, 3, 4, 5, and 6 window cases).")
+print("GridLayout tests passed (1, 3, 4, 5, and 6 window cases plus clockwise advancement).")

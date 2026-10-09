@@ -4,7 +4,7 @@ import Foundation
 
 private let termosaicHotKeyEventHandler: EventHandlerUPP = { _, _, _ in
     Task { @MainActor in
-        TerminalManager.shared.showDashboard()
+        TerminalManager.shared.advanceDashboard()
     }
     return noErr
 }

@@ -1,3 +1,17 @@
+# TermYes v1.6.28
+
+## 简体中文
+
+- 全局快捷键在终端画布已经显示时改为顺时针轮转：每再按一次 `⌘O`（或用户选择的全局快捷键），所有终端窗口沿当前布局顺时针前进一格；首次呼出、应用重新打开或从隐藏状态恢复不会额外跳格。
+- 窗口变化检测从只比较数量改为比较 Window Server 窗口 ID 集合，可捕获总数不变的一关一开；打开或关闭 Terminal 窗口后会立即执行一次重新排列，并保留延迟校正以等待新窗口完成初始化。
+- 新增连续顺时针轮转、单窗口和空窗口边界回归；完整自动化发布回归、双架构构建、签名、正式与旧版兼容 DMG 及临时更新安装验证通过。自动化结果不替代真实菜单点击验收。
+
+## English
+
+- Make the global shortcut advance an already visible terminal canvas clockwise: each additional press of `⌘O` (or the selected global shortcut) moves every Terminal window forward by one clockwise position. Initial showing, app reopen, and restoration from a hidden state do not add an extra step.
+- Detect window changes by the Window Server window-ID set instead of count alone, covering close-and-open replacements that keep the same total. Opening or closing a Terminal window triggers an immediate re-tile, with delayed correction passes retained while new windows finish materializing.
+- Add regression coverage for repeated clockwise advancement and zero/one-window boundaries. The full release regression, universal build, signatures, primary and compatibility DMGs, and temporary updater installation checks pass. Automated checks do not replace real menu-click validation.
+
 # TermYes v1.6.27
 
 ## 简体中文

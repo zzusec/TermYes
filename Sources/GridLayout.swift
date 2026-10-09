@@ -2,6 +2,11 @@ import Foundation
 import CoreGraphics
 
 struct GridLayout {
+    static func advancedClockwise<Element>(_ values: [Element]) -> [Element] {
+        guard values.count > 1, let last = values.last else { return values }
+        return [last] + values.dropLast()
+    }
+
     static func frames(count: Int, within bounds: CGRect, gap: CGFloat = 10) -> [CGRect] {
         guard count > 0, bounds.width > 0, bounds.height > 0 else { return [] }
 

@@ -26,7 +26,7 @@ final class TerminalManager: NSObject, ObservableObject {
     private var menuTrackingObservers: [NSObjectProtocol] = []
     private var activationWindowIDs: [Int] = []
     private var lastTiledWindowIDs: [Int] = []
-    private var lastWindowServerCandidateCount = -1
+    private var lastWindowServerCandidateIDs: Set<Int>?
     private var pendingWindowIDPasses = 0
     private let pendingWindowIDPassLimit = 10
     private var orderedWindowIDs: [Int] = []
@@ -79,7 +79,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func showDashboard() {
         dashboardRequested = true
-        lastWindowServerCandidateCount = -1
+        lastWindowServerCandidateIDs = nil
         pendingWindowIDPasses = 0
         targetScreen = screenUnderPointer() ?? NSScreen.main
 
@@ -99,6 +99,17 @@ final class TerminalManager: NSObject, ObservableObject {
         } else {
             launchTerminal()
         }
+    }
+
+    func advanceDashboard() {
+        if dashboardRequested, terminalApplication()?.isHidden == false,
+           let currentWindowIDs = readTerminalWindowIDs() {
+            orderedWindowIDs = GridLayout.advancedClockwise(
+                stableWindowOrder(currentWindowIDs: currentWindowIDs)
+            )
+            lastTiledWindowIDs = []
+        }
+        showDashboard()
     }
 
     func hideDashboardIfVisible() {
@@ -210,7 +221,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     private func resumePolling() {
         guard pollTimer == nil else { return }
-        lastWindowServerCandidateCount = -1
+        lastWindowServerCandidateIDs = nil
         startPolling()
     }
 
@@ -230,21 +241,18 @@ final class TerminalManager: NSObject, ObservableObject {
 
         guard dashboardRequested else { return }
 
-        // Poll Window Server cheaply for near-instant change detection. Confirm with
-        // Terminal AppleScript only when the candidate count changes, excluding the
-        // small Terminal settings/helper window from the fast count.
-        let candidateCount = windowServerCandidateCount(pid: terminal.processIdentifier)
-        guard candidateCount != lastWindowServerCandidateCount else { return }
-
+        guard let candidateIDs = windowServerCandidateIDs(pid: terminal.processIdentifier) else { return }
+        guard candidateIDs != lastWindowServerCandidateIDs else {
+            pendingWindowIDPasses = 0
+            return
+        }
         guard let windowIDs = readTerminalWindowIDs() else { return }
-        // A window that was just opened is on screen before Terminal exposes its id.
-        // Keep re-reading for a few passes so it joins the layout instead of floating on top of it.
-        guard windowIDs.count >= candidateCount || pendingWindowIDPasses >= pendingWindowIDPassLimit else {
+        guard windowIDs.count >= candidateIDs.count || pendingWindowIDPasses >= pendingWindowIDPassLimit else {
             pendingWindowIDPasses += 1
             return
         }
         pendingWindowIDPasses = 0
-        lastWindowServerCandidateCount = candidateCount
+        lastWindowServerCandidateIDs = candidateIDs
 
         let orderedWindowIDs = stableWindowOrder(currentWindowIDs: windowIDs)
         updateWindowCount(orderedWindowIDs.count)
@@ -288,6 +296,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     private func scheduleTilePasses() {
         lastTiledWindowIDs = []
+        tileTerminalWindows()
         for delay in [0.2, 0.8] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self, self.dashboardRequested else { return }
@@ -323,7 +332,7 @@ final class TerminalManager: NSObject, ObservableObject {
         guard frames.count == count else { return }
 
         guard applyWindowLayout(windowIDs: windowIDs, frames: frames) else {
-            lastWindowServerCandidateCount = -1
+            lastWindowServerCandidateIDs = nil
             return
         }
         lastTiledWindowIDs = windowIDs
@@ -358,21 +367,22 @@ final class TerminalManager: NSObject, ObservableObject {
         return executeAppleScript(source) != nil
     }
 
-    private func windowServerCandidateCount(pid: pid_t) -> Int {
+    private func windowServerCandidateIDs(pid: pid_t) -> Set<Int>? {
         guard let windows = CGWindowListCopyWindowInfo(
             [.optionAll, .excludeDesktopElements],
             kCGNullWindowID
-        ) as? [[String: Any]] else { return lastWindowServerCandidateCount }
+        ) as? [[String: Any]] else { return nil }
 
-        return windows.reduce(into: 0) { count, window in
+        return windows.reduce(into: Set<Int>()) { result, window in
             guard (window[kCGWindowOwnerPID as String] as? Int32) == pid,
                   (window[kCGWindowLayer as String] as? Int) == 0,
+                  let windowNumber = (window[kCGWindowNumber as String] as? NSNumber)?.intValue,
                   let bounds = window[kCGWindowBounds as String] as? [String: Any],
                   let width = (bounds["Width"] as? NSNumber)?.doubleValue,
                   let height = (bounds["Height"] as? NSNumber)?.doubleValue,
                   width >= 300,
                   height >= 160 else { return }
-            count += 1
+            result.insert(windowNumber)
         }
     }
 
