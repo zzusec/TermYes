@@ -1,3 +1,17 @@
+# TermYes v1.6.31
+
+## 简体中文
+
+- 修复私有仓库无法在线升级的问题：公开 Release 请求返回 401/403/404 时，使用本机已安装、已登录的 GitHub CLI 读取同一仓库的正式 Release 并下载精确版本安装包与校验文件。不改变仓库可见性，不在应用、配置或日志中保存 GitHub 令牌。
+- 认证下载仍执行原有 SHA-256、Bundle ID、版本和严格签名检查，保留备份及失败回滚。没有可用 GitHub CLI 或授权时明确报错，不显示为最新、不静默跳过。
+- 包含 v1.6.30 的各 Agent 官方版本检查与自动升级、单 Agent 限时免审、登录时自启动和在线升级状态入口。
+
+## English
+
+- Support online upgrades from private repositories. When public Release requests return 401/403/404, use the locally installed, authenticated GitHub CLI to read the same repository's published release and download exact versioned assets. Do not change repository visibility or store tokens in the app, settings, or logs.
+- Authenticated downloads retain SHA-256, bundle identity, version, and strict signature checks, plus backup rollback. Missing CLI/authentication fails visibly instead of claiming to be current.
+- Include v1.6.30's verified Agent updates, per-Agent timed review pauses, launch-at-login toggle, and update status controls.
+
 # TermYes v1.6.30
 
 ## 简体中文

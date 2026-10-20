@@ -7,6 +7,9 @@ struct ReleaseLocationTests {
         expect(release?.tagName == "v1.6.18", "release tag should be extracted")
         expect(release?.dmgURL.absoluteString == "https://github.com/zzusec/TermYes/releases/download/v1.6.18/TermYes-v1.6.18-macOS.dmg", "DMG URL should match the verified tag")
         expect(release?.checksumURL.absoluteString == "https://github.com/zzusec/TermYes/releases/download/v1.6.18/TermYes-v1.6.18-macOS.dmg.sha256", "checksum URL should match the verified tag")
+        expect(release?.requiresAuthentication == false, "Public updates must not require GitHub CLI")
+        let authenticated = GitHubReleaseLocation(redirectedURL: URL(string: "https://github.com/zzusec/TermYes/releases/tag/v1.6.31")!, requiresAuthentication: true)
+        expect(authenticated?.requiresAuthentication == true && authenticated?.tagName == "v1.6.31", "Private updates retain the validated repository/tag")
 
         for invalidURL in [
             "http://github.com/zzusec/TermYes/releases/tag/v1.6.18",

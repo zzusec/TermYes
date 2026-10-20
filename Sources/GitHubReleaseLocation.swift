@@ -4,8 +4,9 @@ struct GitHubReleaseLocation: Sendable {
     let tagName: String
     let dmgURL: URL
     let checksumURL: URL
+    let requiresAuthentication: Bool
 
-    init?(redirectedURL: URL) {
+    init?(redirectedURL: URL, requiresAuthentication: Bool = false) {
         guard let components = URLComponents(url: redirectedURL, resolvingAgainstBaseURL: false),
               components.scheme == "https", components.host == "github.com",
               components.port == nil, components.user == nil, components.password == nil,
@@ -22,5 +23,6 @@ struct GitHubReleaseLocation: Sendable {
         tagName = tag
         dmgURL = downloadBase.appendingPathComponent(filename)
         checksumURL = downloadBase.appendingPathComponent("\(filename).sha256")
+        self.requiresAuthentication = requiresAuthentication
     }
 }

@@ -25,6 +25,8 @@ jobs:
           /tmp/termosaic-version-tests
           swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termosaic-release-location-tests
           /tmp/termosaic-release-location-tests
+          swiftc Sources/GitHubCLI.swift Tests/GitHubCLITests.swift -o /tmp/termyes-private-release-tests
+          /tmp/termyes-private-release-tests
       - name: Test verified Agent readiness
         run: |
           swiftc Sources/AgentGuardController.swift Tests/AgentGuardReadinessTests.swift -o /tmp/termyes-readiness-tests

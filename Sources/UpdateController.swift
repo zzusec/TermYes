@@ -120,6 +120,17 @@ final class UpdateController: NSObject, ObservableObject {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("TermYes/\(currentSemanticVersion?.description ?? "unknown")", forHTTPHeaderField: "User-Agent")
         let (_, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, [401, 403, 404].contains(http.statusCode) {
+            statusMessage = "正在通过本机 GitHub 授权检查私有 Release…"
+            let tag = try await Task.detached(priority: .utility) {
+                try GitHubCLI.latestReleaseTag()
+            }.value
+            guard let url = URL(string: "https://github.com/zzusec/TermYes/releases/tag/\(tag)"),
+                  let release = GitHubReleaseLocation(redirectedURL: url, requiresAuthentication: true) else {
+                throw UpdateError.invalidReleaseURL
+            }
+            return release
+        }
         try validateHTTP(response)
         guard let finalURL = response.url,
               let release = GitHubReleaseLocation(redirectedURL: finalURL) else {
@@ -132,11 +143,30 @@ final class UpdateController: NSObject, ObservableObject {
         guard let version = SemanticVersion(release.tagName) else { throw UpdateError.invalidVersion }
         let expectedDMGName = "TermYes-v\(version)-macOS.dmg"
 
-        statusMessage = "正在下载更新包…"
-        let (temporaryDMG, dmgResponse) = try await URLSession.shared.download(from: release.dmgURL)
-        try validateHTTP(dmgResponse)
-        let (checksumData, checksumResponse) = try await URLSession.shared.data(from: release.checksumURL)
-        try validateHTTP(checksumResponse)
+        statusMessage = release.requiresAuthentication ? "正在通过本机 GitHub 授权下载更新包…" : "正在下载更新包…"
+        let temporaryDMG: URL
+        let checksumData: Data
+        var authenticatedDirectory: URL?
+        defer {
+            if let authenticatedDirectory { try? FileManager.default.removeItem(at: authenticatedDirectory) }
+        }
+        if release.requiresAuthentication {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("TermYesDownload-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            authenticatedDirectory = directory
+            try await Task.detached(priority: .utility) {
+                try GitHubCLI.downloadRelease(tagName: release.tagName, directory: directory)
+            }.value
+            temporaryDMG = directory.appendingPathComponent(expectedDMGName)
+            checksumData = try Data(contentsOf: directory.appendingPathComponent(expectedDMGName + ".sha256"))
+        } else {
+            let (download, dmgResponse) = try await URLSession.shared.download(from: release.dmgURL)
+            try validateHTTP(dmgResponse)
+            let (checksum, checksumResponse) = try await URLSession.shared.data(from: release.checksumURL)
+            try validateHTTP(checksumResponse)
+            temporaryDMG = download
+            checksumData = checksum
+        }
 
         guard let checksumText = String(data: checksumData, encoding: .utf8),
               let expectedHash = checksumText.split(whereSeparator: { $0.isWhitespace }).first.map(String.init),

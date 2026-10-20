@@ -34,7 +34,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The v1.6.30 build artifact is at `dist/TermYes-v1.6.30-macOS.dmg`.
+1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The v1.6.31 build artifact is at `dist/TermYes-v1.6.31-macOS.dmg`.
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -49,7 +49,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- v1.6.30 includes a **`Termosaic-v1.6.30-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
+- v1.6.31 includes a **`Termosaic-v1.6.31-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -132,6 +132,10 @@ Guard tests classify command strings without executing them. Plugin tests mock h
 TermYes checks public GitHub Releases shortly after launch and every two hours; it installs only a newer published release. Automatic replacement requires an installation under `/Applications` and permission to write there. Checksums and strict recursive `codesign` verification detect corrupted or inconsistent packages; ad-hoc signing is not an Apple developer-identity guarantee.
 
 The main menu shows update progress, copyable errors, and installation retry. Launch at login is off by default and uses the macOS login-item service: it starts after user login, not before login as a system daemon. If approval is required, allow TermYes in System Settings → General → Login Items. Turning the toggle off unregisters it; application upgrades preserve the system setting.
+
+Private repositories return 404 for anonymous Release requests. On 401/403/404, TermYes uses a locally installed GitHub CLI already signed in with `gh auth login` to query the same repository and download exact versioned DMG/checksum assets. Missing CLI/authentication fails visibly. GitHub CLI retains credential ownership; TermYes does not write tokens into the app, preferences, or error logs, or change repository visibility. Public repositories still require no GitHub CLI.
+
+Existing proxy environment variables remain supported. If Finder/login-item launches lack those variables and your network cannot reach asset downloads directly, set an app-only HTTP(S) update proxy without embedded credentials: `defaults write io.github.zzusec.termosaic githubUpdateProxyURL -string 'http://127.0.0.1:7891'`, then restart TermYes. It applies only to the spawned GitHub CLI, not the system or Agents. Remove it with `defaults delete io.github.zzusec.termosaic githubUpdateProxyURL`.
 
 The separately versioned danger list lives in `AgentGuard/danger-policy.json` on the repository's `main` branch. Change its `block`/`warn` entries and **increment the integer `version`** before publishing. Updated TermYes clients check at launch and every two hours while running (or immediately via the menu), validate the downloaded data, then atomically activate a higher version for subsequent hooks without reinstalling them. Equal/older versions, invalid downloads and offline checks retain the last valid list; invalid local caches fall back to built-in rules with a visible error. `rm -rf` path grading remains in app code. Older clients need the new app first.
 

@@ -36,7 +36,7 @@ body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#f
 <h2>安装</h2>
 <p>支持 <strong>macOS 13+</strong>，同时提供 Apple Silicon 与 Intel 架构。</p>
 <ol>
-<li>从 <a href="https://github.com/zzusec/TermYes/releases/latest">GitHub Releases</a> 下载已发布版本；v1.6.30 构建产物位于 <code>dist/TermYes-v1.6.30-macOS.dmg</code>。</li>
+<li>从 <a href="https://github.com/zzusec/TermYes/releases/latest">GitHub Releases</a> 下载已发布版本；v1.6.31 构建产物位于 <code>dist/TermYes-v1.6.31-macOS.dmg</code>。</li>
 <li>打开安装包，将 <strong>TermYes.app</strong> 拖入 <strong>Applications</strong>。</li>
 <li>启动 TermYes，按提示允许控制 Terminal：
    <strong>系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal</strong>。</li>
@@ -48,7 +48,7 @@ body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#f
 <p>GitHub 仓库现更名为 <strong><code>zzusec/TermYes</code></strong>。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。</p>
 <ul>
 <li>Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。</li>
-<li>v1.6.30 另有 <strong><code>Termosaic-v1.6.30-macOS.dmg</code> 旧版更新兼容包</strong>。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。</li>
+<li>v1.6.31 另有 <strong><code>Termosaic-v1.6.31-macOS.dmg</code> 旧版更新兼容包</strong>。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。</li>
 <li>自动升级后，安装目录可能仍叫 <code>Termosaic.app</code>，应用显示名称则为 <strong>TermYes</strong>。请勿同时运行新旧两个副本。</li>
 <li>安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。</li>
 </ul>
@@ -138,6 +138,8 @@ bash Tests/test_update_installer.sh
 <p>守卫测试只分类命令字符串，不执行危险指令。插件测试模拟宿主 API，不代表真实客户端 YOLO 模式已通过验证。发布测试只读挂载安装包，并在临时副本上测试更新器，不启动应用。</p>
 <h2>更新、隐私与许可</h2>
 <p>TermYes 在启动后及之后每两小时检查公开 GitHub Release；仅发布更高版本的正式 Release 时自动安装。自动替换要求应用位于 <code>/Applications</code> 下，且当前用户有写入权限。校验和及递归严格 <code>codesign</code> 验证用于检测包损坏或不一致；ad-hoc 签名不等于 Apple 开发者身份认证。</p>
+<p>私有仓库的匿名 Release 地址会返回 404。TermYes 在公开请求返回 401/403/404 时，改用本机已安装且已通过 <code>gh auth login</code> 登录的 GitHub CLI 读取同一仓库并下载精确版本的 DMG 和校验文件；没有可用 CLI/授权会明确报错。令牌继续由 GitHub CLI 管理，不写进应用、TermYes 配置或错误日志，也不改变仓库可见性。公开仓库仍不需要 GitHub CLI。</p>
+<p>GitHub CLI 保留现有代理环境变量。若从 Finder/登录项启动时没有这些变量，而当前网络无法直连安装包域名，可为 TermYes 单独配置更新代理，例如 <code>defaults write io.github.zzusec.termosaic githubUpdateProxyURL -string 'http://127.0.0.1:7891'</code>；地址必须是无用户名/密码的 HTTP(S) 代理，修改后重启 TermYes。此设置仅传给应用启动的 GitHub CLI，不改变系统或其它 Agent 的网络。移除用 <code>defaults delete io.github.zzusec.termosaic githubUpdateProxyURL</code>。</p>
 <p>主菜单直接显示检查、下载、校验及安装状态；失败可查看原因，有可用版本时可重试安装。登录自启动默认关闭，勾选后于下一次用户登录启动（不是未登录时运行的系统服务）；若 macOS 要求批准，进入「系统设置 → 通用 → 登录项」允许 TermYes。关闭开关会注销登录项。自动升级不会重置该系统设置。</p>
 <p>危险清单独立维护在 GitHub 仓库的 <code>AgentGuard/danger-policy.json</code>：在 <code>main</code> 分支修改 <code>block</code>/<code>warn</code> 正则与说明，<strong>递增整数 <code>version</code> 并发布文件</strong>，已安装新版 TermYes 在启动及运行期间每两小时检查一次（菜单可立即检查）；发现更高版本时校验结构、大小、正则及来源后原子更新本机清单，新 Hook 调用立即使用，不需重装客户端。相同版本修改不会生效；回退版本、下载失败或无效数据保留上一份有效规则。若缓存无效，则回退到内置清单，菜单显示错误。<code>rm -rf</code> 路径分级仍随应用代码发布，不能通过 JSON 修改。关闭 TermYes 后不会定时联网；重新打开会继续检查。旧版客户端须先安装支持此功能的新版应用。</p>
 <p>没有分析统计、账户体系、广告或遥测。应用联网仅用于公开应用版本与危险清单检查、下载；守卫安装和 Terminal 自动化都在本地进行。恢复记录可能含已有客户端配置中的敏感值，请勿分享。</p>

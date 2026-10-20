@@ -36,7 +36,7 @@ body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#f
 <h2>Install</h2>
 <p>Requires <strong>macOS 13+</strong>, on Apple Silicon or Intel.</p>
 <ol>
-<li>Download the latest published version from <a href="https://github.com/zzusec/TermYes/releases/latest">GitHub Releases</a>. The v1.6.30 build artifact is at <code>dist/TermYes-v1.6.30-macOS.dmg</code>.</li>
+<li>Download the latest published version from <a href="https://github.com/zzusec/TermYes/releases/latest">GitHub Releases</a>. The v1.6.31 build artifact is at <code>dist/TermYes-v1.6.31-macOS.dmg</code>.</li>
 <li>Open it and drag <strong>TermYes.app</strong> to <strong>Applications</strong>.</li>
 <li>Launch TermYes and allow it to control Terminal when requested:
    <strong>System Settings → Privacy &amp; Security → Automation → TermYes → Terminal</strong>.</li>
@@ -48,7 +48,7 @@ body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#f
 <p>The GitHub repository is now <strong><code>zzusec/TermYes</code></strong>. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.</p>
 <ul>
 <li>The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.</li>
-<li>v1.6.30 includes a <strong><code>Termosaic-v1.6.30-macOS.dmg</code> compatibility image</strong> for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.</li>
+<li>v1.6.31 includes a <strong><code>Termosaic-v1.6.31-macOS.dmg</code> compatibility image</strong> for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.</li>
 <li>An automatic upgrade can keep the installed folder named <code>Termosaic.app</code> while the app displays <strong>TermYes</strong>. Do not run the old and new copies simultaneously.</li>
 <li>Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.</li>
 </ul>
@@ -139,6 +139,8 @@ bash Tests/test_update_installer.sh
 <h2>Updates, privacy, and license</h2>
 <p>TermYes checks public GitHub Releases shortly after launch and every two hours; it installs only a newer published release. Automatic replacement requires an installation under <code>/Applications</code> and permission to write there. Checksums and strict recursive <code>codesign</code> verification detect corrupted or inconsistent packages; ad-hoc signing is not an Apple developer-identity guarantee.</p>
 <p>The main menu shows update progress, copyable errors, and installation retry. Launch at login is off by default and uses the macOS login-item service: it starts after user login, not before login as a system daemon. If approval is required, allow TermYes in System Settings → General → Login Items. Turning the toggle off unregisters it; application upgrades preserve the system setting.</p>
+<p>Private repositories return 404 for anonymous Release requests. On 401/403/404, TermYes uses a locally installed GitHub CLI already signed in with <code>gh auth login</code> to query the same repository and download exact versioned DMG/checksum assets. Missing CLI/authentication fails visibly. GitHub CLI retains credential ownership; TermYes does not write tokens into the app, preferences, or error logs, or change repository visibility. Public repositories still require no GitHub CLI.</p>
+<p>Existing proxy environment variables remain supported. If Finder/login-item launches lack those variables and your network cannot reach asset downloads directly, set an app-only HTTP(S) update proxy without embedded credentials: <code>defaults write io.github.zzusec.termosaic githubUpdateProxyURL -string 'http://127.0.0.1:7891'</code>, then restart TermYes. It applies only to the spawned GitHub CLI, not the system or Agents. Remove it with <code>defaults delete io.github.zzusec.termosaic githubUpdateProxyURL</code>.</p>
 <p>The separately versioned danger list lives in <code>AgentGuard/danger-policy.json</code> on the repository's <code>main</code> branch. Change its <code>block</code>/<code>warn</code> entries and <strong>increment the integer <code>version</code></strong> before publishing. Updated TermYes clients check at launch and every two hours while running (or immediately via the menu), validate the downloaded data, then atomically activate a higher version for subsequent hooks without reinstalling them. Equal/older versions, invalid downloads and offline checks retain the last valid list; invalid local caches fall back to built-in rules with a visible error. <code>rm -rf</code> path grading remains in app code. Older clients need the new app first.</p>
 <p>No analytics, accounts, advertising, or telemetry. App network access is used for public releases, danger-list downloads, and Agent/package/plugin update sources. Guard installation and Terminal automation are local. Restore records may include sensitive values from existing client configurations; do not share them.</p>
 <p><a href="LICENSE">MIT</a>. The migrated command-guard module retains its <a href="AgentGuard/LICENSE">original MIT license</a>.</p></body></html>

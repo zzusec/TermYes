@@ -36,6 +36,7 @@ fi
 sources=(
   "$ROOT/Sources/SemanticVersion.swift"
   "$ROOT/Sources/GitHubReleaseLocation.swift"
+  "$ROOT/Sources/GitHubCLI.swift"
   "$ROOT/Sources/GridLayout.swift"
   "$ROOT/Sources/FiveHourActivation.swift"
   "$ROOT/Sources/AgentGuardController.swift"

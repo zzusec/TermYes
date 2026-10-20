@@ -18,6 +18,7 @@ def main():
         ('grid', ['Sources/GridLayout.swift', 'Tests/main.swift']),
         ('versions', ['Sources/SemanticVersion.swift', 'Tests/VersionTests.swift']),
         ('release-locations', ['Sources/SemanticVersion.swift', 'Sources/GitHubReleaseLocation.swift', 'Tests/ReleaseLocationTests.swift']),
+        ('private-release-cli', ['Sources/GitHubCLI.swift', 'Tests/GitHubCLITests.swift']),
         ('five-hour-activation', ['Sources/FiveHourActivation.swift', 'Tests/FiveHourActivationTests.swift']),
         ('agent-readiness', ['Sources/AgentGuardController.swift', 'Tests/AgentGuardReadinessTests.swift']),
         ('login-items', ['Sources/LaunchAtLoginController.swift', 'Tests/LoginItemTests.swift']),
