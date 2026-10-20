@@ -98,6 +98,16 @@ try {
 		await rejectWithoutExecution({ command });
 	}
 	await rejectWithoutExecution(undefined);
+	const pausedOpenCode = realSpawn("/usr/bin/python3", ["-B", path.join(root, "AgentGuard/manage.py"),
+		"pause-client", "opencode", "--minutes", "15", "--home", home], { env, encoding: "utf8" });
+	assert.equal(pausedOpenCode.status, 0, pausedOpenCode.stderr);
+	check(await shell.execute({ command: "rm -rf /" }, context) === toolResult,
+		"OpenCode's real installed Python bridge skips dangerous-command review while explicitly paused");
+	await rejectWithoutExecution({ command: "" });
+	await rejectWithoutExecution({ command: 'echo "unterminated' });
+	await writeFile(path.join(home, "Library/Application Support/Termosaic/AgentGuard/pauses/opencode.json"),
+		JSON.stringify({ client: "opencode", expiresAt: "2000-01-01T00:00:00Z" }));
+	await rejectWithoutExecution({ command: "rm -rf /" });
 	for (const result of [null, { status: 1 }, { status: null, error: new Error("timeout") },
 		{ status: 0, error: new Error("bridge failure"), stdout: '{"level":"safe"}' },
 		{ status: 0, signal: "SIGTERM", stdout: '{"level":"safe"}' },
@@ -158,6 +168,16 @@ try {
 	for (const command of ["git reset --hard HEAD", "rm -rf /", ""]) {
 		check((await handler(event(command), ctx)).block === true, "pi blocks dangerous/invalid input");
 	}
+	const pausedPi = realSpawn("/usr/bin/python3", ["-B", path.join(root, "AgentGuard/manage.py"),
+		"pause-client", "pi", "--minutes", "15", "--home", home], { env, encoding: "utf8" });
+	assert.equal(pausedPi.status, 0, pausedPi.stderr);
+	check(await handler(event("rm -rf /"), ctx) === undefined,
+		"pi's real installed Python bridge honors only its own explicit review pause");
+	check((await handler(event(""), ctx)).block === true, "pi still rejects invalid input during a pause");
+	const resumedPi = realSpawn("/usr/bin/python3", ["-B", path.join(root, "AgentGuard/manage.py"),
+		"resume-client", "pi", "--home", home], { env, encoding: "utf8" });
+	assert.equal(resumedPi.status, 0, resumedPi.stderr);
+	check((await handler(event("rm -rf /"), ctx)).block === true, "pi resumes review immediately");
 	for (const result of [null, { code: 1 }, { code: 0, stdout: "" }, { code: 0, stdout: "bad-json" },
 		{ code: 0, stdout: "null" }, { code: 0, stdout: '{"level":"allowlist"}' },
 		{ code: 0, stdout: '{"level":"warn"}' }]) {

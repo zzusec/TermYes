@@ -45,6 +45,7 @@ sources=(
   "$ROOT/Sources/ScheduledActivationController.swift"
   "$ROOT/Sources/WindowSchedulePicker.swift"
   "$ROOT/Sources/UpdateController.swift"
+  "$ROOT/Sources/LaunchAtLoginController.swift"
   "$ROOT/Sources/TermYesApp.swift"
 )
 

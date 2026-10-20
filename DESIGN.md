@@ -20,6 +20,9 @@ A quiet, menu-bar-only macOS utility. It must remain available without creating 
 - The top level starts with three workflows: “自动排列”, “命令守卫”, and “定时激活5h窗口”.
 - “自动排列” contains a show/hide toggle and one configurable global shortcut to show and re-tile; re-tiling uses the display under the pointer, and hiding on app switch is always on.
 - Version and update checking stay in the main menu.
+- “Agent 官方更新” is a separate top-level submenu. List each installed/current upstream version, source, and result; never conflate failed or unsupported checks with up-to-date.
+- Per-agent guard submenus offer 15-minute/one-hour review pauses and early resume, explicitly warning that dangerous commands are not blocked. A pause is not a configuration failure or verified protection.
+- “登录时自动启动” is opt-in and reflects macOS login-item state, including pending approval. TermYes update status, failure details, and installation retry remain directly discoverable in the main menu.
 - Failures show a short, contextual “查看原因…” action; full details and an optional copy action live in a dialog, not in the main menu.
 - Submenus stay short. Start times are picked in a small floating panel, never as a 24-row clock inside the menu.
 - Automation permission failures explain both the problem and the exact recovery path in System Settings.

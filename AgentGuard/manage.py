@@ -18,6 +18,7 @@ import sys
 import tempfile
 import uuid
 
+import core
 import permission_modes
 import policy_update
 
@@ -159,6 +160,10 @@ def verification_fingerprint(home, client):
             }.get(client, ())
         ],
         "receipt": _file_fingerprint(receipt_path(home, client), content=True),
+        "pause": {
+            "file": _file_fingerprint(core.guard_pause_path(home, client), content=True),
+            "until": core.guard_paused_until(home, client),
+        },
         "commands": [
             {"entry": _file_fingerprint(path), "target": _file_fingerprint(path.resolve())}
             for path in permission_modes.executable_paths(home, client)
@@ -193,6 +198,14 @@ def write_verification(home, value):
 
 def live_status(home, client, verification=None):
     try:
+        paused_until = core.guard_paused_until(home, client)
+        if paused_until:
+            text = "命令审查已暂停至 " + paused_until + "；危险命令也不拦截"
+            return {
+                "liveStatus": "paused", "liveReason": text,
+                "requestStatus": "untested", "requestReason": "暂停期间不运行实测",
+                "guardLiveStatus": "paused", "guardLiveReason": text,
+            }
         verification = verification or read_verification(home)
         record = verification["clients"].get(client)
         if not isinstance(record, dict):
@@ -607,6 +620,19 @@ def status(home, selected=None):
                 guard_reason = "守卫文件已落地；客户端实际加载仍需验证"
             except Exception as error:
                 guard_reason = str(error)
+        paused_until = None
+        pause_error = None
+        try:
+            paused_until = core.guard_paused_until(home, client)
+        except Exception as error:
+            pause_error = str(error)
+            guard_ready = False
+            guard_reason = "审查暂停配置无效：" + pause_error
+        guard_configured = guard_ready
+        if paused_until:
+            guard_ready = False
+            pause_reason = "命令审查已暂停至 " + paused_until + "；危险命令也不拦截"
+            guard_reason = pause_reason if guard_configured else pause_reason + "；配置未就绪：" + guard_reason
         result.append({
             "id": client,
             "name": name,
@@ -614,8 +640,12 @@ def status(home, selected=None):
             "policyStatus": policy_status,
             "policyError": policy_error,
             "installed": installed,
+            "guardConfigured": guard_configured,
             "guardReady": guard_ready,
             "guardReason": guard_reason,
+            "guardPaused": paused_until is not None,
+            "guardPausedUntil": paused_until,
+            "guardPauseError": pause_error,
             "approvalReason": reason(client),
             **live_status(home, client, verification),
             **permission_modes.inspect(home, client),
@@ -623,7 +653,29 @@ def status(home, selected=None):
     return result
 
 
-def locked_action(home, client, action):
+def pause_client(home, client, minutes=60):
+    if isinstance(minutes, bool) or minutes not in (15, 60):
+        raise ValueError("暂停时长必须为 15 或 60 分钟")
+    current = status(home, [client])[0]
+    if not current["guardConfigured"]:
+        raise ValueError("守卫配置未就绪，不能暂停：" + current["guardReason"])
+    expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
+    atomic_write(core.guard_pause_path(home, client), json_bytes({
+        "client": client, "expiresAt": expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }))
+
+
+def resume_client(home, client):
+    path = core.guard_pause_path(home, client)
+    for parent in path.parents:
+        if parent.is_symlink():
+            raise ValueError("不自动修改符号链接：" + str(parent))
+    # Remove a broken leaf record itself, never its symlink target.
+    if path.is_symlink() or path.exists():
+        path.unlink()
+
+
+def locked_action(home, client, action, minutes=60):
     lock = receipt_path(home, client).parent / ".install.lock"
     checked_path(lock)
     lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -633,6 +685,10 @@ def locked_action(home, client, action):
             fcntl.flock(locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError("另一个安装或恢复操作正在运行，请稍后再试")
+        if action == "pause-client":
+            return pause_client(home, client, minutes)
+        if action == "resume-client":
+            return resume_client(home, client)
         if action == "repair":
             migration = permission_modes.adopt_local_command(home, client)
             try:
@@ -646,7 +702,7 @@ def locked_action(home, client, action):
 
 def repair_unready(home, selected=None):
     pending = [client["id"] for client in status(home, selected)
-               if client["detected"] and (not client["permissionReady"] or not client["guardReady"]
+               if client["detected"] and (not client["permissionReady"] or not client["guardConfigured"]
                                           or receipt_needs_retirement(home, client["id"]))]
     failures = {}
     for client in pending:
@@ -658,7 +714,7 @@ def repair_unready(home, selected=None):
     for client in clients:
         if client["id"] in failures:
             client["serviceError"] = failures[client["id"]]
-        if client["id"] in pending and (not client["permissionReady"] or not client["guardReady"]):
+        if client["id"] in pending and (not client["permissionReady"] or not client["guardConfigured"]):
             failures.setdefault(client["id"], client["permissionReason"] if not client["permissionReady"]
                                 else client["guardReason"])
     return clients, failures
@@ -679,7 +735,7 @@ def monitor(home, selected=None):
             continue
         if client["id"] in failures:
             client["serviceError"] = failures[client["id"]]
-        if client["detected"] and (not client["permissionReady"] or not client["guardReady"]):
+        if client["detected"] and (not client["permissionReady"] or not client["guardConfigured"]):
             failures.setdefault(client["id"],
                                 client["permissionReason"] if not client["permissionReady"]
                                 else client["guardReason"])
@@ -778,6 +834,11 @@ def verify_client(home, client):
         "fingerprint": verification_fingerprint(home, client),
         "liveCheckedAt": checked_at,
     }
+    if current["guardPaused"]:
+        reason_text = "命令审查已暂停；恢复审查后才能实测"
+        return {**base, "liveStatus": "paused", "liveReason": reason_text,
+                "requestStatus": "untested", "requestReason": reason_text,
+                "guardLiveStatus": "paused", "guardLiveReason": reason_text}
     if not current["detected"]:
         reason_text = "未检测到客户端"
         return {**base, "liveStatus": "unsupported", "liveReason": reason_text,
@@ -901,7 +962,7 @@ def verify_clients(home, selected=None):
             record = completed.result()
             verification["clients"][client] = record
             write_verification(home, verification)
-            if record["liveStatus"] != "passed":
+            if record["liveStatus"] not in ("passed", "paused"):
                 failures[client] = record["liveReason"]
     if not candidates:
         write_verification(home, verification)
@@ -915,15 +976,33 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client"),
+        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "pause-client", "resume-client"),
     )
     parser.add_argument("client", nargs="?", choices=CLIENTS)
+    parser.add_argument("--minutes", type=int, choices=(15, 60), default=60)
     parser.add_argument("--home", type=Path, default=Path.home(), help="User root; tests use a temporary home")
     args = parser.parse_args()
     if not args.home.is_absolute():
         parser.error("--home must be absolute")
     if args.action == "status":
         print(json.dumps(status(args.home), ensure_ascii=False)); return
+    if args.action in ("pause-client", "resume-client"):
+        if not args.client:
+            parser.error("client required")
+        failure = None
+        try:
+            locked_action(args.home, args.client, args.action, args.minutes)
+        except Exception as error:
+            failure = str(error)
+        clients = status(args.home)
+        if failure:
+            for client in clients:
+                if client["id"] == args.client:
+                    client["serviceError"] = failure
+        print(json.dumps(clients, ensure_ascii=False))
+        if failure:
+            sys.exit(1)
+        return
     if args.action == "policy-update":
         policy_update.check(args.home, atomic_write, force=True)
         print(json.dumps(status(args.home), ensure_ascii=False)); return
@@ -949,7 +1028,7 @@ def main():
             parser.error("client required")
         if args.action == "ensure":
             clients = status(args.home, [args.client])
-            if clients and all(item["detected"] and item["permissionReady"] and item["guardReady"]
+            if clients and all(item["detected"] and item["permissionReady"] and item["guardConfigured"]
                                and not receipt_needs_retirement(args.home, item["id"])
                                for item in clients):
                 print(json.dumps(clients, ensure_ascii=False))

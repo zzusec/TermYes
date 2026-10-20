@@ -6,6 +6,10 @@ struct AgentGuardClient: Decodable, Identifiable {
     let id: String
     let name: String
     let guardReady: Bool
+    let guardConfigured: Bool?
+    let guardPaused: Bool?
+    let guardPausedUntil: String?
+    let guardPauseError: String?
     let guardReason: String
     let policyVersion: Int
     let policyStatus: String
@@ -25,11 +29,23 @@ struct AgentGuardClient: Decodable, Identifiable {
     let guardLiveReason: String?
 
     var configurationReady: Bool {
-        detected && permissionReady && guardReady && serviceError == nil
+        detected && permissionReady && (guardConfigured ?? guardReady) && serviceError == nil
+    }
+
+    var isGuardPaused: Bool {
+        guard guardPaused == true else { return false }
+        guard let raw = guardPausedUntil, let until = ISO8601DateFormatter().date(from: raw) else { return true }
+        return until > Date()
+    }
+
+    var pauseDescription: String {
+        guard let raw = guardPausedUntil,
+              let until = ISO8601DateFormatter().date(from: raw) else { return "暂时停用审查" }
+        return "审查暂停至 " + DateFormatter.localizedString(from: until, dateStyle: .none, timeStyle: .short)
     }
 
     var isVerified: Bool {
-        configurationReady && liveStatus == "passed" && requestStatus == "passed"
+        configurationReady && !isGuardPaused && liveStatus == "passed" && requestStatus == "passed"
             && guardLiveStatus == "passed"
     }
 }
@@ -58,6 +74,10 @@ final class AgentGuardController: ObservableObject {
     func checkPolicy() { run("policy-update") }
     func verifyAll() { run("verify") }
     func verify(_ client: AgentGuardClient) { run("verify-client", client: client.id) }
+    func pause(_ client: AgentGuardClient, minutes: Int) {
+        run("pause-client", client: client.id, extraArguments: ["--minutes", String(minutes)])
+    }
+    func resume(_ client: AgentGuardClient) { run("resume-client", client: client.id) }
 
     @objc private func checkAgain() { run("monitor") }
 
@@ -65,7 +85,7 @@ final class AgentGuardController: ObservableObject {
         guard !clients.isEmpty else { return details.isEmpty ? message : details }
         let reports = clients.filter(\.detected).map { client in
             """
-            \(client.name)：\(client.isVerified ? "端到端实测通过" : "未就绪")
+            \(client.name)：\(client.isGuardPaused ? client.pauseDescription : client.isVerified ? "端到端实测通过" : "未就绪")
             YOLO：\(client.permissionReason)
             守卫配置：\(client.guardReason)
             请求/免确认：\(client.requestReason ?? "尚未实测")
@@ -79,7 +99,7 @@ final class AgentGuardController: ObservableObject {
 
     var policyDetails: String { clients.first?.policyStatus ?? message }
 
-    private func run(_ action: String, client: String? = nil) {
+    private func run(_ action: String, client: String? = nil, extraArguments: [String] = []) {
         guard !isWorking else { return }
         guard let script = Bundle.main.url(forResource: "manage", withExtension: "py", subdirectory: "AgentGuard") else {
             message = "守卫资源缺失，请重新构建或安装 TermYes"
@@ -94,13 +114,13 @@ final class AgentGuardController: ObservableObject {
                 : action == "monitor" || action == "repair-unready" || action == "repair-client"
                     ? "正在检查并修复 Agent YOLO 与命令守卫…"
                     : "正在处理守卫文件，请稍候…"
-        let arguments = [script.path, action] + (client.map { [$0] } ?? [])
+        let arguments = [script.path, action] + (client.map { [$0] } ?? []) + extraArguments
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 Self.execute(arguments)
             }.value
             details = String(decoding: result.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            let statusActions = ["status", "monitor", "policy-update", "repair-unready", "repair-client", "verify", "verify-client"]
+            let statusActions = ["status", "monitor", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "pause-client", "resume-client"]
             if statusActions.contains(action) {
                 do {
                     clients = try JSONDecoder().decode([AgentGuardClient].self, from: result.1)
@@ -109,17 +129,26 @@ final class AgentGuardController: ObservableObject {
                     let guarded = detected.filter(\.guardReady).count
                     let failed = detected.first { candidate in
                         (action != "repair-client" || candidate.id == client) &&
-                            (!candidate.permissionReady || !candidate.guardReady || candidate.serviceError != nil)
+                            !candidate.configurationReady
                     }
                     let verificationFailed = (action == "verify" || action == "verify-client") && detected.contains {
-                        (action != "verify-client" || $0.id == client) && $0.liveStatus != "passed"
+                        (action != "verify-client" || $0.id == client) && !$0.isGuardPaused && $0.liveStatus != "passed"
                     }
                     lastCheckFailed = result.0 != 0 || clients.first?.policyError == true || failed != nil || verificationFailed
                     let repaired = action == "repair-client" ? detected.first(where: { $0.id == client }) : nil
                     let repairSucceeded = result.0 == 0 && repaired.map {
                         $0.permissionReady && $0.guardReady && $0.serviceError == nil
                     } == true
-                    if let repaired, repairSucceeded {
+                    if action == "pause-client" || action == "resume-client" {
+                        let target = detected.first { $0.id == client }
+                        if result.0 != 0 || target?.serviceError != nil {
+                            lastCheckFailed = true
+                            message = "审查状态未更改：\(target?.serviceError ?? "请查看详情")"
+                        } else {
+                            let state = target.map { $0.isGuardPaused ? $0.pauseDescription : "审查已恢复，客户端加载仍需实测" } ?? "未获取到状态"
+                            message = "\(target?.name ?? client ?? "Agent") · \(state)"
+                        }
+                    } else if let repaired, repairSucceeded {
                         message = "\(repaired.name) 配置已修复，待实测"
                     } else if result.0 != 0, let failed {
                         message = "\(failed.name) 未修复：\(failed.serviceError ?? (failed.permissionReady ? failed.guardReason : failed.permissionReason))"
@@ -128,7 +157,7 @@ final class AgentGuardController: ObservableObject {
                     } else if action == "verify" || action == "verify-client" {
                         let tested = action == "verify-client"
                             ? detected.filter { $0.id == client }
-                            : detected
+                            : detected.filter { !$0.isGuardPaused }
                         let passed = tested.filter(\.isVerified).count
                         message = "Agent 端到端实测通过 \(passed)/\(tested.count)"
                     } else {

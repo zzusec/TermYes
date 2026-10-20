@@ -3,13 +3,39 @@ import Combine
 import Foundation
 
 struct AgentAutoUpdateReport: Decodable {
-    struct Item: Decodable {
+    struct Item: Decodable, Identifiable {
         let client: String
         let target: String
         let command: String
         let ok: Bool
         let changed: Bool
         let detail: String
+        let currentVersion: String?
+        let latestVersion: String?
+        let status: String?
+        let source: String?
+        let sourceLabel: String?
+
+        var id: String { client + ":" + target }
+        var stateDescription: String {
+            switch status {
+            case "upToDate": return "已是最新"
+            case "updated": return "已自动升级"
+            case "updateAvailable": return "有官方更新"
+            case "ahead": return "本机版本高于稳定版"
+            case "unsupported": return "暂不支持自动升级"
+            case "failed": return "检查或升级失败"
+            default: return ok ? (changed ? "已更新" : "已完成") : "失败"
+            }
+        }
+        var versionDescription: String {
+            let current = currentVersion.flatMap { $0.isEmpty ? nil : $0 } ?? "未知"
+            let latest = latestVersion.flatMap { $0.isEmpty ? nil : $0 } ?? "未知"
+            return "本机 \(current) / \(sourceLabel ?? "官方") \(latest)"
+        }
+        var diagnosticDetails: String {
+            "\(client) · \(target)：\(stateDescription)\n\(versionDescription)\n来源：\(source ?? "未确认")\n$ \(command)\n\(detail)"
+        }
     }
     let items: [Item]
     let message: String
@@ -22,7 +48,10 @@ final class AgentAutoUpdateController: ObservableObject {
     @Published private(set) var message = "每 30 分钟自动检测 Agent 与插件更新"
     @Published private(set) var lastRunDescription = "尚未检测"
     @Published private(set) var details = ""
+    @Published private(set) var items: [AgentAutoUpdateReport.Item] = []
     private var timer: Timer?
+
+    var cliItems: [AgentAutoUpdateReport.Item] { items.filter { $0.target == "CLI" } }
 
     func start() {
         guard timer == nil else { return }
@@ -53,12 +82,11 @@ final class AgentAutoUpdateController: ObservableObject {
             let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
             lastRunDescription = stamp + (result.0 == 0 ? "" : "（失败）")
             if let report = try? JSONDecoder().decode(AgentAutoUpdateReport.self, from: result.1) {
+                items = report.items
                 message = report.message + (result.0 == 0 ? "" : " · 退出码 \(result.0)")
-                details = report.items.map { item in
-                    let state = item.ok ? (item.changed ? "已更新" : "已是最新或无需操作") : "失败"
-                    return "\(item.client) · \(item.target)：\(state)\n$ \(item.command)\n\(item.detail)"
-                }.joined(separator: "\n\n")
+                details = report.items.map(\.diagnosticDetails).joined(separator: "\n\n")
             } else {
+                items = []
                 message = result.0 == 0 ? "更新检测完成，但结果无法解析" : "更新检测失败 · 退出码 \(result.0)"
                 details = String(decoding: result.1, as: UTF8.self)
             }

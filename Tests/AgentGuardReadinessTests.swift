@@ -17,6 +17,13 @@ struct AgentGuardReadinessTests {
         }
         let verified = try client([:])
         precondition(verified.isVerified)
+        let paused = try client(["guardPaused": true, "guardConfigured": true, "guardReady": false,
+                                 "guardPausedUntil": "2099-01-01T12:00:00Z"])
+        precondition(paused.configurationReady && !paused.isVerified && paused.isGuardPaused)
+        precondition(paused.pauseDescription.contains("审查暂停至"))
+        let expired = try client(["guardPaused": true, "guardPausedUntil": "2000-01-01T12:00:00Z",
+                                  "liveStatus": "paused", "guardLiveStatus": "paused"])
+        precondition(!expired.isGuardPaused && !expired.isVerified)
         for (key, value) in [("liveStatus", "untested"), ("liveStatus", "stale"),
                              ("liveStatus", "failed"), ("liveStatus", "unsupported"),
                              ("requestStatus", "failed"), ("guardLiveStatus", "failed"),

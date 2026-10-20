@@ -29,6 +29,10 @@ jobs:
         run: |
           swiftc Sources/AgentGuardController.swift Tests/AgentGuardReadinessTests.swift -o /tmp/termyes-readiness-tests
           /tmp/termyes-readiness-tests
+          swiftc Sources/LaunchAtLoginController.swift Tests/LoginItemTests.swift -o /tmp/termyes-login-tests
+          /tmp/termyes-login-tests
+          swiftc Sources/AgentAutoUpdateController.swift Tests/AgentUpdateReportTests.swift -o /tmp/termyes-report-tests
+          /tmp/termyes-report-tests
       - name: Test Agent guards and five-hour activation
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
@@ -38,6 +42,8 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_strict_policy.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_shell_syntax.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_updates.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_guard_pause.py
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
           node Tests/test_guard_plugins.mjs

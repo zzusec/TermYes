@@ -9,6 +9,7 @@ classify(command, absolute_cwd) returns block or safe. Internal warn becomes blo
 import datetime
 import json
 import os
+from pathlib import Path
 import re
 import shlex
 import subprocess
@@ -31,6 +32,55 @@ DEFAULT_QUIET_HOURS_CONFIG = os.path.expanduser(
 )
 GUARD_PROBE_TOKEN_ENV = "TERMYES_GUARD_PROBE_TOKEN"
 GUARD_PROBE_RECEIPT_ENV = "TERMYES_GUARD_PROBE_RECEIPT"
+
+GUARD_RUNTIME_ROOTS = {
+    "claude": ".claude", "codex": ".codex", "codebuddy": ".codebuddy",
+    "zcode": ".zcode/cli", "pi": ".pi/agent", "qoder": ".qoder",
+    "gemini": ".gemini", "cursor": ".cursor", "agy": ".gemini",
+    "opencode": ".config/opencode", "droid": ".factory",
+    "crush": ".config/crush", "copilot": ".copilot",
+}
+
+
+def guard_pause_path(home, client):
+    if client not in GUARD_RUNTIME_ROOTS:
+        raise ValueError("未知 Agent")
+    return Path(home) / "Library/Application Support/Termosaic/AgentGuard/pauses" / (client + ".json")
+
+
+def guard_paused_until(home, client, now=None):
+    """Only a valid, private user decision can suspend this client's review."""
+    path = guard_pause_path(home, client)
+    for item in (path, *path.parents):
+        if item.is_symlink():
+            raise ValueError("审查暂停配置不能是符号链接：" + str(item))
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, "r", encoding="utf-8") as handle:
+        info = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 4096):
+            raise ValueError("审查暂停配置必须为当前用户的 0600 普通文件")
+        record = json.load(handle)
+    if (not isinstance(record, dict) or record.get("client") != client
+            or not isinstance(record.get("expiresAt"), str)
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", record["expiresAt"])):
+        raise ValueError("审查暂停配置格式无效")
+    expires = datetime.datetime.fromisoformat(record["expiresAt"].replace("Z", "+00:00"))
+    current = now or datetime.datetime.now(datetime.timezone.utc)
+    return record["expiresAt"] if expires > current else None
+
+
+def installed_guard_identity():
+    # The installed code location identifies the client, never hook input or env.
+    location = Path(__file__).absolute()
+    for client, root in GUARD_RUNTIME_ROOTS.items():
+        suffix = Path(root) / ("guard" if client == "pi" else "hooks") / "termosaic" / client / "core.py"
+        if location.parts[-len(suffix.parts):] == suffix.parts:
+            return location.parents[len(suffix.parts) - 1], client
+    return None
 
 
 # ============================================================
@@ -688,16 +738,20 @@ def classify(cmd, cwd=None, bypass=None):
     """TermYes: every warning is a denial, regardless of client/permission mode.
 
     ponytail: retain the legacy bypass argument for adapters, but it cannot weaken policy.
+    An explicit per-client pause skips policy, never payload validation.
     This is a shell-text accident guard, not a sandbox or a proof of command safety.
     """
     if not isinstance(cmd, str) or not cmd.strip() or len(cmd) > 262144:
         raise ValueError("缺失、无效或过长的命令")
     if not isinstance(cwd, str) or not os.path.isabs(cwd):
         raise ValueError("缺失或无效的工作目录")
-    if _guard_probe(cmd):
-        return "block", "TermYes 守卫端到端验证命令"
     if mask_cmd_subs(strip_heredocs(cmd)) is None:
         return "block", "命令引号或替换表达式未闭合，无法可靠判定"
+    identity = installed_guard_identity()
+    if identity and guard_paused_until(*identity):
+        return "safe", "此 Agent 的命令审查已临时暂停，危险命令也不拦截"
+    if _guard_probe(cmd):
+        return "block", "TermYes 守卫端到端验证命令"
     level, reason = _classify(cmd, cwd)
     return ("block", reason) if level == "warn" else (level, reason)
 

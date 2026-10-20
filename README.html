@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>README - TermYes</title><style>
+body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
+</style></head><body><div align="center">
+  <img src="Resources/TermYesIcon-1024.png" width="128" alt="TermYes icon">
+  <h1>TermYes</h1>
+  <p><strong>Your terminals, together. Risky commands, stopped.</strong></p>
+  <p>A native macOS menu-bar utility for Apple Terminal and Agent command guards.</p>
+  <p>
+    <a href="https://github.com/zzusec/TermYes/actions/workflows/build.yml"><img src="https://github.com/zzusec/TermYes/actions/workflows/build.yml/badge.svg" alt="Build and tests"></a>
+    <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13 or later">
+    <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-universal-blue" alt="Universal macOS application">
+  </p>
+  <p><strong>English</strong> · <a href="README.zh-CN.md">Chinese</a></p>
+  <p><a href="https://github.com/zzusec/TermYes/releases/latest">Download</a> · <a href="RELEASE_NOTES.md">Release notes</a> · <a href="AgentGuard/README.md">Guard details</a></p>
+</div>
+
+<p>TermYes brings <strong>Termosaic's terminal canvas</strong> and <strong>bypass-yes's command guards</strong> into one application. Keep existing Terminal sessions visible together, hide them without stopping their processes, and manage per-Agent shell guards from the menu bar.</p>
+<blockquote>
+<p><strong>YOLO first, then hard-deny danger.</strong> TermYes detects installed agents, repairs supported permission modes to YOLO or an equivalent auto-approval mode, and keeps the command guard as a fail-closed layer for dangerous operations. Adapter hook behavior still requires real-client validation.</p>
+</blockquote>
+<h2>What it does</h2>
+<ul>
+<li><strong>One terminal canvas.</strong> Tile Apple's Terminal windows edge to edge: four windows form a 2×2 grid; six form a 3×2 grid; odd counts use two columns with the extra window on the left. New and closed windows trigger re-layout, with stable clockwise ordering.</li>
+<li><strong>Readiness proven by live checks.</strong> Command Guard separates installed configuration, actual model requests, and loaded guards. A client is checked only after YOLO-equivalent execution and a safe Shell probe succeed and the real client invokes its guard. Repairing files alone is not readiness; individual/full verification makes model requests, with scrollable, copyable diagnostics.</li>
+<li><strong>Explicit shell danger list and quiet hours.</strong> Shell hooks deny matches in the versioned GitHub <code>AgentGuard/danger-policy.json</code> (falling back to verified cache or built-in <code>AgentGuard/rules.py</code>) or the <code>rm -rf</code> target rules in <code>AgentGuard/core.py</code>; valid commands outside those rules proceed without an AI veto. A configurable 22:00–08:00 quiet period suppresses sound without weakening blocking.</li>
+<li><strong>Less desktop clutter.</strong> Show or hide the canvas together, including minimized windows, while processes keep running. No Dock icon, embedded shell, or permanent control window; other applications' windows are not rearranged.</li>
+<li><strong>Keyboard access.</strong> A configurable global shortcut brings the canvas back. The default is <code>⌘O</code>; change it if you need to preserve another application's Open command.</li>
+<li><strong>One place for Agent safety.</strong> Detect and repair YOLO-equivalent modes when TermYes starts, install/update guards from the menu, and keep dangerous shell commands blocked even when the client itself will not ask.</li>
+<li><strong>Best-effort checks before launch.</strong> New zsh terminals install a lightweight agent launcher that checks guard configuration and YOLO mode before starting the selected client; failures produce warnings but do not block automatic-execution mode. Installed guard files do not prove that the client has loaded and trusted its hooks.</li>
+<li><strong>In-app updates.</strong> Check the public GitHub Release redirect without using the anonymous API quota, then download versioned images, verify checksums and application signatures, and replace and relaunch with a backup for recovery.</li>
+<li><strong>Agent versions and automatic upgrades.</strong> The Agent Updates menu lists each installed version, upstream version, result, and source. Checks run at startup and every 30 minutes; newer versions upgrade through the existing installation channel. Third-party distributions are explicitly labeled, and unknown/unsupported/failed checks never claim to be current.</li>
+<li><strong>Temporarily pause one Agent's review.</strong> Open Command Guard and select an Agent to pause review for 15 minutes or one hour, or resume early. YOLO mode stays enabled. Dangerous commands are not blocked during the pause; expiry restores review even when TermYes is closed.</li>
+<li><strong>Launch at login.</strong> An opt-in main-menu toggle uses macOS login items, with a System Settings action when approval is required; no custom launch script is installed.</li>
+</ul>
+<h2>Install</h2>
+<p>Requires <strong>macOS 13+</strong>, on Apple Silicon or Intel.</p>
+<ol>
+<li>Download the latest published version from <a href="https://github.com/zzusec/TermYes/releases/latest">GitHub Releases</a>. The v1.6.30 build artifact is at <code>dist/TermYes-v1.6.30-macOS.dmg</code>.</li>
+<li>Open it and drag <strong>TermYes.app</strong> to <strong>Applications</strong>.</li>
+<li>Launch TermYes and allow it to control Terminal when requested:
+   <strong>System Settings → Privacy &amp; Security → Automation → TermYes → Terminal</strong>.</li>
+<li>Open the menu-bar grid icon, then choose Auto Arrange → Show Terminal.</li>
+</ol>
+<p>The community build is ad-hoc signed, not Apple-notarized. If macOS blocks first launch, use its per-application <strong>Open Anyway</strong> workflow only if you trust this release. Do not disable system-wide security protections.</p>
+<p>Window management needs no Python or Node.js. The <strong>optional guard module</strong> needs a working <code>/usr/bin/python3</code>, provided on the development machine by Xcode Command Line Tools. TermYes does not install dependencies automatically. Online updates need internet access.</p>
+<h3>Upgrading from Termosaic</h3>
+<p>The GitHub repository is now <strong><code>zzusec/TermYes</code></strong>. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.</p>
+<ul>
+<li>The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.</li>
+<li>v1.6.30 includes a <strong><code>Termosaic-v1.6.30-macOS.dmg</code> compatibility image</strong> for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.</li>
+<li>An automatic upgrade can keep the installed folder named <code>Termosaic.app</code> while the app displays <strong>TermYes</strong>. Do not run the old and new copies simultaneously.</li>
+<li>Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.</li>
+</ul>
+<h2>Use the canvas</h2>
+<table>
+<thead>
+<tr>
+<th>Menu action</th>
+<th>Shortcut</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Show and re-tile globally</td>
+<td><code>⌘O</code> by default; configurable</td>
+</tr>
+</tbody>
+</table>
+<p>Switching to another application hides the canvas. Hiding windows does not stop the processes inside them. TermYes manages <strong>Apple's Terminal.app only</strong>, not iTerm2 or other terminal emulators.</p>
+<p>Auto Arrange lets you show or hide the terminal canvas. Its configurable global shortcut shows and re-tiles the canvas on the display under the pointer. TermYes does not send Continue into existing agent sessions, manually or automatically.</p>
+<p><strong>Scheduled 5h Windows → Set time</strong> lets you choose the start time and Claude, Codex, or both. Every five hours while TermYes runs, it checks the selected guards, opens dedicated Terminal windows, sends <code>hi</code>, displays the actual model replies, and then closes those dedicated windows once the activation finishes, leaving user windows alone. It never injects input into active user sessions or sends a duplicate background request. Success requires a successful exit and a reply; failures remain visible. <strong>Activate now (send hi)</strong> uses the same path as the Timer without waiting five hours. Requests may incur model usage charges and do not guarantee a provider's quota window resets; no timer runs while the app is closed.</p>
+<p><strong>No Ctrl-C auto-confirmation or AI approval.</strong> Native Ctrl-C and business dialogs remain manual; Shell enforcement uses YOLO and explicit danger rules.</p>
+<h2>Agent command guards</h2>
+<p>TermYes checks detected clients at launch and every five minutes, maintaining YOLO-equivalent modes and command-guard files. The Command Guard menu separates configuration from live verification; repair one or all unconfigured clients, then verify actual execution and loaded hooks before a checkmark appears. Individual repairs show their result. All controls are at most two menu levels deep. Restart clients after a guard update; Codex also requires checking and trusting new hooks in <code>/hooks</code>.</p>
+<p>Each Agent submenu offers a 15-minute or one-hour review pause and early resume. This keeps hooks, wrappers, and YOLO modes installed. Hooks check a private UTC expiry record on every invocation, without a running app or background timer. Paused Agents are excluded from live verification and never marked protected. Existing sessions must load the new guard after the first upgrade; protection after resume still depends on the client loading its hook.</p>
+<p>Agent updates use verified package-manager or native update paths and recheck the installed version afterward. Unknown installation ownership, privilege requirements, and unsupported automatic upgrades remain visible rather than switching channels or downloading unknown scripts. Plugins update only through supported client commands. One failure does not stop checks for other Agents. Restart clients after upgrades because existing processes can still be running older code.</p>
+<p>Bundled adapters cover Claude Code, Codex, CodeBuddy, zcode, pi, Qoder, Gemini CLI, Cursor, agy, OpenCode, Factory droid, Crush, and GitHub Copilot CLI.</p>
+<h3>Policy and current status</h3>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>TermYes behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Command matches a danger or warning rule</td>
+<td>Deny; do not ask for confirmation</td>
+</tr>
+<tr>
+<td>Invalid input or a caught guard/bridge failure</td>
+<td>Return a denial, not a silent allow</td>
+</tr>
+<tr>
+<td>No danger rule matches</td>
+<td>Leave the client's existing permission flow in charge</td>
+</tr>
+<tr>
+<td>Detected client</td>
+<td>Maintain YOLO-equivalent mode and install the command guard; client-side hook loading still requires validation</td>
+</tr>
+<tr>
+<td>Files changed after TermYes installed them</td>
+<td>Refuse automatic overwrite/restore</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Installed is not the same as protected.</strong> Every adapter is currently unverified at the real-client level. Copilot's host timeout behavior and agy's turbo behavior have known or unresolved compatibility concerns. Loading, trust, disabled hooks, or host timeouts may prevent a guard from taking effect.</p>
+<p>These are <strong>shell-text accident guards, not a sandbox</strong>. They do not fully understand arbitrary Python, SQL, remote programs, aliases, or script contents, and do not intercept separate file-editing or MCP tools. A <code>safe</code> result means “no rule matched,” not “proved safe.”</p>
+<p>Installation merges default user-level client configurations, preserves unrelated hooks, and keeps private restore records. Startup reconciliation enables supported YOLO-equivalent modes; clients that only support launch flags use managed wrappers. Custom configuration roots and project-level configurations are not managed. See <a href="AgentGuard/README.md">guard documentation</a> for paths, failure behavior, and CLI usage.</p>
+<h2>Build and test</h2>
+<p>Building requires Xcode Command Line Tools. Guard tests use Python; plugin tests require an existing Node.js with <code>node:module.stripTypeScriptTypes</code> support. CI uses Node.js 24.</p>
+<pre><code class="language-sh"># Build without replacing an installed app.
+SKIP_INSTALL=1 ./build.sh
+
+# Produce main and legacy-compatible DMGs plus portable SHA-256 files.
+./create-dmg.sh
+/usr/bin/python3 -B Tests/test_release.py
+</code></pre>
+<p>The app is written to <code>build/TermYes.app</code>; images and checksums go to <code>dist/</code>. Running <code>./build.sh</code> <strong>without</strong> <code>SKIP_INSTALL=1</code> installs into <code>/Applications/TermYes.app</code>.</p>
+<pre><code class="language-sh">PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
+bash AgentGuard/test.sh
+PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
+node Tests/test_guard_plugins.mjs
+swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termyes-activation-tests
+/tmp/termyes-activation-tests
+swiftc Sources/GridLayout.swift Tests/main.swift -o /tmp/termyes-grid-tests
+/tmp/termyes-grid-tests
+swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termyes-version-tests
+/tmp/termyes-version-tests
+swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termyes-release-location-tests
+/tmp/termyes-release-location-tests
+bash Tests/test_update_installer.sh
+</code></pre>
+<p>Guard tests classify command strings without executing them. Plugin tests mock host APIs; passing them is not real-client YOLO certification. Release tests mount images read-only and exercise the updater on temporary copies without launching the app.</p>
+<h2>Updates, privacy, and license</h2>
+<p>TermYes checks public GitHub Releases shortly after launch and every two hours; it installs only a newer published release. Automatic replacement requires an installation under <code>/Applications</code> and permission to write there. Checksums and strict recursive <code>codesign</code> verification detect corrupted or inconsistent packages; ad-hoc signing is not an Apple developer-identity guarantee.</p>
+<p>The main menu shows update progress, copyable errors, and installation retry. Launch at login is off by default and uses the macOS login-item service: it starts after user login, not before login as a system daemon. If approval is required, allow TermYes in System Settings → General → Login Items. Turning the toggle off unregisters it; application upgrades preserve the system setting.</p>
+<p>The separately versioned danger list lives in <code>AgentGuard/danger-policy.json</code> on the repository's <code>main</code> branch. Change its <code>block</code>/<code>warn</code> entries and <strong>increment the integer <code>version</code></strong> before publishing. Updated TermYes clients check at launch and every two hours while running (or immediately via the menu), validate the downloaded data, then atomically activate a higher version for subsequent hooks without reinstalling them. Equal/older versions, invalid downloads and offline checks retain the last valid list; invalid local caches fall back to built-in rules with a visible error. <code>rm -rf</code> path grading remains in app code. Older clients need the new app first.</p>
+<p>No analytics, accounts, advertising, or telemetry. App network access is used for public releases, danger-list downloads, and Agent/package/plugin update sources. Guard installation and Terminal automation are local. Restore records may include sensitive values from existing client configurations; do not share them.</p>
+<p><a href="LICENSE">MIT</a>. The migrated command-guard module retains its <a href="AgentGuard/LICENSE">original MIT license</a>.</p></body></html>

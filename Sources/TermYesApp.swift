@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
         GlobalHotKeyController.shared.activateSavedShortcut()
+        LaunchAtLoginController.shared.refresh()
         TerminalManager.shared.start()
         ScheduledActivationController.shared.start()
         AgentGuardController.shared.start()
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func workspaceDidActivateApplication(_ notification: Notification) {
+        LaunchAtLoginController.shared.refresh()
         guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               application.bundleIdentifier != "com.apple.Terminal",
               application.bundleIdentifier != "io.github.zzusec.termosaic" else { return }
@@ -48,6 +50,7 @@ struct TermYesApp: App {
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
     @StateObject private var agentAutoUpdate = AgentAutoUpdateController.shared
+    @StateObject private var loginItem = LaunchAtLoginController.shared
 
     private var updateVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -105,7 +108,7 @@ struct TermYesApp: App {
     }
 
     private var loadedGuardCount: Int {
-        detectedAgents.filter { $0.guardLiveStatus == "passed" }.count
+        detectedAgents.filter { !$0.isGuardPaused && $0.guardLiveStatus == "passed" }.count
     }
 
     private var orderedDetectedAgents: [AgentGuardClient] {
@@ -124,10 +127,12 @@ struct TermYesApp: App {
 
     private var agentSafetyText: String {
         guard !detectedAgents.isEmpty else { return "检测中…" }
-        return "配置 \(configuredAgentCount)/\(detectedAgents.count) · 请求 \(verifiedAgentCount)/\(detectedAgents.count) · 守卫 \(loadedGuardCount)/\(detectedAgents.count)"
+        let paused = detectedAgents.filter(\.isGuardPaused).count
+        return "配置 \(configuredAgentCount)/\(detectedAgents.count) · 请求 \(verifiedAgentCount)/\(detectedAgents.count) · 守卫 \(loadedGuardCount)/\(detectedAgents.count)" + (paused > 0 ? " · 暂停 \(paused)" : "")
     }
 
     private func agentStatusText(_ client: AgentGuardClient) -> String {
+        if client.isGuardPaused { return client.pauseDescription }
         if !isAgentConfigured(client) { return "配置待修复" }
         if client.isVerified { return "实测通过" }
         if client.requestStatus == "failed" { return "请求/免确认失败" }
@@ -138,6 +143,7 @@ struct TermYesApp: App {
     }
 
     private func agentStatusIcon(_ client: AgentGuardClient) -> String {
+        if client.isGuardPaused { return "pause.circle" }
         if !isAgentConfigured(client) { return "xmark.square" }
         if client.isVerified { return "checkmark.square.fill" }
         if client.liveStatus == "failed" { return "exclamationmark.triangle.fill" }
@@ -217,13 +223,34 @@ struct TermYesApp: App {
                     .disabled(agentGuard.isWorking)
                 Divider()
                 ForEach(orderedDetectedAgents) { client in
-                    Button {
-                        if client.liveStatus == "unsupported" {
-                            showIssue("\(client.name) 尚未实测", detail: client.liveReason ?? "该客户端暂不支持端到端验证，不能标为就绪。")
-                        } else if isAgentConfigured(client) {
-                            agentGuard.verify(client)
+                    Menu {
+                        Text(agentStatusText(client))
+                        if client.isGuardPaused {
+                            Text("暂停期间，危险命令也不拦截；到期自动恢复")
+                            Button("立即恢复审查") { agentGuard.resume(client) }
                         } else {
-                            agentGuard.repair(client)
+                            if let error = client.guardPauseError {
+                                Button("暂停记录异常 · 查看原因…") {
+                                    showIssue("\(client.name) 暂停记录异常", detail: error)
+                                }
+                                Button("清除异常暂停记录并恢复审查") { agentGuard.resume(client) }
+                                Divider()
+                            }
+                            Button("临时停用审查 15 分钟") { agentGuard.pause(client, minutes: 15) }
+                            Button("临时停用审查 1 小时") { agentGuard.pause(client, minutes: 60) }
+                            Text("仅此 Agent；暂停期间危险命令也放行")
+                        }
+                        Divider()
+                        Button("实测此 Agent（会产生模型请求）") {
+                            if client.liveStatus == "unsupported" {
+                                showIssue("\(client.name) 尚未实测", detail: client.liveReason ?? "该客户端暂不支持端到端验证，不能标为就绪。")
+                            } else {
+                                agentGuard.verify(client)
+                            }
+                        }
+                        .disabled(client.isGuardPaused)
+                        if !isAgentConfigured(client) {
+                            Button("修复此 Agent 配置") { agentGuard.repair(client) }
                         }
                     } label: {
                         Label("\(client.name) · \(agentStatusText(client))", systemImage: agentStatusIcon(client))
@@ -235,17 +262,6 @@ struct TermYesApp: App {
                 Button("更新危险命令清单") { agentGuard.checkPolicy() }
                     .disabled(agentGuard.isWorking)
                 Divider()
-                Text("Agent 自动更新 · 上次：\(agentAutoUpdate.lastRunDescription)")
-                Text(agentAutoUpdate.message)
-                Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
-                    agentAutoUpdate.runNow()
-                }
-                .disabled(agentAutoUpdate.isRunning)
-                if !agentAutoUpdate.details.isEmpty {
-                    Button("查看更新详情…") {
-                        showIssue("Agent 与插件更新详情", detail: agentAutoUpdate.details)
-                    }
-                }
                 if agentGuard.clients.first?.policyError == true {
                     Button("查看清单问题…") {
                         showIssue("危险命令清单异常", detail: agentGuard.policyDetails)
@@ -275,12 +291,49 @@ struct TermYesApp: App {
                     }
                 }
             }
+            Menu("Agent 官方更新") {
+                Text("每 30 分钟检查；有新版自动升级")
+                Text("上次检查：\(agentAutoUpdate.lastRunDescription)")
+                Text(agentAutoUpdate.message)
+                Divider()
+                ForEach(agentAutoUpdate.cliItems) { item in
+                    Button("\(agentGuard.clients.first { $0.id == item.client }?.name ?? item.client) · \(item.stateDescription) · \(item.versionDescription)") {
+                        showIssue("\(item.client) 更新来源与结果", detail: item.diagnosticDetails)
+                    }
+                }
+                Divider()
+                Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
+                    agentAutoUpdate.runNow()
+                }
+                .disabled(agentAutoUpdate.isRunning)
+                if !agentAutoUpdate.details.isEmpty {
+                    Button("查看全部更新详情…") {
+                        showIssue("Agent 与插件更新详情", detail: agentAutoUpdate.details)
+                    }
+                }
+            }
             Divider()
+            Toggle("登录时自动启动", isOn: Binding(
+                get: { loginItem.isRequested },
+                set: { loginItem.setEnabled($0) }
+            ))
+            .onAppear { loginItem.refresh() }
+            if loginItem.status == .requiresApproval || loginItem.status == .notFound {
+                Button(loginItem.statusDescription + "…") { loginItem.openSettings() }
+            }
+            if let issue = loginItem.issue {
+                Button("自启动设置失败 · 查看原因…") { showIssue("登录时自启动", detail: issue) }
+            }
             Text(updateVersionText)
-            Button(updater.isChecking ? "正在检查更新…" : updater.isDownloading || updater.isInstallingUpdate ? "正在更新…" : "检查更新") {
+            Text(updater.statusMessage)
+            Button(updater.isChecking ? "正在检查更新…" : updater.isDownloading || updater.isInstallingUpdate ? "正在更新…" : "检查 TermYes 在线更新") {
                 updater.checkForUpdates()
             }
             .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
+            if let version = updater.availableVersion, !updater.isDownloading, !updater.isInstallingUpdate {
+                Button("重试安装 v\(version)") { updater.installAvailableUpdate() }
+                    .disabled(updater.isChecking)
+            }
             if let issue = updater.updateIssue {
                 Button("更新失败 · 查看原因…") {
                     showIssue("更新失败", detail: issue)

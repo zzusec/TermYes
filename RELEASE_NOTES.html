@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
+body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
+</style></head><body><h1>TermYes v1.6.30</h1>
+<h2>简体中文</h2>
+<ul>
+<li>新增「Agent 官方更新」菜单，逐项显示本机/上游版本、来源、是否有更新及升级结果；每 30 分钟检查，有新版时沿原安装渠道自动升级，更新后复查版本。修正对不存在更新命令的调用，未知、失败或不支持自动更新不再冒充最新；第三方发行包单独标注。</li>
+<li>每个 Agent 可临时停用命令审查 15 分钟或 1 小时，并可提前恢复。仅影响选定 Agent，不改变 YOLO/wrapper；危险命令在暂停期间也放行。独立 Hook 按私有 UTC 到期记录自动恢复，不依赖 TermYes 持续运行；暂停不算保护通过。</li>
+<li>增加 macOS 原生「登录时自动启动」开关、待批准提示和系统设置入口。默认不擅自开启。</li>
+<li>完善 TermYes 在线升级入口：主菜单直接显示检测/下载/安装状态、可复制失败原因，并允许重试可用版本。保留校验、签名、备份回滚与旧版兼容 DMG。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Add per-Agent installed/upstream versions, sources, availability, and verified update results in a dedicated menu. Check every 30 minutes and upgrade newer releases through the existing installation channel; unknown, unsupported, and failed checks do not claim to be current. Label third-party distributions explicitly.</li>
+<li>Pause one Agent's command review for 15 minutes or one hour, with early resume. Keep YOLO modes and wrappers intact. Dangerous commands are allowed during the pause; independent hooks restore review at the private UTC expiry even after TermYes exits. Paused review never counts as verified protection.</li>
+<li>Add an opt-in native macOS launch-at-login toggle, pending-approval state, and System Settings link.</li>
+<li>Surface TermYes online-update progress and copyable errors in the main menu, with installation retry. Retain checksum/signature checks, backup rollback, and legacy compatibility images.</li>
+</ul>
+<h1>TermYes v1.6.29</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复专用 Agent 激活窗口在请求已经结束后仍停留的问题。TermYes 现在按 Agent 记录对应的 Terminal 窗口 ID，每个 Agent 的结果文件一到达就立即关闭自己的窗口，不再等待同批其它 Agent 全部完成。</li>
+<li>成功回复、模型错误、无回复和非零退出都会关闭对应窗口；超时、计划变更、取消或其它异常路径仍由整批收尾关闭任何遗漏窗口，用户原有 Terminal 窗口不受影响。</li>
+<li>新增逐 Agent 成功／失败关闭和交错完成回归，并在真实 Terminal 中验证成功与失败激活窗口均关闭且原有窗口集合保持不变。完整发布自动化仍不替代真实模型服务可用性验收。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Fix dedicated Agent activation windows remaining open after their requests finish. TermYes now records the Terminal window ID for each Agent and closes that Agent's window as soon as its receipt arrives, without waiting for every other Agent in the batch.</li>
+<li>Successful replies, model errors, missing replies, and nonzero exits all close their corresponding windows. Batch cleanup still retires any remaining windows after timeouts, schedule changes, cancellation, or unexpected paths, without touching existing user Terminal windows.</li>
+<li>Add per-Agent success/failure and staggered-completion regressions, plus a real Terminal smoke test proving both successful and failed activation windows close while the pre-existing window set remains unchanged. Release automation still does not certify external model-service availability.</li>
+</ul>
+<h1>TermYes v1.6.28</h1>
+<h2>简体中文</h2>
+<ul>
+<li>全局快捷键在终端画布已经显示时改为顺时针轮转：每再按一次 <code>⌘O</code>（或用户选择的全局快捷键），所有终端窗口沿当前布局顺时针前进一格；首次呼出、应用重新打开或从隐藏状态恢复不会额外跳格。</li>
+<li>窗口变化检测从只比较数量改为比较 Window Server 窗口 ID 集合，可捕获总数不变的一关一开；打开或关闭 Terminal 窗口后会立即执行一次重新排列，并保留延迟校正以等待新窗口完成初始化。</li>
+<li>新增连续顺时针轮转、单窗口和空窗口边界回归；完整自动化发布回归、双架构构建、签名、正式与旧版兼容 DMG 及临时更新安装验证通过。自动化结果不替代真实菜单点击验收。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Make the global shortcut advance an already visible terminal canvas clockwise: each additional press of <code>⌘O</code> (or the selected global shortcut) moves every Terminal window forward by one clockwise position. Initial showing, app reopen, and restoration from a hidden state do not add an extra step.</li>
+<li>Detect window changes by the Window Server window-ID set instead of count alone, covering close-and-open replacements that keep the same total. Opening or closing a Terminal window triggers an immediate re-tile, with delayed correction passes retained while new windows finish materializing.</li>
+<li>Add regression coverage for repeated clockwise advancement and zero/one-window boundaries. The full release regression, universal build, signatures, primary and compatibility DMGs, and temporary updater installation checks pass. Automated checks do not replace real menu-click validation.</li>
+</ul>
+<h1>TermYes v1.6.27</h1>
+<h2>简体中文</h2>
+<ul>
+<li>统一 Agent 的 YOLO／等效免确认启动与危险命令硬拦截：有效 Shell 命令仅按 GitHub 版本化清单判断，命中即拒绝，其余放行；无效 Hook 输入和未闭合 Shell 语法仍拒绝执行。</li>
+<li>危险清单升级为 v3，将 <code>rm</code> 路径分类规则纳入同一 JSON；应用和独立 Hook 运行时携带相同离线副本，不再保留独立 Python 危险规则。修复相对通配符、Shell 注释与 ANSI-C 引号的误判。</li>
+<li>迁移并清理旧 canary Hook 注册、原生 Shell deny／ask 和自动生成的 Codex rules；保留非 Shell 权限、第三方 Hook、模型与账户设置，旧安装记录直接卸载也不会恢复旧 Shell 限制。</li>
+<li>CodeBuddy 启动和后台验证同时设置 <code>CODEBUDDY_IS_SANDBOX=1</code> 与免确认参数，解决其原生 HIGH／CRITICAL 确认；Codex、Claude 的验证与定时激活也显式使用免确认参数。已有 Agent 会话需退出后重新启动。</li>
+<li>本机 8 个已安装 Agent 的权限与守卫配置验收通过；Codex、CodeBuddy、agy 的真实免确认 Shell 与 Hook 拦截通过。Claude 请求超时，zcode／pi／Qoder 额度不足，OpenCode 上游 503，未将这些客户端标记为实测通过。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Unify Agent YOLO-equivalent launches with hard command guards: valid Shell commands are denied only when they match the versioned GitHub danger policy. Invalid hook inputs and unclosed Shell syntax still fail closed.</li>
+<li>Upgrade the policy to v3, moving <code>rm</code> path categories into the same JSON and bundling identical offline copies with the app and independent hooks. Remove separate Python danger rules and fix false positives involving relative globs, Shell comments, and ANSI-C quoting.</li>
+<li>Retire legacy canary hook registrations, native Shell deny/ask entries, and generated Codex rules while preserving non-Shell permissions, third-party hooks, model settings, and accounts. Direct removal of old installations no longer restores retired Shell restrictions.</li>
+<li>Set <code>CODEBUDDY_IS_SANDBOX=1</code> together with the permission-bypass flag for CodeBuddy launches and live checks, removing native HIGH/CRITICAL confirmations. Codex and Claude checks and scheduled activation also pass explicit bypass flags. Existing Agent sessions must be restarted.</li>
+<li>All eight installed clients passed local permission and guard configuration checks. Codex, CodeBuddy, and agy passed real automatic Shell execution and hook interception. Claude timed out; zcode, pi, and Qoder lacked quota; OpenCode returned an upstream 503. These clients remain unverified.</li>
+</ul>
+<h1>TermYes v1.6.26</h1>
+<h2>简体中文</h2>
+<ul>
+<li>新增 Agent 与插件自动更新：启动即检查一次，之后每 30 分钟检测已安装客户端（Claude Code、Codex、OpenCode、CodeBuddy、Qoder、agy、pi、zcode）及其插件市场，发现新版本立即用各自官方命令更新（<code>claude/codex/opencode/codebuddy/qoder/pi/agy update</code>、<code>claude plugin update</code>、<code>codex plugin marketplace upgrade</code>、<code>opencode plugin update</code>、<code>codebuddy plugin update</code>、<code>qoder plugins update</code>、<code>zcode plugins update</code> + <code>marketplace update</code>、<code>pi update</code> 含 extensions 与模型目录）。</li>
+<li>菜单栏「命令守卫」新增自动更新区块：显示上次检查时间、更新汇总，可手动「立即检测并更新」、复制更新详情。</li>
+<li>未安装的客户端（如 Gemini CLI、Crush、Copilot、Cursor、droid）自动跳过；更新失败按项记录详情，不阻塞其它客户端。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Add automatic Agent and plugin updates: check once at launch, then every 30 minutes for installed clients (Claude Code, Codex, OpenCode, CodeBuddy, Qoder, agy, pi, zcode) and their plugin marketplaces, applying new versions immediately via each client's official command (<code>claude/codex/opencode/codebuddy/qoder/pi/agy update</code>, <code>claude plugin update</code>, <code>codex plugin marketplace upgrade</code>, <code>opencode plugin update</code>, <code>codebuddy plugin update</code>, <code>qoder plugins update</code>, <code>zcode plugins update</code> + <code>marketplace update</code>, and <code>pi update</code> covering extensions and model catalogs).</li>
+<li>The menu-bar Command Guard menu gains an auto-update section showing the last check time and summary, with manual "check and update now" and copyable details.</li>
+<li>Uninstalled clients (Gemini CLI, Crush, Copilot, Cursor, droid) are skipped; per-item failures are recorded without blocking other clients.</li>
+</ul>
+<h1>TermYes v1.6.25</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复 TermYes 因命令守卫或 YOLO 就绪检查失败而阻止 Codex 等 Agent 启动的问题。启动检查改为尽力修复：协调器缺失、安装锁冲突或修复失败时仅显示警告，仍启动客户端；检查成功时不输出状态 JSON。</li>
+<li>保留失败详情，不再只显示笼统的「已阻止启动」提示；失败不会被报告为守卫就绪。已加载的 Hook 仍照常拒绝危险命令，缺失或未加载的 Hook 不能保证保护。</li>
+<li>保留受管 wrapper 的 YOLO 参数、PATH 优先级与权限降级参数冲突检查；Codex、Claude Code、CodeBuddy 的 Shell 入口也显式附加免确认参数，不依赖启动修复成功。</li>
+<li>新增回归覆盖协调器缺失、空错误、JSON 错误报告、stderr 保留、成功输出不污染 CLI、检查失败仍继续启动及 YOLO 参数保留。受管 wrapper 缺失时仍以对应免确认参数调用 PATH 中的客户端，并避免重复添加 Codex 已有的 <code>--yolo</code> 或等效参数。本机已验证 Codex 交互界面能打开并显示 YOLO mode；本次未发送模型请求，也不声称所有客户端已完成端到端守卫验收。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Fix TermYes preventing Codex and other agents from starting when the Command Guard or YOLO readiness check fails. Startup repair is now best-effort: a missing coordinator, installation lock contention, or a repair failure produces a warning but does not block the CLI. Successful status JSON remains silent.</li>
+<li>Preserve failure details instead of showing only a generic startup-blocked message, without reporting failed checks as guard readiness. Loaded hooks still reject dangerous commands; missing or unloaded hooks cannot guarantee protection.</li>
+<li>Retain managed-wrapper YOLO flags, PATH precedence, and checks against permission downgrade arguments. The Codex, Claude Code, and CodeBuddy shell launchers also pass explicit automatic-execution flags independently of repair success.</li>
+<li>Add regression coverage for missing coordinators, empty failures, JSON error reports, stderr preservation, clean successful output, continued startup after failed checks, and retained YOLO flags. Missing managed wrappers still launch the CLI on PATH with its automatic-execution flags, and existing Codex <code>--yolo</code> or equivalent flags are not duplicated. A local Codex interactive launch displayed YOLO mode; no model request was sent, and this release does not claim end-to-end guard verification for every client.</li>
+</ul>
+<h1>TermYes v1.6.24</h1>
+<h2>简体中文</h2>
+<ul>
+<li>「定时激活5h窗口」与「立即激活一次（发送 hi）」打开的专用 Terminal 窗口，现在会在激活流程结束后自动关闭：成功、失败、超时与取消都会收尾，模型的实际回复仍先在窗口中完整显示。</li>
+<li>只关闭 TermYes 自己打开的窗口：打开时记录窗口 ID，关闭脚本仅针对这批 ID 并逐窗口检查存在性，用户自己的终端窗口不受影响；无记录时不执行任何脚本，权限拒绝时不会留下可误关的记录。</li>
+<li>回归新增覆盖：开窗脚本返回并记录窗口 ID、关闭脚本仅含记录 ID 且带存在性保护、无记录不关闭、权限拒绝不留记录、手动与定时激活完成后必被调用、未激活的控制器不关闭任何窗口；20/20 代码回归通过。</li>
+<li>真实冒烟：新建窗口记录 ID 后由同一关闭脚本关闭，窗口数 3→4→3，用户窗口不受影响；本机安装版已同步更新到本版本。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Dedicated Terminal windows opened by <strong>Scheduled 5h Windows</strong> and <strong>Activate now (send hi)</strong> now close themselves once the activation finishes: success, failure, timeout, and cancellation all retire the windows after the model replies have been shown in them.</li>
+<li>Only windows opened by TermYes are closed: window IDs are recorded at open time, and the close script targets exactly that batch with a per-window existence check, leaving user windows untouched; nothing runs without a recorded batch, and denied automation never leaves closable records behind.</li>
+<li>Regression now covers: open scripts returning and recording window IDs, close-script content (recorded IDs only, existence-guarded), no script without a recorded batch, denied automation leaving no closable records, manual and timer activations invoking the close, and idle controllers never closing anything; 20/20 code-regression steps pass.</li>
+<li>Live smoke: a new window's recorded ID was closed by the same script, window count 3→4→3 with user windows unaffected; the local install has been updated to this version.</li>
+</ul>
+<h1>TermYes v1.6.23</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复 Terminal 已可见时 <code>unhide()</code> 的无操作返回值被误判为连接失败，导致 <code>⌘O</code> 无法显示/重排的问题；已显示、已隐藏与重复快捷键操作实测通过。</li>
+<li>重复确认相同的自选首次时间也会重新安排，而非沿用旧日期起点；保留首次触发后每五小时一轮。</li>
+<li>菜单显示实际 Timer 的下次日期、24 小时时间和本机时区；选择器明确今天已过则明天首次，避免只显示旧的“05:17 起”。</li>
+<li>保留命令守卫与原生 Ctrl-C；不恢复 AI reviewer 或自动确认输入。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Treat <code>unhide()</code> as a no-op when Terminal is already visible, fixing false connection errors and failed Command-O re-tiling; visible, hidden, and repeated-key cases passed live checks.</li>
+<li>Reconfirming a selected HH:mm rearms its next occurrence instead of retaining an obsolete anchor; the subsequent five-hour interval remains unchanged.</li>
+<li>Show the actual next Timer date, 24-hour time, and local timezone, with explicit next-day behavior for a time already passed.</li>
+<li>Preserve command guards and native Ctrl-C without restoring AI approval or automatic input confirmation.</li>
+</ul>
+<h1>TermYes v1.6.22</h1>
+<h2>简体中文</h2>
+<ul>
+<li>删除未要求的 Ctrl-C 自动确认、窗口监听、AI reviewer、审核模型设置与独立辅助功能授权入口。原生 Ctrl-C 与业务弹窗保持人工操作。</li>
+<li>命令安全入口改名为“命令守卫”，仅保留 YOLO／等效免确认、危险命令清单和真实 Agent 验证；不使用 AI 审批普通命令。</li>
+<li>保留 Codex / Claude 的专用窗口定时 <code>hi</code>、立即激活、终端排列、快捷键与更新。</li>
+<li>新版不再安装 AI 审核模块；兼容旧守卫安装记录，避免删除功能导致现有守卫失效。</li>
+<li>自动回归 20/20 步、13 类客户端旧安装记录迁移检查及两个兼容 DMG 检查通过。真实 Agent 请求仍取决于客户端认证、服务额度和模型协议，失败项不会打钩。</li>
+<li>这次删除的是自动确认功能，不是键盘 Ctrl-C。没有新增模型服务，也不会把设备账号或密钥打进安装包。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Remove Ctrl-C automatic confirmation, window polling, AI reviewer/model settings, and the separate Accessibility authorization entry. Native Ctrl-C and business prompts remain manual.</li>
+<li>Rename the safety menu to Command Guard, retaining only YOLO-equivalent execution, explicit danger rules, and live Agent verification.</li>
+<li>Keep dedicated Codex/Claude scheduled <code>hi</code> windows, manual activation, terminal arrangement, shortcuts, and updates.</li>
+<li>Retire the AI review module with migration of existing guard receipts so command protection remains intact.</li>
+<li>All 20 code-regression steps, migration checks across 13 adapters, and both compatibility-image checks passed. Authentication, quota, and model-protocol errors remain visible and unverified.</li>
+<li>This removes automatic confirmation, not native keyboard Ctrl-C. No new model service is added and local account credentials are not packaged.</li>
+</ul>
+<h1>TermYes v1.6.21</h1>
+<h2>简体中文</h2>
+<ul>
+<li>Agent 勾选改为端到端实测依据：真实模型请求、安全 Shell 免确认执行、实际守卫调用都通过才就绪；修复配置、超时、异常退出或过期记录不再冒充成功。新增全面实测、单项实测和可滚动/复制的诊断。</li>
+<li>Codex / Claude 每五小时在专用 Terminal 窗口发送 <code>hi</code> 并显示真实回复；新增“立即激活一次（发送 hi）”，与 Timer 共用路径，不碰正在工作的会话，不发送重复后台请求。两者的真实定时窗口链路已验收通过。</li>
+<li>迁移 OpenCode 守卫到 v2 插件 API；修复 <code>run --auto</code> 参数位置和共享 daemon 的实际守卫验证，正常后台服务已实测通过。</li>
+<li>保留 CodeBuddy / Qoder 的独立追加 Hook，修复 wrapper 检测、路径优先级与权限降级参数冲突；守卫错误和外部修改仍可见、失败关闭。</li>
+<li>修复排列错误被轮询抹掉、模型配置保存伪成功、停用/修改调度后的旧结果、Ctrl-C 窗口复核和更新安装器回滚问题。</li>
+<li>本地自动回归 23/23 步通过，双架构应用、两个兼容 DMG 和临时更新路径验证通过。适配器协议测试不等于所有真实客户端已认证。</li>
+</ul>
+<h3>使用说明与已知边界</h3>
+<ul>
+<li>实测和 <code>hi</code> 激活会产生真实模型请求，可能消耗现有服务额度。</li>
+<li>未配置、未登录、额度不足或实测失败的 Agent 不显示就绪；本轮设备上 Qoder、zcode、agy 仍未通过，发布不代表这三项问题已解决。设备上的账号或模型配置不会打进安装包。</li>
+<li>本地 ad-hoc 签名变更后，Ctrl-C 自动确认可能需要在系统设置中重新授予 TermYes 辅助功能权限。</li>
+<li>守卫检查 Shell 文本，不是沙箱，也不保护未加载 Hook 或非 Shell 工具。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Check Agent readiness only after a real model request, automatic safe Shell execution, and actual guard invocation pass. Installed files, configuration repairs, crashes, timeouts, and stale records no longer count as success; add full/individual live checks and copyable diagnostics.</li>
+<li>Send <code>hi</code> for Codex/Claude in dedicated Terminal windows at each five-hour boundary, showing real replies. Activate Now shares the Timer path, avoids active user sessions, and removes duplicate background requests; both real timer paths passed local acceptance.</li>
+<li>Migrate the OpenCode guard to the v2 plugin API, fix <code>run --auto</code>, and verify guard invocation in the normal shared daemon.</li>
+<li>Preserve additive third-party CodeBuddy/Qoder hooks, harden wrappers/PATH and conflicting permission flags, and retain visible fail-closed errors.</li>
+<li>Fix hidden tiling errors, false-positive model saves, obsolete schedule results, Ctrl-C window revalidation, and updater rollback failures.</li>
+<li>All 23 local regression steps passed, including universal builds, both compatibility images, and temporary update tests. Mock adapter checks are not blanket real-client certification.</li>
+</ul>
+<h3>Notes and limitations</h3>
+<ul>
+<li>Live checks and activation make real model requests and may consume service credits.</li>
+<li>Unconfigured, unauthenticated, quota-exhausted, or failing clients remain unverified; Qoder, zcode, and agy did not pass on the acceptance device. Local credentials/model routes are not packaged.</li>
+<li>Changed ad-hoc signatures may require reauthorizing Accessibility for Ctrl-C confirmation. Shell guards are not a sandbox and do not protect unloaded hooks or non-Shell tools.</li>
+</ul>
+<h1>TermYes v1.6.20</h1>
+<h2>简体中文</h2>
+<ul>
+<li>恢复全局“显示并排列”快捷键默认值为 <code>⌘O</code>；已保存的自定义快捷键保持不变。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Restore <code>⌘O</code> as the default global show-and-arrange shortcut; keep saved custom shortcuts unchanged.</li>
+</ul>
+<h1>TermYes v1.6.19</h1>
+<h2>简体中文</h2>
+<ul>
+<li>更新检查改用公开 GitHub Release 跳转，避免匿名 API 配额耗尽导致 HTTP 403；严格校验正式版本和下载地址，保留 SHA-256、应用身份与签名校验。</li>
+<li>精简菜单：自动排列集中显示终端与快捷键；自动审批集中展示 Agent 状态、修复和危险命令清单；定时激活5h窗口单独设置。</li>
+<li>移除发送“继续”入口及其旧逻辑；默认全局快捷键改为 <code>⌘P</code>。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Check public GitHub Release redirects instead of the rate-limited anonymous API; validate stable tags and download locations while retaining checksum, app identity, and signature checks.</li>
+<li>Simplify menus for window arrangement, Agent auto-approval and guard policy, and scheduled five-hour activation.</li>
+<li>Remove the manual Continue command and legacy logic; set the default global shortcut to <code>⌘P</code>.</li>
+</ul>
+<h1>TermYes v1.6.18</h1>
+<h2>简体中文</h2>
+<ul>
+<li>一级菜单「自动化」更名为「定时激活5h窗口」，内部只显示起始时间设置与最近激活状态；保留手动「发送“继续”」，不恢复自动发送。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Rename the Automation menu to Scheduled 5h Windows, with start-time settings and latest activation status; manual Continue remains available without a scheduled send.</li>
+</ul>
+<h1>TermYes v1.6.17（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>移除自动发送“继续”的定时器、间隔与范围设置；旧版偏好不会再触发终端输入。</li>
+<li>保留手动「发送“继续”」（仅匹配 Codex / Claude 会话并跳过待确认提示）与独立的「定时激活5h」。AI 自动审核仍只处理 Ctrl-C 确认。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Remove scheduled auto-continue and its interval/scope settings; saved settings no longer trigger terminal input.</li>
+<li>Keep manual Continue for matching Codex/Claude sessions and independent scheduled 5h activation. AI Auto Review still covers Ctrl-C prompts only.</li>
+</ul>
+<h1>TermYes v1.6.16（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>「Agent自动审批」简化为「自动审批」；单独修复 Agent 后弹出明确的成功或失败结果。</li>
+<li>Claude Code 新增的第三方 Hook 不再阻止安全重基；TermYes 自身守卫被改动时仍拒绝覆盖。</li>
+<li>定时激活 5h 可选择 Claude、Codex 或两者；自动“继续”的间隔与范围移入紧凑设置窗口。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Rename Agent Auto Approval to Auto Approval and show a repair result for individual agents.</li>
+<li>Preserve independently added Claude Code hooks while rejecting edits to the managed guard.</li>
+<li>Choose Claude, Codex, or both for scheduled five-hour activation; move auto-continue options into a compact settings panel.</li>
+</ul>
+<h1>TermYes v1.6.15（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>将菜单「Ctrl-C 审核」更名为「AI自动审核」，「每 5h 请求」更名为「定时激活5h」；菜单内继续标明 AI 审核范围是 Ctrl-C 窗口确认，不改变实际逻辑。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Rename the Ctrl-C Review menu to AI Auto Review and the five-hour request setting to Scheduled 5h activation; neither changes behavior.</li>
+</ul>
+<h1>TermYes v1.6.14（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复 agy 已使用 TermYes 免确认 wrapper 时，点击「修复」被自身符号链接误拦截的问题；独立添加的 <code>orca-status</code> 配置会保留，守卫本身被改动仍拒绝覆盖。卸载守卫时同样保留独立配置。</li>
+<li>未修复原因与目标 Agent 直接显示在菜单中，完整诊断仍可复制；菜单栏图标固定为四宫格，不再因窗口或守卫状态变形。</li>
+<li>「Ctrl-C 辅助功能权限」只在开启 Ctrl-C 自动确认但尚未授权时显示；此权限与 Agent 免确认无关。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Fix agy repair rejecting TermYes's own YOLO wrapper symlink. Preserve independent <code>orca-status</code> additions, including on uninstall, while refusing edits to the managed guard.</li>
+<li>Show targeted repair failures in the menu and keep the menu-bar icon stable. Only show the Ctrl-C Accessibility shortcut when that separate feature is enabled and permission is missing.</li>
+</ul>
+<h1>TermYes v1.6.13（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>主菜单「Agent」更名为「Agent自动审批」；各 Agent 在同一层显示免确认开关状态（勾/叉），未就绪时点击该项可单独修复；守卫未就绪但免确认已开启时保持勾号并提示待修复。</li>
+<li>审核模型、自动化选项和快捷键选项统一放在各自的二级菜单内，移除所有三级及更深层菜单。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Rename the Agent menu to Agent Auto Approval and display check/cross icons for each detected client's permission state; clicking an unready client repairs it.</li>
+<li>Flatten model review, automation, and shortcut choices into their second-level menus; no third-level menus remain.</li>
+</ul>
+<h1>TermYes v1.6.12（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>自动化菜单新增独立于自动“继续”的每 5 小时定时请求。按用户指定时间启动缺失的 Claude/Codex Terminal 窗口，并分别发送一句简短问候以触发模型请求，不向可能退回 Shell 的标签页键入文字。守卫未就绪、命令失败或模型无回复时显示失败并可复制详情。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Add a five-hour scheduled model request independent of Auto Continue. Open missing Claude/Codex Terminal windows and make a short non-interactive request for each agent, reporting guard, CLI, and empty-response failures without typing into a shell.</li>
+</ul>
+<h1>TermYes v1.6.11（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>菜单栏仅保留状态图标，不再常驻显示「配置 8/8」；主菜单及 Agent 子菜单缩短文案、收起完整错误信息，诊断信息仍可复制。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Show only the status icon in the menu bar. Shorten main and Agent menu labels while keeping full error details available through copy actions.</li>
+</ul>
+<h1>TermYes v1.6.10（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>菜单栏「一键检查并修复 Agent」可展开查看每个已检测 Agent 的 YOLO/守卫状态；可只修复一个未就绪 Agent，或一次只修复所有未就绪项，不重复安装已就绪项。</li>
+<li>显式修复时若免确认启动 wrapper 被原有独立可执行文件占用，先迁移保留原文件再安装 wrapper；修复失败会恢复原命令，外部修改的 Hook 文件仍不会被覆盖。菜单展示具体失败原因。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Expand the menu-bar Agent action to inspect readiness and repair either one client or only those not ready.</li>
+<li>Explicit repairs can preserve an existing standalone client executable under the local vendor directory before installing the YOLO wrapper; a failed repair restores the original command and exposes the error.</li>
+</ul>
+<h1>TermYes v1.6.9（待发布）</h1>
+<h2>简体中文</h2>
+<ul>
+<li>GitHub <code>main</code> 的 <code>AgentGuard/danger-policy.json</code> 独立维护危险命令清单；递增 <code>version</code> 后，客户端启动时及每两小时检查并在校验通过后原子更新，Hook 下一次调用生效。失败保留上版规则并在菜单显示。</li>
+<li>GitHub 正式版应用检查周期缩短为两小时；仅发布更高版本的 Release 时自动下载、验证并更新。旧版应用需先升级才支持规则热更新。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Independently versioned GitHub danger list, checked at launch and every two hours while the app runs. Valid higher revisions activate atomically for subsequent hooks; errors preserve the last valid policy and appear in the menu.</li>
+<li>Published application releases are checked every two hours; older clients must upgrade to support data-only rule updates.</li>
+</ul>
+<h1>TermYes v1.6.8</h1>
+<h2>简体中文</h2>
+<ul>
+<li>Codex Shell Hook 只按 <code>AgentGuard/rules.py</code> 危险清单与 <code>AgentGuard/core.py</code> 的 <code>rm -rf</code> 目标分级拒绝；未命中规则的有效命令直接放行，不再由 AI 二次否决。</li>
+<li>模型缺失、离线或给出保守判断不会再阻拦清单外命令。无效 Hook 输入和无法可靠解析的命令仍拒绝；窗口级 Ctrl-C 可选模型审核与 Shell 放行完全分离。</li>
+<li>已保存的旧版 AI 拒绝记录与学习记忆不参与 Shell 放行决策。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Codex Shell hooks deny only commands matching the shared danger list or high-impact <code>rm -rf</code> target rules. Valid unmatched commands are permitted without an AI veto, including when the reviewer is unavailable.</li>
+<li>Invalid hook input and unclassifiable shell syntax still deny. Optional AI review applies only to the separate Ctrl-C terminal-input workflow; old reviewer history and learning memory do not control Shell commands.</li>
+</ul>
+<h1>TermYes v1.6.7</h1>
+<h2>简体中文</h2>
+<ul>
+<li>未配置独立 AI 审批模型时，Codex Shell 守卫自动使用 Codex 用户级配置的默认模型复核未被确定性规则拦截的命令；模型故障或无效响应拒绝执行，不依赖 YOLO 下可能缺失的 <code>PermissionRequest</code>。单次启动参数与项目级模型覆盖不在自动跟随范围内。</li>
+<li>自动模式不使用已学习命令的放行缓存；菜单显示“跟随 Codex”，已手动配置并主动关闭的模型仍保持关闭。</li>
+<li>当前仅覆盖 Codex Shell Hook；其他客户端、独立文件编辑及 MCP 不在本次 AI 审批范围内。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Codex shell hooks now review non-blocked commands with the user-configured default Codex model. Missing or invalid model responses deny rather than silently allowing commands, even without <code>PermissionRequest</code> under YOLO. CLI and project-level model overrides are not tracked.</li>
+<li>Automatic review bypasses learned allow caches; explicitly disabled custom reviewers remain disabled. The menu displays the active mode.</li>
+</ul>
+<h1>TermYes v1.6.6</h1>
+<h2>简体中文</h2>
+<ul>
+<li>增加常驻检查：启动后每 5 分钟检查已检测到的 Agent，修复 YOLO/等效权限模式并安装或更新危险命令守卫。</li>
+<li>启动器会在启动 Agent 前确认守卫文件与权限配置就绪；检查失败则拒绝启动，不再只提示后继续运行。</li>
+<li>菜单分别显示 YOLO 状态与守卫文件状态；配置被外部修改时拒绝覆盖并报告错误。守卫文件就绪不代表客户端实际加载或信任 Hook，仍须逐客户端验证。</li>
+<li>菜单栏图标旁显示就绪数；展开后直接显示 YOLO/守卫汇总和“一键检查并修复 Agent”，异常时使用警示图标。</li>
+<li>危险与警告级 Shell 指令继续硬拒绝，普通指令交回客户端；守卫不覆盖独立文件编辑、MCP 等操作。</li>
+</ul>
+<p>本地构建产物：<code>TermYes-v1.6.6-macOS.dmg</code> 与旧版更新兼容包 <code>Termosaic-v1.6.6-macOS.dmg</code>。未自动发布到 GitHub。</p>
+<h2>English</h2>
+<ul>
+<li>Monitor detected agents at launch and every five minutes, maintaining YOLO-equivalent modes and installing or updating shell-command guards.</li>
+<li>Agent launchers fail closed when guard files or permissions cannot be prepared; changed files are reported, not overwritten.</li>
+<li>The menu distinguishes YOLO readiness from installed guard files. Client-side hook loading and trust remain unverified; file edits and MCP calls are outside the shell guard.</li>
+<li>The menu bar shows a ready count, a prominent one-click repair action, and a warning icon when a check fails.</li>
+</ul>
+<h1>TermYes v1.6.5</h1>
+<h2>简体中文</h2>
+<p>本版新增 Agent 权限模式的自动检测、修复和启动前加载。</p>
+<h3>本次更新</h3>
+<ul>
+<li>TermYes 启动时自动检测本机已安装的 Agent，并在菜单中显示权限模式与修复状态。</li>
+<li>Codex、Claude Code、CodeBuddy、Qoder、zcode 会直接修复为 YOLO 或等效免确认配置；pi 默认无需审批。</li>
+<li>Gemini、Cursor、agy、OpenCode、Factory droid、Crush、Copilot 使用 <code>~/.local/bin</code> 下的幂等启动 wrapper 强制附加免确认参数。</li>
+<li>新开的 zsh 终端加载 <code>termyes-agent-yolo-shell</code>；每次启动已安装 Agent 前先调用 <code>enable-yolo &lt;client&gt;</code>，无需为加载 YOLO 重启客户端。</li>
+<li>启动前修复失败会明确提示；TermYes <code>danger-guard</code> 仍是独立的失败关闭安全层，危险命令即使在 YOLO/<code>bypassPermissions</code> 下也硬拒绝。</li>
+<li>安装守卫前先协调权限模式，恢复守卫时不会把 YOLO 配置一起回退。</li>
+<li>菜单新增“自动检测并修复 YOLO”，并展示每个客户端的检测结果、权限模式和守卫安装状态。</li>
+</ul>
+<h3>下载与升级</h3>
+<ul>
+<li><strong>新安装：</strong> <code>TermYes-v1.6.5-macOS.dmg</code>。</li>
+<li><strong>旧版自动更新：</strong> <code>Termosaic-v1.6.5-macOS.dmg</code>，为兼容包，不是另一个产品版本。</li>
+<li>两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 <code>.sha256</code> 文件。</li>
+</ul>
+<h3>重要限制</h3>
+<p>本次修改的是 Agent 权限模式和启动参数，不等于已完成十三类客户端 Hook 的真实端到端验证。Hook 未加载、未信任、被宿主超时或客户端自身绕过仍可能使守卫失效；守卫不是沙箱，也不覆盖全部危险语义、独立文件编辑或 MCP 工具。</p>
+<p>窗口管理无需 Python；可选守卫需要可用的 <code>/usr/bin/python3</code>。社区构建为 ad-hoc 签名，尚未 Apple 公证。</p>
+<h2>English</h2>
+<p>This release adds automatic detection, repair, and pre-launch loading of Agent YOLO-equivalent permission modes.</p>
+<h3>What's new</h3>
+<ul>
+<li>TermYes scans installed agents at startup and shows each client's permission mode and repair state in the menu.</li>
+<li>Codex, Claude Code, CodeBuddy, Qoder, and zcode are repaired directly to YOLO or equivalent no-confirmation settings; pi requires no approval configuration.</li>
+<li>Gemini, Cursor, agy, OpenCode, Factory droid, Crush, and Copilot use idempotent launchers under <code>~/.local/bin</code> that add their no-confirmation flags.</li>
+<li>New zsh terminals load <code>termyes-agent-yolo-shell</code>. Each installed agent runs <code>enable-yolo &lt;client&gt;</code> before its real command, so YOLO can load without restarting the client.</li>
+<li>Repair failures are reported explicitly. The TermYes <code>danger-guard</code> remains an independent fail-closed safety layer and hard-denies dangerous commands even under YOLO or <code>bypassPermissions</code>.</li>
+<li>Guard installation reconciles permissions first, and restoring a guard no longer rolls back YOLO configuration.</li>
+<li>Adds a <strong>Detect and repair YOLO</strong> menu action with per-client detection, permission, and guard-install status.</li>
+</ul>
+<h3>Downloads and migration</h3>
+<ul>
+<li><strong>New installs:</strong> <code>TermYes-v1.6.5-macOS.dmg</code>.</li>
+<li><strong>Older automatic updaters:</strong> <code>Termosaic-v1.6.5-macOS.dmg</code>, a compatibility image of the same application.</li>
+<li>Both support macOS 13+ on Apple Silicon and Intel, with matching <code>.sha256</code> files.</li>
+</ul>
+<h3>Important limitations</h3>
+<p>This change covers permission modes and launch parameters, not real-client end-to-end certification of all thirteen hook adapters. Missing or untrusted hooks, host timeouts, or client-specific bypasses can still prevent interception. The guard is not a sandbox and does not cover every dangerous operation, independent file editing, or MCP calls.</p>
+<p>Window management does not require Python; optional guards require a working <code>/usr/bin/python3</code>. Community builds are ad-hoc signed and not Apple-notarized.</p>
+<h1>TermYes v1.6.4</h1>
+<h2>简体中文</h2>
+<p>本版将产品和 GitHub 仓库统一更名为 TermYes。</p>
+<h3>本次更新</h3>
+<ul>
+<li>增加可选的 Codex <code>PermissionRequest</code> 独立 AI reviewer。危险命令仍由确定性规则先行拒绝；仅高置信度、可验证且局限于批准工作区的命令可自动放行。</li>
+<li>在菜单栏的 Agent 命令守卫中新增“AI 审批模型”，可添加、选择和删除多个模型配置。</li>
+<li>AI reviewer 默认放行构建、测试、脚本、本地 Git 操作和软件包安装；明确危险仍拒绝。</li>
+<li>允许在 <code>/tmp</code> 和 <code>/private/tmp</code> 内写入及清理构建暂存，不会仅因路径在工作区外而拒绝。</li>
+<li>增加精确命令学习：只记忆“完整命令 + 工作目录”哈希，重复的同一命令可跳过模型，明文命令不落盘。</li>
+<li>精确命令累计 3 次后，可提升为受限安全模式，例如 <code>git status</code>、<code>swift test</code> 或 <code>npm run lint</code>。</li>
+<li>含管道、重定向、变量和内联解释器的命令不会生成模式；危险规则始终先执行并覆盖学习结果。</li>
+<li>新增“同步记忆到 iCloud”开关，本机记忆与 iCloud Drive 文件自动合并。</li>
+<li>命令记忆改为跨电脑哈希，不再绑定本机绝对工作目录；每次放行仍按当前电脑的路径执行危险规则。</li>
+<li>reviewer 请求超时或网络中断时会自动重试一次；只有重试仍失败才拒绝。</li>
+<li>每次允许、拒绝、规则拦截和超时都会写入本地 <code>0600</code> 历史文件，记录命令、目录、原因和时间。</li>
+<li>同一条命令再次出现时，最近的拒绝原因会随审批请求交给 reviewer 复审；确认安全后再学习放行。</li>
+<li>原始命令历史只存本机；iCloud 只同步命令哈希和受限模式，不上传命令明文。</li>
+<li>新增窗口级 Ctrl-C 审批：获得辅助功能权限后，只自动确认输入严格为 <code>\u{3}</code> 的终端输入弹窗。</li>
+<li>回车、普通文本、未知控制序列、密码和权限弹窗不会自动处理；发送前会再次核对窗口内容。</li>
+<li>一级菜单仅保留画布操作、AI 审批、自动化、设置和退出。</li>
+<li>自动继续与 Agent 命令守卫并入“自动化”；快捷键与更新并入“设置”。</li>
+<li>菜单打开时暂停窗口审批状态发布，且只在状态真正变化时刷新，避免 SwiftUI 重建并关闭菜单。</li>
+<li>窗口标题每 0.25 秒检查一次，只有出现 <code>Action Required</code> 才读取正文；正文最多每 0.5 秒扫描一次。</li>
+<li>GitHub 仓库更名为 <code>zzusec/TermYes</code>，应用内更新检查改用新仓库地址。</li>
+<li>将 AI 审批提升为顶层菜单，直接显示当前模型；审批模型、启用状态和自动学习都集中在同一子菜单。</li>
+<li>AI 审批菜单显示已学习的精确命令数量，并提供自动学习开关。</li>
+<li>reviewer 超时、接口错误、无效响应、中低置信度、越界路径和无法核实的脚本均拒绝，不会退回无提示放行。</li>
+<li>AI reviewer 不处理密码、终端输入、Computer Use、MCP 或其他应用级弹窗。</li>
+<li>增加本地时间 22:00–08:00 夜间静音配置；静音只跳过提示音，不改变命令拦截、AI 决策或审计日志。</li>
+<li>保留奇数窗口左列多一个的两列布局，以及旧版更新兼容包。</li>
+</ul>
+<h3>下载与升级</h3>
+<ul>
+<li><strong>新安装：</strong> <code>TermYes-v1.6.4-macOS.dmg</code>。</li>
+<li><strong>旧版自动更新：</strong> <code>Termosaic-v1.6.4-macOS.dmg</code>，为兼容包，不是另一个产品版本。</li>
+<li>两个包均为 macOS 13+ 的 Apple Silicon / Intel 通用架构，附各自的 <code>.sha256</code> 文件。</li>
+<li>保留原 Bundle ID 与配置路径；旧版自动升级后应用目录可能仍叫 <code>Termosaic.app</code>，但显示名称为 TermYes。</li>
+<li>GitHub 仓库更名为 <code>zzusec/TermYes</code>，旧地址会自动重定向。请勿同时运行新旧应用副本。</li>
+</ul>
+<h3>重要限制</h3>
+<p><strong>本版本不自动开启任何客户端的 YOLO，也不自动批准原生权限请求。</strong> 十三类适配器尚未完成真实客户端端到端验证，已有权限配置保持不变。Hook 加载/信任与宿主超时行为仍可能影响拦截；守卫不是沙箱，不覆盖全部危险语义、独立文件编辑或 MCP 工具。</p>
+<p>窗口管理无需 Python；可选守卫需要可用的 <code>/usr/bin/python3</code>。社区构建为 ad-hoc 签名，尚未 Apple 公证。</p>
+<h2>English</h2>
+<p>This release unifies the product and GitHub repository under the TermYes name.</p>
+<h3>What's new</h3>
+<ul>
+<li>Adds an optional independent AI reviewer for Codex <code>PermissionRequest</code> events. Deterministic rules still block dangerous commands first; only high-confidence, verifiable actions within approved workspace roots can be auto-approved.</li>
+<li>Adds an <strong>AI approval models</strong> menu with add, select, and delete controls.</li>
+<li>Defaults builds, tests, scripts, local Git operations, and package installation to allow; explicit high-impact dangers still deny.</li>
+<li>Allows build staging and cleanup under <code>/tmp</code> and <code>/private/tmp</code>.</li>
+<li>Adds exact-context learning: the reviewer remembers a command/working-directory hash after a high-confidence allow, while deterministic danger rules always run first.</li>
+<li>Promotes an exact command to a narrow learned pattern after three uses, such as <code>git status</code>, <code>swift test</code>, or <code>npm run lint</code>.</li>
+<li>Shell composition, redirection, variables, and inline interpreters never produce learned patterns; danger rules always override learning.</li>
+<li>Adds a <strong>Sync memory to iCloud</strong> toggle that merges local and iCloud Drive memory.</li>
+<li>Makes command memory portable across Macs while still evaluating each approval against the current local paths and danger rules.</li>
+<li>Retries reviewer timeouts and network failures once before denying.</li>
+<li>Stores every allow, deny, rule block, and timeout in a local <code>0600</code> history with command, directory, reason, and time.</li>
+<li>Feeds recent denial reasons back into the reviewer when the same command appears again; only a safe re-review can learn and allow it.</li>
+<li>Keeps raw command history local; iCloud sync stores only command hashes and bounded patterns.</li>
+<li>Adds window-level Ctrl-C approval: with Accessibility permission, only terminal-input prompts whose requested input is exactly <code>\u{3}</code> can be confirmed automatically.</li>
+<li>Enter, ordinary text, unknown control sequences, password prompts, and permission prompts remain manual; window contents are rechecked before sending Return.</li>
+<li>Keeps the top level focused on canvas actions, AI approval, Automation, Settings, and Quit.</li>
+<li>Moves auto-continue and Agent guard controls under Automation; moves shortcuts and updates under Settings.</li>
+<li>Pauses window-approval status publishing while a menu is open and publishes only real changes, preventing SwiftUI from rebuilding and closing the menu.</li>
+<li>Checks Terminal window titles every 0.25 seconds and reads full contents only for <code>Action Required</code>, with full scans capped at once per 0.5 seconds.</li>
+<li>Renames the GitHub repository to <code>zzusec/TermYes</code> and switches in-app update checks to the new repository.</li>
+<li>Promotes AI approval to a top-level menu showing the active model, enable state, model selection, and learning controls.</li>
+<li>Shows the learned exact-command count and allows learning to be disabled without removing existing memory.</li>
+<li>Reviewer timeouts, API errors, invalid responses, medium/low confidence, out-of-scope paths, and unverifiable scripts are denied without falling back to silent approval.</li>
+<li>The reviewer does not handle passwords, terminal input, Computer Use, MCP, or other app-level prompts.</li>
+<li>Adds a configurable 22:00–08:00 local quiet period that suppresses audible alerts without weakening blocking, AI decisions, or audit logging.</li>
+<li>Retains the two-column odd-window layout and the legacy-updater compatibility image.</li>
+</ul>
+<h3>Downloads and migration</h3>
+<ul>
+<li><strong>New installs:</strong> <code>TermYes-v1.6.4-macOS.dmg</code>.</li>
+<li><strong>Older automatic updaters:</strong> <code>Termosaic-v1.6.4-macOS.dmg</code>, a compatibility image of the same application.</li>
+<li>Both support macOS 13+ on Apple Silicon and Intel, with matching <code>.sha256</code> files.</li>
+<li>Existing bundle identity and configuration paths remain stable. Automatic upgrades may keep the installed folder named <code>Termosaic.app</code> while displaying TermYes.</li>
+<li>The repository is now <code>zzusec/TermYes</code>; old URLs redirect automatically. Do not run old and new copies simultaneously.</li>
+</ul>
+<h3>Important limitations</h3>
+<p><strong>This release does not enable client YOLO modes or auto-approve native permission requests.</strong> All thirteen adapters await real-client end-to-end validation; existing permission settings are unchanged. Hook loading/trust and host timeout behavior can still prevent interception. The guard is not a sandbox and does not cover every dangerous operation, independent file-editing tools, or MCP calls.</p>
+<p>Window management does not require Python; optional guards require a working <code>/usr/bin/python3</code>. Community builds are ad-hoc signed and not Apple-notarized.</p></body></html>

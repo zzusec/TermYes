@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>DESIGN - TermYes</title><style>
+body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
+</style></head><body><h1>TermYes — Design</h1>
+<!-- impeccable:design-schema 1 -->
+
+<h2>Direction</h2>
+<p>A quiet, menu-bar-only macOS utility. It must remain available without creating a desktop window or Dock presence that competes with the terminal wall.</p>
+<h2>Visual System</h2>
+<ul>
+<li>Use macOS semantic colors so light mode, dark mode, contrast settings, and accent color work automatically.</li>
+<li>Use SF Symbols for all icons.</li>
+<li>Use standard bordered and bordered-prominent controls with clear text labels.</li>
+<li>Reserve green for an actively displayed terminal wall, amber for hidden/idle state, and red only for actionable errors.</li>
+<li>Use the standard compact menu-bar menu; do not create a desktop control window.</li>
+<li>Use system typography with monospaced digits only for the live window count.</li>
+</ul>
+<h2>Interaction</h2>
+<ul>
+<li>The top level starts with three workflows: “自动排列”, “命令守卫”, and “定时激活5h窗口”.</li>
+<li>“自动排列” contains a show/hide toggle and one configurable global shortcut to show and re-tile; re-tiling uses the display under the pointer, and hiding on app switch is always on.</li>
+<li>Version and update checking stay in the main menu.</li>
+<li>“Agent 官方更新” is a separate top-level submenu. List each installed/current upstream version, source, and result; never conflate failed or unsupported checks with up-to-date.</li>
+<li>Per-agent guard submenus offer 15-minute/one-hour review pauses and early resume, explicitly warning that dangerous commands are not blocked. A pause is not a configuration failure or verified protection.</li>
+<li>“登录时自动启动” is opt-in and reflects macOS login-item state, including pending approval. TermYes update status, failure details, and installation retry remain directly discoverable in the main menu.</li>
+<li>Failures show a short, contextual “查看原因…” action; full details and an optional copy action live in a dialog, not in the main menu.</li>
+<li>Submenus stay short. Start times are picked in a small floating panel, never as a 24-row clock inside the menu.</li>
+<li>Automation permission failures explain both the problem and the exact recovery path in System Settings.</li>
+<li>
+<p>The menu-bar control is the sole interface and holds every action and online-update state.</p>
+</li>
+<li>
+<p>Guard controls distinguish installation records from verified protection. Show pending/known-gap states, never a green “protected” claim without real-client evidence; errors stay in the menu with copyable details.</p>
+</li>
+<li>
+<p>“命令守卫” shows agent readiness, repairs, and dangerous-command policy updates; it does not imply model review of shell commands.</p>
+</li>
+<li>
+<p>No Ctrl-C automatic confirmation, AI reviewer controls, model-review settings, or Accessibility permission prompts. Agent verification makes real requests only when the user explicitly invokes it; command enforcement uses YOLO and explicit danger rules.</p>
+</li>
+</ul></body></html>

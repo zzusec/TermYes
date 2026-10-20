@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>README.zh-CN - TermYes</title><style>
+body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
+</style></head><body><div align="center">
+  <img src="Resources/TermYesIcon-1024.png" width="128" alt="TermYes 图标">
+  <h1>TermYes</h1>
+  <p><strong>终端统一管理，危险指令及时拦截。</strong></p>
+  <p>面向系统 Terminal 与 Agent 命令守卫的原生 macOS 菜单栏工具。</p>
+  <p>
+    <a href="https://github.com/zzusec/TermYes/actions/workflows/build.yml"><img src="https://github.com/zzusec/TermYes/actions/workflows/build.yml/badge.svg" alt="构建与测试"></a>
+    <img src="https://img.shields.io/badge/macOS-13%2B-black" alt="macOS 13 或更高版本">
+    <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-universal-blue" alt="macOS 通用架构应用">
+  </p>
+  <p><a href="README.md">English</a> · <strong>简体中文</strong></p>
+  <p><a href="https://github.com/zzusec/TermYes/releases/latest">下载安装</a> · <a href="RELEASE_NOTES.md">更新说明</a> · <a href="AgentGuard/README.md">守卫详细说明</a></p>
+</div>
+
+<p>TermYes 将 <strong>Termosaic 的终端画布</strong>与 <strong>bypass-yes 的命令守卫</strong>整合到一个应用：集中查看现有 Terminal 会话，隐藏窗口但不中断进程，并在菜单栏统一安装或恢复各 Agent 的 Shell 守卫。</p>
+<blockquote>
+<p><strong>先自动进入 YOLO，再硬拦危险。</strong> TermYes 会检测已安装的 Agent，把支持权限模式的客户端修复为 YOLO/等效免确认，只支持启动参数的客户端使用受管 wrapper；危险命令仍由失败关闭的守卫硬拒绝。适配器 Hook 的真实客户端行为仍需验证。</p>
+</blockquote>
+<h2>主要功能</h2>
+<ul>
+<li><strong>一张终端画布。</strong> 系统 Terminal 窗口无缝平铺：四个窗口组成 2×2，六个组成 3×2，奇数个窗口按左列多一个的两列排布；新增或关闭窗口后自动重排，保持稳定的顺时针顺序。</li>
+<li><strong>明确的 Shell 危险清单与夜间静音。</strong> Shell 守卫仅拒绝 GitHub 上版本化的 <code>AgentGuard/danger-policy.json</code>（离线时使用已验证缓存或内置规则）及 <code>AgentGuard/core.py</code> 中 <code>rm -rf</code> 目标分级命中的命令；有效命令未命中清单就放行，不让 AI 二次否决。22:00–08:00 静音只关闭提示音，不降低拦截强度。</li>
+<li><strong>减少桌面干扰。</strong> 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。</li>
+<li><strong>快捷键呼出。</strong> 可配置全局快捷键，默认 <code>⌘O</code>；若要保留其他应用的“打开”命令，请修改它。</li>
+<li><strong>统一管理 Agent 安全。</strong> TermYes 启动时及此后每 5 分钟检查已检测到的 Agent，维护 YOLO/等效权限模式并安装、更新危险 Shell 命令守卫；被外部修改的守卫不会自动覆盖。</li>
+<li><strong>以实测确认 Agent 状态。</strong> 展开「命令守卫」可分别查看配置、真实请求与守卫加载结果。只有 YOLO/等效免确认、安全 Shell 执行和客户端实际调用守卫均通过，才显示勾选；安装文件或修复配置不等于就绪。单项和全面实测会产生模型请求，失败原因可查看、滚动与复制。</li>
+<li><strong>启动前尽力检查。</strong> 新开的 zsh 终端会在启动 Agent 前检查守卫配置与 YOLO；检查失败只警告，仍以免确认模式继续启动。守卫文件就绪不等于客户端实际加载并信任 Hook。</li>
+<li><strong>应用内更新。</strong> 通过公开 GitHub Release 跳转检查版本（不占用匿名 API 配额），下载对应版本的安装包，验证校验和与应用签名，保留备份后替换并重新启动。</li>
+<li><strong>Agent 官方版本与自动升级。</strong>「Agent 官方更新」逐项展示本机版本、官方最新版、升级结果与来源；启动及每 30 分钟检查，有新版时按当前安装渠道升级。第三方发行包明确标注来源；未知、不支持或失败不会显示为最新。</li>
+<li><strong>单个 Agent 限时免审。</strong>「命令守卫 → 对应 Agent」可暂停 15 分钟或 1 小时，也可提前恢复。仅暂停该 Agent 的命令审查，YOLO 模式不变；暂停期间危险命令也不拦截，到期即使应用已退出也自动恢复。</li>
+<li><strong>登录时自启动。</strong> 主菜单的「登录时自动启动」开关使用 macOS 原生登录项，不写自定义启动脚本；需要系统批准时会提供设置入口。</li>
+</ul>
+<h2>安装</h2>
+<p>支持 <strong>macOS 13+</strong>，同时提供 Apple Silicon 与 Intel 架构。</p>
+<ol>
+<li>从 <a href="https://github.com/zzusec/TermYes/releases/latest">GitHub Releases</a> 下载已发布版本；v1.6.30 构建产物位于 <code>dist/TermYes-v1.6.30-macOS.dmg</code>。</li>
+<li>打开安装包，将 <strong>TermYes.app</strong> 拖入 <strong>Applications</strong>。</li>
+<li>启动 TermYes，按提示允许控制 Terminal：
+   <strong>系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal</strong>。</li>
+<li>点击菜单栏四宫格图标，在「自动排列」中选择「显示终端」。</li>
+</ol>
+<p>社区版本采用 ad-hoc 签名，尚未经过 Apple 公证。如果 macOS 阻止首次启动，请在确认信任该版本后使用系统针对该应用的“仍要打开”流程；不需要关闭系统级安全保护。</p>
+<p>窗口管理功能不需要 Python 或 Node.js。可选的<strong>命令守卫模块</strong>需要可用的 <code>/usr/bin/python3</code>，开发机上由 Xcode Command Line Tools 提供；应用不会自动安装依赖。在线更新需要网络连接。</p>
+<h3>从 Termosaic 升级</h3>
+<p>GitHub 仓库现更名为 <strong><code>zzusec/TermYes</code></strong>。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。</p>
+<ul>
+<li>Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。</li>
+<li>v1.6.30 另有 <strong><code>Termosaic-v1.6.30-macOS.dmg</code> 旧版更新兼容包</strong>。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。</li>
+<li>自动升级后，安装目录可能仍叫 <code>Termosaic.app</code>，应用显示名称则为 <strong>TermYes</strong>。请勿同时运行新旧两个副本。</li>
+<li>安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。</li>
+</ul>
+<h2>使用终端画布</h2>
+<table>
+<thead>
+<tr>
+<th>菜单操作</th>
+<th>快捷键</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全局呼出并重新平铺</td>
+<td>默认 <code>⌘O</code>，可修改</td>
+</tr>
+</tbody>
+</table>
+<p>切换到其他应用时会隐藏画布；隐藏窗口不会停止窗口内的进程。TermYes <strong>只管理 Apple 系统 Terminal.app</strong>，不管理 iTerm2 或其他终端模拟器。</p>
+<p>在「自动排列」中可显示或隐藏终端；配置的全局快捷键用于呼出并在鼠标所在显示器重新平铺。TermYes 不会向现有 Agent 会话自动或手动发送「继续」。</p>
+<p><strong>定时激活5h窗口 → 设置时间</strong>可设置起始时间，勾选 Claude、Codex 或两者。TermYes 运行期间每五小时检查所选 Agent 的守卫，再打开专用 Terminal 窗口发送 <code>hi</code>，并在窗口中显示模型的实际回复，激活完成后自动关闭这些专用窗口（不影响用户自己的终端窗口）；不向正在工作的会话注入输入，也不再额外发送第二个后台请求。只有取得成功退出状态和回复才显示激活成功，失败原因可查看。<strong>立即激活一次（发送 hi）</strong>与 Timer 共用同一条执行路径，可不等五小时直接验收。请求可能产生模型费用；成功不能保证供应商或账号的额度窗口重置，应用退出后不会定时触发。</p>
+<h2>Agent 命令守卫</h2>
+<p>TermYes 启动后每 5 分钟检查检测到的客户端，并维护 YOLO/等效权限模式与命令守卫文件。在「命令守卫」菜单可查看各项配置与实测状态，修复配置后仍需实测通过才能打钩；守卫更新后请重启对应客户端，Codex 还需要在 <code>/hooks</code> 中检查并信任新 Hook。</p>
+<p>内置适配器覆盖 Claude Code、Codex、CodeBuddy、zcode、pi、Qoder、Gemini CLI、Cursor、agy、OpenCode、Factory droid、Crush 和 GitHub Copilot CLI。</p>
+<p>限时免审不会卸载 Hook、删除 wrapper 或改回逐次权限确认。暂停状态写入本机私有记录，每次调用守卫时检查 UTC 到期时间；恢复后仍需要客户端已加载 Hook 才能实际拦截。暂停期间不运行该 Agent 的端到端验证，也不显示保护通过。首次升级到支持暂停的版本后，旧会话需重启以加载新守卫。</p>
+<p>Agent 更新只使用已确认的包管理器或客户端更新入口，并复查安装后的版本。无法确认安装归属、需要提权或暂不支持自动更新的客户端会保留版本/错误说明，不会下载不明脚本或切换发行渠道。插件仅使用客户端实际支持的更新命令。更新失败不阻止其他 Agent 的检测，现有会话可能仍使用旧进程，升级后请重启对应客户端。</p>
+<h3>策略与当前状态</h3>
+<table>
+<thead>
+<tr>
+<th>情况</th>
+<th>TermYes 的处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>命中危险或警告规则</td>
+<td>直接拒绝，不弹确认</td>
+</tr>
+<tr>
+<td>输入无效，或捕获到守卫/桥接错误</td>
+<td>返回拒绝，不静默放行</td>
+</tr>
+<tr>
+<td>未命中危险规则</td>
+<td>交回客户端原有权限流程</td>
+</tr>
+<tr>
+<td>检测到客户端</td>
+<td>修复 YOLO/等效权限模式并安装命令守卫；Hook 实际加载仍需验证</td>
+</tr>
+<tr>
+<td>安装后文件被外部修改</td>
+<td>拒绝自动覆盖或恢复</td>
+</tr>
+</tbody>
+</table>
+<p><strong>“已安装”不等于“正在受保护”。</strong> 所有适配器目前均处于真实客户端待验证状态；Copilot 的宿主超时处理与 agy 的 turbo 模式存在已知或尚未解决的兼容性问题。Hook 未加载、未信任、被禁用或宿主超时，都可能使守卫失效。</p>
+<p>这是 <strong>Shell 命令文本的事故防护层，不是沙箱</strong>。它无法完整理解任意 Python、SQL、远程程序、别名或脚本的实际行为，也不拦截独立的文件编辑或 MCP 工具。<code>safe</code> 只表示“未命中规则”，不是“已经证明安全”。</p>
+<p>安装器合并默认用户级配置、保留其他 Hook，并保存私有恢复记录；启动协调会开启受支持的 YOLO/等效权限模式，只能通过启动参数控制的客户端使用受管 wrapper。不管理自定义配置根目录或项目级配置。路径、错误边界和命令行用法见<a href="AgentGuard/README.md">守卫文档</a>。</p>
+<p><strong>不提供 Ctrl-C 自动确认或 AI 审批。</strong> 普通命令采用 YOLO／等效免确认，危险命令按清单硬拦截；原生 Ctrl-C 与业务弹窗保持人工操作。</p>
+<h2>源码构建与测试</h2>
+<p>构建需要 Xcode Command Line Tools。守卫测试使用 Python；插件测试需要已安装、支持 <code>node:module.stripTypeScriptTypes</code> 的 Node.js，CI 使用 Node.js 24。</p>
+<pre><code class="language-sh"># 只构建，不替换已安装应用。
+SKIP_INSTALL=1 ./build.sh
+
+# 生成主安装包、旧版兼容包及可移植的 SHA-256 校验文件。
+./create-dmg.sh
+/usr/bin/python3 -B Tests/test_release.py
+</code></pre>
+<p>应用位于 <code>build/TermYes.app</code>；安装包和校验文件位于 <code>dist/</code>。直接运行 <code>./build.sh</code>、<strong>不设置</strong> <code>SKIP_INSTALL=1</code> 时，会安装到 <code>/Applications/TermYes.app</code>。</p>
+<pre><code class="language-sh">PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
+bash AgentGuard/test.sh
+PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
+node Tests/test_guard_plugins.mjs
+swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termyes-activation-tests
+/tmp/termyes-activation-tests
+swiftc Sources/GridLayout.swift Tests/main.swift -o /tmp/termyes-grid-tests
+/tmp/termyes-grid-tests
+swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termyes-version-tests
+/tmp/termyes-version-tests
+swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Tests/ReleaseLocationTests.swift -o /tmp/termyes-release-location-tests
+/tmp/termyes-release-location-tests
+bash Tests/test_update_installer.sh
+</code></pre>
+<p>守卫测试只分类命令字符串，不执行危险指令。插件测试模拟宿主 API，不代表真实客户端 YOLO 模式已通过验证。发布测试只读挂载安装包，并在临时副本上测试更新器，不启动应用。</p>
+<h2>更新、隐私与许可</h2>
+<p>TermYes 在启动后及之后每两小时检查公开 GitHub Release；仅发布更高版本的正式 Release 时自动安装。自动替换要求应用位于 <code>/Applications</code> 下，且当前用户有写入权限。校验和及递归严格 <code>codesign</code> 验证用于检测包损坏或不一致；ad-hoc 签名不等于 Apple 开发者身份认证。</p>
+<p>主菜单直接显示检查、下载、校验及安装状态；失败可查看原因，有可用版本时可重试安装。登录自启动默认关闭，勾选后于下一次用户登录启动（不是未登录时运行的系统服务）；若 macOS 要求批准，进入「系统设置 → 通用 → 登录项」允许 TermYes。关闭开关会注销登录项。自动升级不会重置该系统设置。</p>
+<p>危险清单独立维护在 GitHub 仓库的 <code>AgentGuard/danger-policy.json</code>：在 <code>main</code> 分支修改 <code>block</code>/<code>warn</code> 正则与说明，<strong>递增整数 <code>version</code> 并发布文件</strong>，已安装新版 TermYes 在启动及运行期间每两小时检查一次（菜单可立即检查）；发现更高版本时校验结构、大小、正则及来源后原子更新本机清单，新 Hook 调用立即使用，不需重装客户端。相同版本修改不会生效；回退版本、下载失败或无效数据保留上一份有效规则。若缓存无效，则回退到内置清单，菜单显示错误。<code>rm -rf</code> 路径分级仍随应用代码发布，不能通过 JSON 修改。关闭 TermYes 后不会定时联网；重新打开会继续检查。旧版客户端须先安装支持此功能的新版应用。</p>
+<p>没有分析统计、账户体系、广告或遥测。应用联网仅用于公开应用版本与危险清单检查、下载；守卫安装和 Terminal 自动化都在本地进行。恢复记录可能含已有客户端配置中的敏感值，请勿分享。</p>
+<p>采用 <a href="LICENSE">MIT 许可</a>，迁入的守卫模块保留其<a href="AgentGuard/LICENSE">原始 MIT 许可</a>。</p></body></html>

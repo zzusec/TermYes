@@ -1,3 +1,19 @@
+# TermYes v1.6.30
+
+## 简体中文
+
+- 新增「Agent 官方更新」菜单，逐项显示本机/上游版本、来源、是否有更新及升级结果；每 30 分钟检查，有新版时沿原安装渠道自动升级，更新后复查版本。修正对不存在更新命令的调用，未知、失败或不支持自动更新不再冒充最新；第三方发行包单独标注。
+- 每个 Agent 可临时停用命令审查 15 分钟或 1 小时，并可提前恢复。仅影响选定 Agent，不改变 YOLO/wrapper；危险命令在暂停期间也放行。独立 Hook 按私有 UTC 到期记录自动恢复，不依赖 TermYes 持续运行；暂停不算保护通过。
+- 增加 macOS 原生「登录时自动启动」开关、待批准提示和系统设置入口。默认不擅自开启。
+- 完善 TermYes 在线升级入口：主菜单直接显示检测/下载/安装状态、可复制失败原因，并允许重试可用版本。保留校验、签名、备份回滚与旧版兼容 DMG。
+
+## English
+
+- Add per-Agent installed/upstream versions, sources, availability, and verified update results in a dedicated menu. Check every 30 minutes and upgrade newer releases through the existing installation channel; unknown, unsupported, and failed checks do not claim to be current. Label third-party distributions explicitly.
+- Pause one Agent's command review for 15 minutes or one hour, with early resume. Keep YOLO modes and wrappers intact. Dangerous commands are allowed during the pause; independent hooks restore review at the private UTC expiry even after TermYes exits. Paused review never counts as verified protection.
+- Add an opt-in native macOS launch-at-login toggle, pending-approval state, and System Settings link.
+- Surface TermYes online-update progress and copyable errors in the main menu, with installation retry. Retain checksum/signature checks, backup rollback, and legacy compatibility images.
+
 # TermYes v1.6.29
 
 ## 简体中文
