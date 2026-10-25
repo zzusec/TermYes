@@ -1,3 +1,19 @@
+# TermYes v1.6.32
+
+## 简体中文
+
+- 菜单精简：顶部只保留自动排列、命令守卫、定时激活三个入口；「Agent 官方更新」并入「命令守卫」。更新检测状态、各 Agent 官方版本对比与手动触发收进统一入口，不再单列菜单。
+- 每个 Agent 子菜单重组：标题显示名称与本机版本号（如 `Claude Code · v2.0.76`），首行给出「本机 x / 官方 y」版本对比与更新状态，第二行显示命令守卫状态；暂停/恢复按钮改为「暂停命令守卫」与「重新开启命令守卫」直述文案，删去重复说明行。
+- 主菜单底部精简：已为最新版本时不再重复显示版本与状态文字，只保留「检查 TermYes 在线更新」入口；仅在实际有待安装版本、更新中或失败时显示对应条目。修复按钮重复渲染的问题。
+- 包含 v1.6.31 的私有仓库在线升级修复：公开 Release 请求返回 401/403/404 时使用本机已登录的 GitHub CLI 读取正式 Release 并下载精确版本安装包与校验文件，认证下载保留 SHA-256、Bundle ID、版本和严格签名检查。
+
+## English
+
+- Streamline the menu: keep three top-level entries (window arrangement, command guard, scheduled activation); merge "Agent official updates" into "Command guard" so update status, per-agent version comparison, and manual triggers share one entry.
+- Reorganize each agent submenu: the title shows the agent name and installed version (e.g. `Claude Code · v2.0.76`), the first line compares installed vs. upstream versions with update status, the second line shows guard status, and pause/resume actions use plainer wording with the redundant caption removed.
+- Compact the bottom of the main menu: when up to date, drop the duplicated version and status lines and keep only the "Check for TermYes updates" entry; show version, retry, and failure rows only when they apply. Fix a duplicated update button.
+- Include v1.6.31's private-repository upgrade fix: authenticated GitHub CLI fallback for 401/403/404 Release lookups with unchanged checksum, bundle identity, version, and strict signature verification.
+
 # TermYes v1.6.31
 
 ## 简体中文

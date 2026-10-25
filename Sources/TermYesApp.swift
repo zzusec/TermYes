@@ -54,9 +54,6 @@ struct TermYesApp: App {
 
     private var updateVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
-        if updater.isUpToDate {
-            return "版本 v\(version)（已是最新）"
-        }
         return "版本 v\(version)"
     }
 
@@ -95,20 +92,12 @@ struct TermYesApp: App {
         agentGuard.clients.filter(\.detected)
     }
 
-    private func isAgentConfigured(_ client: AgentGuardClient) -> Bool {
-        client.configurationReady
-    }
-
     private var configuredAgentCount: Int {
         detectedAgents.filter(isAgentConfigured).count
     }
 
-    private var verifiedAgentCount: Int {
-        detectedAgents.filter { $0.requestStatus == "passed" }.count
-    }
-
-    private var loadedGuardCount: Int {
-        detectedAgents.filter { !$0.isGuardPaused && $0.guardLiveStatus == "passed" }.count
+    private func isAgentConfigured(_ client: AgentGuardClient) -> Bool {
+        client.configurationReady
     }
 
     private var orderedDetectedAgents: [AgentGuardClient] {
@@ -123,12 +112,6 @@ struct TermYesApp: App {
             let rightRank = rank(right)
             return leftRank == rightRank ? left.name < right.name : leftRank < rightRank
         }
-    }
-
-    private var agentSafetyText: String {
-        guard !detectedAgents.isEmpty else { return "检测中…" }
-        let paused = detectedAgents.filter(\.isGuardPaused).count
-        return "配置 \(configuredAgentCount)/\(detectedAgents.count) · 请求 \(verifiedAgentCount)/\(detectedAgents.count) · 守卫 \(loadedGuardCount)/\(detectedAgents.count)" + (paused > 0 ? " · 暂停 \(paused)" : "")
     }
 
     private func agentStatusText(_ client: AgentGuardClient) -> String {
@@ -150,10 +133,20 @@ struct TermYesApp: App {
         return "questionmark.square"
     }
 
-    private var agentMenuStatus: String {
-        if agentGuard.isWorking { return "正在检查…" }
-        let message = agentGuard.message
-        return message.count > 24 ? String(message.prefix(24)) + "…" : message
+    private func updateItem(for client: AgentGuardClient) -> AgentAutoUpdateReport.Item? {
+        agentAutoUpdate.cliItems.first { $0.client == client.id }
+    }
+
+    private func agentVersionText(_ client: AgentGuardClient) -> String {
+        guard let item = updateItem(for: client), let version = item.currentVersion, !version.isEmpty else {
+            return client.name
+        }
+        return "\(client.name) · v\(version)"
+    }
+
+    private func agentVersionDetail(_ client: AgentGuardClient) -> String {
+        guard let item = updateItem(for: client) else { return "版本信息待检测" }
+        return item.versionDescription + " · " + item.stateDescription
     }
 
     @ViewBuilder
@@ -208,7 +201,6 @@ struct TermYesApp: App {
                 shortcutMenuContent
             }
             Menu("命令守卫") {
-                Text(agentSafetyText)
                 Button(agentGuard.isWorking ? "正在全面实测…" : "全面实测（会产生模型请求）") {
                     agentGuard.verifyAll()
                 }
@@ -224,21 +216,14 @@ struct TermYesApp: App {
                 Divider()
                 ForEach(orderedDetectedAgents) { client in
                     Menu {
-                        Text(agentStatusText(client))
+                        Text(agentVersionDetail(client))
+                        Text("命令守卫：" + agentStatusText(client))
+                        Divider()
                         if client.isGuardPaused {
-                            Text("暂停期间，危险命令也不拦截；到期自动恢复")
-                            Button("立即恢复审查") { agentGuard.resume(client) }
+                            Button("重新开启命令守卫") { agentGuard.resume(client) }
                         } else {
-                            if let error = client.guardPauseError {
-                                Button("暂停记录异常 · 查看原因…") {
-                                    showIssue("\(client.name) 暂停记录异常", detail: error)
-                                }
-                                Button("清除异常暂停记录并恢复审查") { agentGuard.resume(client) }
-                                Divider()
-                            }
-                            Button("临时停用审查 15 分钟") { agentGuard.pause(client, minutes: 15) }
-                            Button("临时停用审查 1 小时") { agentGuard.pause(client, minutes: 60) }
-                            Text("仅此 Agent；暂停期间危险命令也放行")
+                            Button("暂停命令守卫 15 分钟") { agentGuard.pause(client, minutes: 15) }
+                            Button("暂停命令守卫 1 小时") { agentGuard.pause(client, minutes: 60) }
                         }
                         Divider()
                         Button("实测此 Agent（会产生模型请求）") {
@@ -253,7 +238,7 @@ struct TermYesApp: App {
                             Button("修复此 Agent 配置") { agentGuard.repair(client) }
                         }
                     } label: {
-                        Label("\(client.name) · \(agentStatusText(client))", systemImage: agentStatusIcon(client))
+                        Label(agentVersionText(client), systemImage: agentStatusIcon(client))
                     }
                     .disabled(agentGuard.isWorking)
                 }
@@ -262,13 +247,22 @@ struct TermYesApp: App {
                 Button("更新危险命令清单") { agentGuard.checkPolicy() }
                     .disabled(agentGuard.isWorking)
                 Divider()
-                if agentGuard.clients.first?.policyError == true {
-                    Button("查看清单问题…") {
-                        showIssue("危险命令清单异常", detail: agentGuard.policyDetails)
+                Text("\(agentAutoUpdate.lastRunDescription) · \(agentAutoUpdate.message)")
+                ForEach(agentAutoUpdate.cliItems) { item in
+                    Button("\(agentGuard.clients.first { $0.id == item.client }?.name ?? item.client) · \(item.stateDescription) · \(item.versionDescription)") {
+                        showIssue("\(item.client) 更新来源与结果", detail: item.diagnosticDetails)
+                    }
+                }
+                Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
+                    agentAutoUpdate.runNow()
+                }
+                .disabled(agentAutoUpdate.isRunning)
+                if !agentAutoUpdate.details.isEmpty {
+                    Button("查看全部更新详情…") {
+                        showIssue("Agent 与插件更新详情", detail: agentAutoUpdate.details)
                     }
                 }
                 Divider()
-                Text(agentMenuStatus)
                 Button("查看 Agent 状态与实测详情…") {
                     showIssue("Agent 检查结果", detail: agentGuard.diagnosticDetails)
                 }
@@ -291,45 +285,30 @@ struct TermYesApp: App {
                     }
                 }
             }
-            Menu("Agent 官方更新") {
-                Text("每 30 分钟检查；有新版自动升级")
-                Text("上次检查：\(agentAutoUpdate.lastRunDescription)")
-                Text(agentAutoUpdate.message)
-                Divider()
-                ForEach(agentAutoUpdate.cliItems) { item in
-                    Button("\(agentGuard.clients.first { $0.id == item.client }?.name ?? item.client) · \(item.stateDescription) · \(item.versionDescription)") {
-                        showIssue("\(item.client) 更新来源与结果", detail: item.diagnosticDetails)
-                    }
-                }
-                Divider()
-                Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
-                    agentAutoUpdate.runNow()
-                }
-                .disabled(agentAutoUpdate.isRunning)
-                if !agentAutoUpdate.details.isEmpty {
-                    Button("查看全部更新详情…") {
-                        showIssue("Agent 与插件更新详情", detail: agentAutoUpdate.details)
-                    }
-                }
-            }
             Divider()
             Toggle("登录时自动启动", isOn: Binding(
                 get: { loginItem.isRequested },
                 set: { loginItem.setEnabled($0) }
             ))
             .onAppear { loginItem.refresh() }
-            if loginItem.status == .requiresApproval || loginItem.status == .notFound {
+            if loginItem.status == .requiresApproval {
                 Button(loginItem.statusDescription + "…") { loginItem.openSettings() }
             }
-            if let issue = loginItem.issue {
+            if let issue = loginItem.issue, loginItem.status != .notFound {
                 Button("自启动设置失败 · 查看原因…") { showIssue("登录时自启动", detail: issue) }
             }
-            Text(updateVersionText)
-            Text(updater.statusMessage)
-            Button(updater.isChecking ? "正在检查更新…" : updater.isDownloading || updater.isInstallingUpdate ? "正在更新…" : "检查 TermYes 在线更新") {
-                updater.checkForUpdates()
+            if updater.isUpToDate {
+                Button("检查 TermYes 在线更新 · 当前 v\(updater.availableVersion ?? currentAppVersion)") {
+                    updater.checkForUpdates()
+                }
+                .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
+            } else {
+                Text(updateVersionText)
+                Button(updater.isChecking ? "正在检查更新…" : updater.isDownloading || updater.isInstallingUpdate ? "正在更新…" : "检查 TermYes 在线更新") {
+                    updater.checkForUpdates()
+                }
+                .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
             }
-            .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
             if let version = updater.availableVersion, !updater.isDownloading, !updater.isInstallingUpdate {
                 Button("重试安装 v\(version)") { updater.installAvailableUpdate() }
                     .disabled(updater.isChecking)
@@ -347,5 +326,9 @@ struct TermYesApp: App {
             Image(systemName: "rectangle.grid.2x2")
         }
         .menuBarExtraStyle(.menu)
+    }
+
+    private var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
     }
 }

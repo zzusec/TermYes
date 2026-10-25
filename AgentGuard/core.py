@@ -800,3 +800,65 @@ def command_text(cmd):
     if not isinstance(cmd, str) or not cmd.strip():
         raise ValueError("缺失命令")
     return cmd
+
+
+# ============================================================
+# 会话毒化 token 守卫
+# ============================================================
+# 背景：某些上游模型（如 weixin-glm/Deepseek-v4-flash）会把全角尖括号包裹的
+# "<｜deepseek_image｜>" 当成真正的图片特殊 token。它一旦进入会话历史的任意一条
+# function_call_output，后续每个请求都会被上游以 400 拒绝，整个会话报废，
+# 只能开新会话重述任务（上下文里的历史无法删除）。
+#
+# 只在命令文本进入上下文之前中和，副作用仅限本地 shell 命令，
+# 不碰任何真实文件或远端内容。
+# 实测触发形态：只有完整的 "<｜identifier｜>" 会打死请求；
+# 半角 "<identifier>"、"<｜identifier｜"、"identifier｜>" 均不触发。
+
+import re as _re
+
+# 已知会打死上游请求的 token：字面量 -> 安全写法
+TOXIC_TOKENS = {
+    "<\uff5cdeepseek_image\uff5c>": "<deepseek_image>",
+}
+
+# 兜底：任何 <｜全角竖线包裹的标识符｜> 都按同样规则中和
+TOXIC_GENERIC_RE = _re.compile(r"<\uff5c([A-Za-z0-9_.-]{1,64})\uff5c>")
+
+TOXIC_GUARD_LOG = os.environ.get(
+    "TOXIC_GUARD_LOG",
+    os.path.expanduser("~/.codex/hooks/toxic-token-guard.log"),
+)
+TOXIC_GUARD_DISABLE = "TOXIC_GUARD_DISABLE"
+
+
+def neutralize_toxic_tokens(text):
+    """把会话毒化 token 中和成等义的安全写法。
+
+    返回 (改写后的文本, 命中次数)。不改变任何非 token 内容。
+    """
+    if not isinstance(text, str) or not text:
+        return text, 0
+    hits = 0
+    out = text
+    for bad, good in TOXIC_TOKENS.items():
+        if bad in out:
+            hits += out.count(bad)
+            out = out.replace(bad, good)
+
+    def _sub(m):
+        nonlocal hits
+        hits += 1
+        return "<%s>" % m.group(1)
+
+    out = TOXIC_GENERIC_RE.sub(_sub, out)
+    return out, hits
+
+
+def log_toxic_hit(hits, tool_name, cwd):
+    try:
+        with open(TOXIC_GUARD_LOG, "a", encoding="utf-8") as fh:
+            fh.write("neutralized %d toxic token(s) tool=%s cwd=%s\n"
+                     % (hits, tool_name, cwd))
+    except Exception:
+        pass

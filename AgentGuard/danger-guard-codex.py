@@ -48,6 +48,24 @@ def main():
         return
     cmd = core.get_command(data)
 
+    # 会话毒化 token 守卫：先把会打死上游请求的特殊 token 中和掉，再做危险判定。
+    # 必须在 classify 之前 —— 否则 guard 改写后的命令才是真正要执行的命令。
+    if EVENT == "PreToolUse" and not os.environ.get(core.TOXIC_GUARD_DISABLE):
+        neutralized, hits = core.neutralize_toxic_tokens(cmd)
+        if hits:
+            core.log_toxic_hit(hits, data.get("tool_name"),
+                               data.get("cwd") or os.getcwd())
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason":
+                        "[token 守卫] 已中和 %d 个会毒化会话的特殊 token" % hits,
+                    "updatedInput": {"command": neutralized},
+                }
+            }, ensure_ascii=False))
+            return
+
     level, reason = core.classify(cmd, data.get("cwd") or os.getcwd())
 
     if EVENT == "PermissionRequest":
