@@ -248,11 +248,6 @@ struct TermYesApp: App {
                     .disabled(agentGuard.isWorking)
                 Divider()
                 Text("\(agentAutoUpdate.lastRunDescription) · \(agentAutoUpdate.message)")
-                ForEach(agentAutoUpdate.cliItems) { item in
-                    Button("\(agentGuard.clients.first { $0.id == item.client }?.name ?? item.client) · \(item.stateDescription) · \(item.versionDescription)") {
-                        showIssue("\(item.client) 更新来源与结果", detail: item.diagnosticDetails)
-                    }
-                }
                 Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
                     agentAutoUpdate.runNow()
                 }
