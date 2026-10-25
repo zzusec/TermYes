@@ -293,7 +293,8 @@ struct TermYesApp: App {
                 Button("自启动设置失败 · 查看原因…") { showIssue("登录时自启动", detail: issue) }
             }
             if updater.isUpToDate {
-                Button("检查 TermYes 在线更新 · 当前 v\(updater.availableVersion ?? currentAppVersion)") {
+                Text(updateVersionText)
+                Button("检查 TermYes 在线更新") {
                     updater.checkForUpdates()
                 }
                 .disabled(updater.isChecking || updater.isDownloading || updater.isInstallingUpdate)
