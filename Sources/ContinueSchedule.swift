@@ -1,6 +1,6 @@
 import Foundation
 
-enum ScheduledAgent: String, CaseIterable {
+enum ContinueAgent: String, CaseIterable {
     case claude, codex
 
     func executablePath(home: String) -> String? {
@@ -9,22 +9,21 @@ enum ScheduledAgent: String, CaseIterable {
             .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
     }
 
-    func activationCommand(scriptPath: String, resultDirectory: String) -> String {
+    func continueCommand(scriptPath: String, resultDirectory: String) -> String {
         func quote(_ value: String) -> String {
             "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
         }
         return "/usr/bin/python3 -B \(quote(scriptPath)) \(rawValue) --result-dir \(quote(resultDirectory))"
     }
-
 }
 
-enum FiveHourActivation {
+enum ContinueSchedule {
     static let interval: TimeInterval = 5 * 60 * 60
 
-    static func selectedAgents(from storedValues: [String]?) -> [ScheduledAgent] {
-        guard let storedValues else { return ScheduledAgent.allCases }
-        let selected = Set(storedValues.compactMap(ScheduledAgent.init(rawValue:)))
-        return ScheduledAgent.allCases.filter { selected.contains($0) }
+    static func selectedAgents(from storedValues: [String]?) -> [ContinueAgent] {
+        guard let storedValues else { return ContinueAgent.allCases }
+        let selected = Set(storedValues.compactMap(ContinueAgent.init(rawValue:)))
+        return ContinueAgent.allCases.filter { selected.contains($0) }
     }
 
     static func firstAnchor(minutes: Int, after now: Date, calendar: Calendar = .current) -> Date {

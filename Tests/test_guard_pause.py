@@ -15,7 +15,6 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "AgentGuard"
 sys.path.insert(0, str(SOURCE))
-import activate
 import core
 import manage
 import permission_modes
@@ -237,16 +236,11 @@ class GuardPauseTests(unittest.TestCase):
         self.assertTrue(state["serviceError"])
         self.assertFalse(state["guardPaused"])
 
-    def test_activation_ensure_accepts_pause_and_still_starts_yolo(self):
+    def test_pause_state_survives_reinstall(self):
         manage.install(self.home, "claude")
         manage.pause_client(self.home, "claude")
-        results = self.home / "results"
-        results.mkdir(mode=0o700)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            result = activate.activate("claude", results, self.home, SOURCE / "manage.py", timeout=5)
-        self.assertEqual(result["code"], 0, result)
-        self.assertTrue(result["hasReply"])
-        self.assertTrue(self.state()["guardPaused"])
+        manage.install(self.home, "claude")
+        self.assertTrue(self.state()["guardPaused"], "Reinstalling the guard must not clear a pause record")
 
 
 if __name__ == "__main__":

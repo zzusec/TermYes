@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalHotKeyController.shared.activateSavedShortcut()
         LaunchAtLoginController.shared.refresh()
         TerminalManager.shared.start()
-        ScheduledActivationController.shared.start()
+        ScheduledContinueController.shared.start()
         AgentGuardController.shared.start()
         AgentAutoUpdateController.shared.start()
         UpdateController.shared.start()
@@ -46,7 +46,7 @@ struct TermYesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var manager = TerminalManager.shared
     @StateObject private var hotKeys = GlobalHotKeyController.shared
-    @StateObject private var scheduledActivation = ScheduledActivationController.shared
+    @StateObject private var scheduledContinue = ScheduledContinueController.shared
     @StateObject private var updater = UpdateController.shared
     @StateObject private var agentGuard = AgentGuardController.shared
     @StateObject private var agentAutoUpdate = AgentAutoUpdateController.shared
@@ -260,24 +260,6 @@ struct TermYesApp: App {
                 Divider()
                 Button("查看 Agent 状态与实测详情…") {
                     showIssue("Agent 检查结果", detail: agentGuard.diagnosticDetails)
-                }
-            }
-            Menu("定时激活5h窗口") {
-                Button(scheduledActivation.activating ? "正在激活…" : "立即激活一次（发送 hi）") {
-                    scheduledActivation.activateNow()
-                }
-                .disabled(scheduledActivation.activating || scheduledActivation.windowAgents.isEmpty)
-                Button("设置首次时间：\(scheduledActivation.windowScheduleDescription)") {
-                    WindowSchedulePicker.shared.show()
-                }
-                Text("下次触发：\(scheduledActivation.nextActivationDescription)")
-                if let status = scheduledActivation.lastActivationStatus {
-                    Text(status)
-                }
-                if let detail = scheduledActivation.lastActivationDetail {
-                    Button("查看激活问题…") {
-                        showIssue("定时激活异常", detail: detail)
-                    }
                 }
             }
             Divider()

@@ -24,7 +24,7 @@ final class TerminalManager: NSObject, ObservableObject {
     private let pollInterval: TimeInterval = 0.2
     private var pollTimer: Timer?
     private var menuTrackingObservers: [NSObjectProtocol] = []
-    private var activationWindowIDs: [ScheduledAgent: Int] = [:]
+    private var continueWindowIDs: [ContinueAgent: Int] = [:]
     private var lastTiledWindowIDs: [Int] = []
     private var lastWindowServerCandidateIDs: Set<Int>?
     private var pendingWindowIDPasses = 0
@@ -139,11 +139,11 @@ final class TerminalManager: NSObject, ObservableObject {
         }
     }
 
-    func openAgentActivationWindows(_ agents: [ScheduledAgent], scriptPath: String, resultDirectory: String) -> [String] {
+    func openAgentContinueWindows(_ agents: [ContinueAgent], scriptPath: String, resultDirectory: String) -> [String] {
         var failures: [String] = []
-        var openedWindowIDs: [ScheduledAgent: Int] = [:]
+        var openedWindowIDs: [ContinueAgent: Int] = [:]
         for agent in agents {
-            let command = agent.activationCommand(scriptPath: scriptPath, resultDirectory: resultDirectory)
+            let command = agent.continueCommand(scriptPath: scriptPath, resultDirectory: resultDirectory)
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
             // Always create a dedicated window; never send input into a user's active Agent session.
@@ -162,26 +162,26 @@ final class TerminalManager: NSObject, ObservableObject {
             }
             openedWindowIDs[agent] = Int(result.int32Value)
         }
-        // One batch per activation; the previous batch is closed when its own activation finishes.
-        activationWindowIDs = openedWindowIDs
+        // One batch per continue round; the previous batch is closed when its own round finishes.
+        continueWindowIDs = openedWindowIDs
         return failures
     }
 
-    /// Closes only the dedicated windows opened by the most recent activation batch and leaves every
+    /// Closes only the dedicated windows opened by the most recent continue round and leaves every
     /// other Terminal window untouched. Windows the user already closed are skipped instead of
     /// raising an automation error.
-    func closeAgentActivationWindows() {
-        let windowIDs = Array(activationWindowIDs.values)
-        activationWindowIDs = [:]
-        closeAgentActivationWindows(windowIDs)
+    func closeAgentContinueWindows() {
+        let windowIDs = Array(continueWindowIDs.values)
+        continueWindowIDs = [:]
+        closeAgentContinueWindows(windowIDs)
     }
 
-    func closeAgentActivationWindow(_ agent: ScheduledAgent) {
-        guard let windowID = activationWindowIDs.removeValue(forKey: agent) else { return }
-        closeAgentActivationWindows([windowID])
+    func closeAgentContinueWindow(_ agent: ContinueAgent) {
+        guard let windowID = continueWindowIDs.removeValue(forKey: agent) else { return }
+        closeAgentContinueWindows([windowID])
     }
 
-    private func closeAgentActivationWindows(_ windowIDs: [Int]) {
+    private func closeAgentContinueWindows(_ windowIDs: [Int]) {
         guard !windowIDs.isEmpty else { return }
         let windowIDList = windowIDs.map(String.init).joined(separator: ", ")
         let source = """

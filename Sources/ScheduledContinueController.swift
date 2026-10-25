@@ -3,39 +3,39 @@ import Combine
 import Darwin
 
 @MainActor
-final class ScheduledActivationController: NSObject, ObservableObject {
-    static let shared = ScheduledActivationController()
+final class ScheduledContinueController: NSObject, ObservableObject {
+    static let shared = ScheduledContinueController()
 
     @Published private(set) var windowStartMinutes: Int?
-    @Published private(set) var windowAgents: Set<ScheduledAgent>
-    @Published private(set) var nextActivationDate: Date?
-    @Published private(set) var lastActivationStatus: String?
-    @Published private(set) var lastActivationDetail: String?
+    @Published private(set) var windowAgents: Set<ContinueAgent>
+    @Published private(set) var nextContinueDate: Date?
+    @Published private(set) var lastContinueStatus: String?
+    @Published private(set) var lastContinueDetail: String?
 
     private var windowTimer: Timer?
     private var windowAnchor: Date?
-    private(set) var activating = false
+    private(set) var continuing = false
     private var started = false
     private var scheduleRevision = 0
     private let defaults: UserDefaults
     private let home: String
     private let managerPath: String?
-    private let openAgentWindows: @MainActor ([ScheduledAgent], String, String) -> [String]
-    private let closeAgentWindow: @MainActor (ScheduledAgent) -> Void
+    private let openAgentWindows: @MainActor ([ContinueAgent], String, String) -> [String]
+    private let closeAgentWindow: @MainActor (ContinueAgent) -> Void
     private let closeAgentWindows: @MainActor () -> Void
 
     init(
         defaults: UserDefaults = .standard,
         home: String = NSHomeDirectory(),
         manager: String? = Bundle.main.url(forResource: "manage", withExtension: "py", subdirectory: "AgentGuard")?.path,
-        openAgentWindows: @escaping @MainActor ([ScheduledAgent], String, String) -> [String] = {
-            TerminalManager.shared.openAgentActivationWindows($0, scriptPath: $1, resultDirectory: $2)
+        openAgentWindows: @escaping @MainActor ([ContinueAgent], String, String) -> [String] = {
+            TerminalManager.shared.openAgentContinueWindows($0, scriptPath: $1, resultDirectory: $2)
         },
-        closeAgentWindow: @escaping @MainActor (ScheduledAgent) -> Void = {
-            TerminalManager.shared.closeAgentActivationWindow($0)
+        closeAgentWindow: @escaping @MainActor (ContinueAgent) -> Void = {
+            TerminalManager.shared.closeAgentContinueWindow($0)
         },
         closeAgentWindows: @escaping @MainActor () -> Void = {
-            TerminalManager.shared.closeAgentActivationWindows()
+            TerminalManager.shared.closeAgentContinueWindows()
         }
     ) {
         self.defaults = defaults
@@ -46,7 +46,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         self.closeAgentWindows = closeAgentWindows
         let savedMinutes = defaults.object(forKey: "autoContinueWindowStartMinutes") as? Int
         windowStartMinutes = savedMinutes.flatMap { (0..<1440).contains($0) ? $0 : nil }
-        windowAgents = Set(FiveHourActivation.selectedAgents(
+        windowAgents = Set(ContinueSchedule.selectedAgents(
             from: defaults.stringArray(forKey: "autoContinueWindowAgents")
         ))
         windowAnchor = defaults.object(forKey: "autoContinueWindowAnchorDate") as? Date
@@ -59,20 +59,20 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         scheduleWindow()
     }
 
-    func setWindowSchedule(minutes: Int?, agents: Set<ScheduledAgent>) {
+    func setWindowSchedule(minutes: Int?, agents: Set<ContinueAgent>) {
         if let minutes, !(0..<1440).contains(minutes) { return }
         if minutes != nil && agents.isEmpty { return }
         scheduleRevision += 1
         windowAgents = agents
         defaults.set(agents.map(\.rawValue).sorted(), forKey: "autoContinueWindowAgents")
         windowStartMinutes = minutes
-        lastActivationStatus = nil
-        lastActivationDetail = nil
+        lastContinueStatus = nil
+        lastContinueDetail = nil
         if let minutes {
             defaults.set(minutes, forKey: "autoContinueWindowStartMinutes")
             // Confirming the picker is an explicit new schedule, even when the
             // selected HH:mm and agents match yesterday's saved values.
-            windowAnchor = FiveHourActivation.firstAnchor(minutes: minutes, after: Date())
+            windowAnchor = ContinueSchedule.firstAnchor(minutes: minutes, after: Date())
             defaults.set(windowAnchor, forKey: "autoContinueWindowAnchorDate")
         } else {
             defaults.set(-1, forKey: "autoContinueWindowStartMinutes")
@@ -87,14 +87,14 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         return String(format: "%02d:%02d", windowStartMinutes / 60, windowStartMinutes % 60)
     }
 
-    var nextActivationDescription: String {
-        guard let nextActivationDate else { return "未启用" }
+    var nextContinueDescription: String {
+        guard let nextContinueDate else { return "未启用" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.calendar = .current
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd HH:mm z"
-        return formatter.string(from: nextActivationDate)
+        return formatter.string(from: nextContinueDate)
     }
 
     /// Today's anchor date, used to seed the time picker.
@@ -107,63 +107,63 @@ final class ScheduledActivationController: NSObject, ObservableObject {
         return Calendar.current.date(from: components)
     }
 
-    /// Makes a fresh model request at each scheduled five-hour boundary.
+    /// Resumes each selected agent's most recent conversation at every five-hour boundary.
     private func scheduleWindow() {
         windowTimer?.invalidate()
         windowTimer = nil
-        nextActivationDate = nil
+        nextContinueDate = nil
         guard let windowStartMinutes, !windowAgents.isEmpty else { return }
         if windowAnchor == nil {
-            windowAnchor = FiveHourActivation.firstAnchor(minutes: windowStartMinutes, after: Date())
+            windowAnchor = ContinueSchedule.firstAnchor(minutes: windowStartMinutes, after: Date())
             defaults.set(windowAnchor, forKey: "autoContinueWindowAnchorDate")
         }
         guard let windowAnchor else { return }
-        let fireDate = FiveHourActivation.nextFire(after: Date(), anchor: windowAnchor)
-        nextActivationDate = fireDate
+        let fireDate = ContinueSchedule.nextFire(after: Date(), anchor: windowAnchor)
+        nextContinueDate = fireDate
 
         let timer = Timer(fireAt: fireDate, interval: 0, target: self, selector: #selector(windowOpened), userInfo: nil, repeats: false)
         RunLoop.main.add(timer, forMode: .common)
         windowTimer = timer
     }
 
-    func activateNow() {
-        activateSelectedWindows()
+    func continueNow() {
+        continueSelectedAgents()
     }
 
     @objc private func windowOpened() {
         scheduleWindow()
-        activateSelectedWindows()
+        continueSelectedAgents()
     }
 
-    private func activateSelectedWindows() {
-        let selectedAgents = FiveHourActivation.selectedAgents(
+    private func continueSelectedAgents() {
+        let selectedAgents = ContinueSchedule.selectedAgents(
             from: windowAgents.map(\.rawValue)
         )
-        guard !activating, !selectedAgents.isEmpty else { return }
-        activating = true
-        lastActivationStatus = "正在激活…"
-        lastActivationDetail = nil
+        guard !continuing, !selectedAgents.isEmpty else { return }
+        continuing = true
+        lastContinueStatus = "正在发送继续…"
+        lastContinueDetail = nil
         let revision = scheduleRevision
         let home = home
         let manager = managerPath
         let resultDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("termyes-window-activation-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("termyes-window-continue-\(UUID().uuidString)", isDirectory: true)
             .resolvingSymlinksInPath()
         do {
             try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: false,
                                                    attributes: [.posixPermissions: 0o700])
         } catch {
-            activating = false
-            lastActivationStatus = "激活失败"
-            lastActivationDetail = "无法创建激活结果目录：\(error.localizedDescription)"
+            continuing = false
+            lastContinueStatus = "继续发送失败"
+            lastContinueDetail = "无法创建继续任务结果目录：\(error.localizedDescription)"
             return
         }
         Task {
             defer {
-                activating = false
+                continuing = false
                 try? FileManager.default.removeItem(at: resultDirectory)
                 // Every path — success, failure, timeout, or cancellation — retires the
-                // dedicated windows this activation opened. User windows are never touched.
+                // dedicated windows this continue round opened. User windows are never touched.
                 closeAgentWindows()
             }
             let checks = await Task.detached(priority: .utility) {
@@ -173,24 +173,24 @@ final class ScheduledActivationController: NSObject, ObservableObject {
             }.value
             guard revision == scheduleRevision else { return }
             let ready = checks.compactMap { $0.1 == nil ? $0.0 : nil }
-            let activationScript = manager.map {
-                URL(fileURLWithPath: $0).deletingLastPathComponent().appendingPathComponent("activate.py").path
+            let continueScript = manager.map {
+                URL(fileURLWithPath: $0).deletingLastPathComponent().appendingPathComponent("continue_task.py").path
             }
-            let windowFailures = activationScript.map {
+            let windowFailures = continueScript.map {
                 ready.isEmpty ? [] : openAgentWindows(ready, $0, resultDirectory.path)
             } ?? []
             let launched = ready.filter { agent in
                 !windowFailures.contains { $0.hasPrefix(agent.rawValue + "：") }
             }
-            let results = await withTaskGroup(of: (ScheduledAgent, String?).self) { group in
+            let results = await withTaskGroup(of: (ContinueAgent, String?).self) { group in
                 for agent in launched {
                     group.addTask {
-                        let failure = Self.awaitWindowActivation(agent, resultDirectory: resultDirectory.path)
+                        let failure = Self.awaitWindowContinue(agent, resultDirectory: resultDirectory.path)
                         await self.closeAgentWindow(agent)
                         return (agent, failure)
                     }
                 }
-                var results: [(ScheduledAgent, String?)] = []
+                var results: [(ContinueAgent, String?)] = []
                 for await result in group { results.append(result) }
                 return results.sorted { $0.0.rawValue < $1.0.rawValue }
             }
@@ -200,43 +200,43 @@ final class ScheduledActivationController: NSObject, ObservableObject {
             } + results.compactMap { result -> String? in
                 result.1.map { "\(result.0.rawValue)：\($0)" }
             } + windowFailures
-            lastActivationDetail = failures.isEmpty ? nil : failures.joined(separator: "；")
+            lastContinueDetail = failures.isEmpty ? nil : failures.joined(separator: "；")
             let successCount = results.filter { $0.1 == nil }.count
-            lastActivationStatus = failures.isEmpty
-                ? "激活请求成功（\(successCount)/\(selectedAgents.count)）"
-                : "激活请求 \(successCount)/\(selectedAgents.count)，\(failures.count) 项失败"
+            lastContinueStatus = failures.isEmpty
+                ? "继续请求成功（\(successCount)/\(selectedAgents.count)）"
+                : "继续请求 \(successCount)/\(selectedAgents.count)，\(failures.count) 项失败"
         }
     }
 
-    nonisolated static func ensureReady(_ agent: ScheduledAgent, home: String, manager: String?) -> String? {
+    nonisolated static func ensureReady(_ agent: ContinueAgent, home: String, manager: String?) -> String? {
         guard agent.executablePath(home: home) != nil else { return "未找到命令" }
         guard let manager else { return "缺少守卫管理器" }
         let result = run("/usr/bin/python3", ["-B", manager, "ensure", agent.rawValue], home: home)
         return result.code == 0 ? nil : "守卫检查失败（\(result.code)）：\(result.detail ?? "无错误输出")"
     }
 
-    private struct ActivationResult: Decodable {
+    private struct ContinueResult: Decodable {
         let code: Int
         let hasReply: Bool
         let detail: String?
     }
 
-    nonisolated static func awaitWindowActivation(_ agent: ScheduledAgent, resultDirectory: String, timeout: TimeInterval = 165) -> String? {
+    nonisolated static func awaitWindowContinue(_ agent: ContinueAgent, resultDirectory: String, timeout: TimeInterval = 165) -> String? {
         let path = URL(fileURLWithPath: resultDirectory).appendingPathComponent(agent.rawValue + ".json")
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if FileManager.default.fileExists(atPath: path.path) {
                 do {
-                    let result = try JSONDecoder().decode(ActivationResult.self, from: Data(contentsOf: path))
+                    let result = try JSONDecoder().decode(ContinueResult.self, from: Data(contentsOf: path))
                     if result.code != 0 { return "模型请求失败（\(result.code)）：\(result.detail ?? "无错误输出")" }
                     return result.hasReply ? nil : result.detail ?? "模型未返回内容"
                 } catch {
-                    return "无法读取窗口激活结果：\(error.localizedDescription)"
+                    return "无法读取窗口继续结果：\(error.localizedDescription)"
                 }
             }
             Thread.sleep(forTimeInterval: 0.05)
         } while Date() < deadline
-        return "窗口激活超时，未取得模型回复"
+        return "窗口继续超时，未取得模型回复"
     }
 
     nonisolated static func run(_ path: String, _ arguments: [String], home: String, timeout: TimeInterval = 120) -> (code: Int32, hasReply: Bool, detail: String?) {
@@ -249,7 +249,7 @@ final class ScheduledActivationController: NSObject, ObservableObject {
             "PATH": "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         ]) { _, new in new }
         process.standardInput = FileHandle.nullDevice
-        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("termyes-activation-\(UUID().uuidString)")
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("termyes-continue-\(UUID().uuidString)")
         let errorURL = outputURL.appendingPathExtension("stderr")
         var output: FileHandle?
         var errors: FileHandle?

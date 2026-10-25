@@ -35,11 +35,10 @@ jobs:
           /tmp/termyes-login-tests
           swiftc Sources/AgentAutoUpdateController.swift Tests/AgentUpdateReportTests.swift -o /tmp/termyes-report-tests
           /tmp/termyes-report-tests
-      - name: Test Agent guards and five-hour activation
+      - name: Test Agent guards and scheduled continue
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_permission_modes.py
-          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_activation.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_policy_update.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_strict_policy.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_shell_syntax.py
@@ -49,10 +48,10 @@ jobs:
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
           node Tests/test_guard_plugins.mjs
-          swiftc Sources/FiveHourActivation.swift Tests/FiveHourActivationTests.swift -o /tmp/termosaic-activation-tests
-          /tmp/termosaic-activation-tests
-          swiftc Sources/{GridLayout,FiveHourActivation,TerminalManager,GlobalHotKeyController,ScheduledActivationController,WindowSchedulePicker}.swift Tests/menu_activation_regression.swift -o /tmp/termyes-menu-regression
-          /tmp/termyes-menu-regression
+          swiftc Sources/ContinueSchedule.swift Tests/ContinueScheduleTests.swift -o /tmp/termosaic-continue-tests
+          /tmp/termosaic-continue-tests
+          swiftc Sources/{GridLayout,ContinueSchedule,TerminalManager,GlobalHotKeyController,ScheduledContinueController}.swift Tests/menu_continue_regression.swift -o /tmp/termyes-menu-continue
+          /tmp/termyes-menu-continue
       - name: Build universal app
         run: SKIP_INSTALL=1 ./build.sh
       - name: Verify architectures

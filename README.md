@@ -61,9 +61,9 @@ The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redi
 
 Switching to another application hides the canvas. Hiding windows does not stop the processes inside them. TermYes manages **Apple's Terminal.app only**, not iTerm2 or other terminal emulators.
 
-Auto Arrange lets you show or hide the terminal canvas. Its configurable global shortcut shows and re-tiles the canvas on the display under the pointer. TermYes does not send Continue into existing agent sessions, manually or automatically.
+Auto Arrange lets you show or hide the terminal canvas. Its configurable global shortcut shows and re-tiles the canvas on the display under the pointer.
 
-**Scheduled 5h Windows → Set time** lets you choose the start time and Claude, Codex, or both. Every five hours while TermYes runs, it checks the selected guards, opens dedicated Terminal windows, sends `hi`, displays the actual model replies, and then closes those dedicated windows once the activation finishes, leaving user windows alone. It never injects input into active user sessions or sends a duplicate background request. Success requires a successful exit and a reply; failures remain visible. **Activate now (send hi)** uses the same path as the Timer without waiting five hours. Requests may incur model usage charges and do not guarantee a provider's quota window resets; no timer runs while the app is closed.
+**Scheduled continue → Set first run time** picks the start time and the agents (Claude, Codex, or both). Every five hours while TermYes runs, it checks the selected guards, opens dedicated Terminal windows that resume each agent's most recent conversation in that directory with a `继续` prompt, shows the actual model replies, and closes only those dedicated windows when the round finishes. Interactive sessions the user is typing into are never touched: Codex resumes recorded sessions in background `exec` mode and Claude uses a separate print-mode process. **Send continue now** shares the same path as the timer without waiting five hours. A continue round consumes model usage and does not guarantee a provider quota window has reset; no timer runs while the app is closed.
 
 **No Ctrl-C auto-confirmation or AI approval.** Native Ctrl-C and business dialogs remain manual; Shell enforcement uses YOLO and explicit danger rules.
 
