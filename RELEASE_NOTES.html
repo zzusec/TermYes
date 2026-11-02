@@ -1,7 +1,20 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.33</h1>
+</style></head><body><h1>TermYes v1.6.34</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复按 <code>⌘O</code> 无法呼出、排列或轮转终端的问题：Terminal 的窗口列表可能包含已失效的窗口引用，读取其标签页会触发 AppleEvent 错误。现在先检查窗口 ID，跳过失效和未就绪的窗口，正常窗口不再受影响。</li>
+<li>保留零标签页空窗口过滤与隐藏，不通过关闭终端会话或重启 Terminal 来清理窗口。</li>
+<li>新增可执行的 AppleScript 窗口快照回归，覆盖失效引用、未就绪窗口和无效 ID；权限拒绝与非预期自动化错误仍正常上报。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Fix <code>⌘O</code> failing to show, arrange, or rotate Terminal windows. Terminal may retain stale window references whose tabs raise an AppleEvent error. Validate window IDs first and skip stale or pending windows without interrupting healthy windows.</li>
+<li>Retain zero-tab window filtering and hiding without closing terminal sessions or restarting Terminal.</li>
+<li>Add executable AppleScript snapshot regressions for stale references, pending windows, and invalid IDs. Permission denials and unexpected automation errors still propagate.</li>
+</ul>
+<h1>TermYes v1.6.33</h1>
 <h2>简体中文</h2>
 <ul>
 <li>修复按 <code>⌘O</code> 排列或轮转窗口时重新显示透明空窗口的问题。Terminal 会保留已关闭且没有标签页的窗口对象；TermYes 现在在读取窗口列表时过滤并隐藏这些空壳，不再占用布局位置。</li>

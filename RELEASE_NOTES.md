@@ -1,3 +1,17 @@
+# TermYes v1.6.34
+
+## 简体中文
+
+- 修复按 `⌘O` 无法呼出、排列或轮转终端的问题：Terminal 的窗口列表可能包含已失效的窗口引用，读取其标签页会触发 AppleEvent 错误。现在先检查窗口 ID，跳过失效和未就绪的窗口，正常窗口不再受影响。
+- 保留零标签页空窗口过滤与隐藏，不通过关闭终端会话或重启 Terminal 来清理窗口。
+- 新增可执行的 AppleScript 窗口快照回归，覆盖失效引用、未就绪窗口和无效 ID；权限拒绝与非预期自动化错误仍正常上报。
+
+## English
+
+- Fix `⌘O` failing to show, arrange, or rotate Terminal windows. Terminal may retain stale window references whose tabs raise an AppleEvent error. Validate window IDs first and skip stale or pending windows without interrupting healthy windows.
+- Retain zero-tab window filtering and hiding without closing terminal sessions or restarting Terminal.
+- Add executable AppleScript snapshot regressions for stale references, pending windows, and invalid IDs. Permission denials and unexpected automation errors still propagate.
+
 # TermYes v1.6.33
 
 ## 简体中文

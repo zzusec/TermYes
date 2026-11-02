@@ -400,15 +400,26 @@ final class TerminalManager: NSObject, ObservableObject {
     }
 
     func readTerminalWindowIDs() -> [Int]? {
-        // Terminal retains closed windows with no tabs; making them visible revives empty frames.
+        // Terminal retains closed windows with no tabs and stale references with no ID.
+        // Read IDs first: asking a stale reference for its tabs fails the entire snapshot.
         let source = """
         set liveWindowIDs to {}
         tell application id "com.apple.Terminal"
             repeat with currentWindow in windows
-                if (count of tabs of currentWindow) > 0 then
-                    set end of liveWindowIDs to id of currentWindow
-                else if visible of currentWindow then
-                    set visible of currentWindow to false
+                set currentID to missing value
+                try
+                    set currentID to id of currentWindow
+                on error messageText number errorNumber
+                    if errorNumber is not -1728 then error messageText number errorNumber
+                end try
+                if class of currentID is integer then
+                    if currentID > 0 then
+                        if (count of tabs of currentWindow) > 0 then
+                            set end of liveWindowIDs to currentID
+                        else if visible of currentWindow then
+                            set visible of currentWindow to false
+                        end if
+                    end if
                 end if
             end repeat
         end tell

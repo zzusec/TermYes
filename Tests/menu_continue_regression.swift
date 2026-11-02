@@ -1,6 +1,7 @@
 // swiftc Sources/{GridLayout,ContinueSchedule,TerminalManager,GlobalHotKeyController,ScheduledContinueController}.swift Tests/menu_continue_regression.swift -o /tmp/termyes-menu-regression
-// This suite compiles but never executes Terminal AppleScripts. Agent processes and
-// guard management use executables in a temporary HOME, never installed user agents.
+// This suite compiles Terminal AppleScripts and executes snapshot fixtures against
+// in-memory script objects, never the user's Terminal. Agent processes and guard
+// management use executables in a temporary HOME, never installed user agents.
 import AppKit
 import Carbon.HIToolbox
 import Foundation
@@ -149,6 +150,7 @@ struct MenuContinueRegression {
         expect(snapshotScript.contains("if (count of tabs of currentWindow) > 0 then"), "Window snapshots must exclude closed zero-tab windows")
         expect(snapshotScript.contains("else if visible of currentWindow then") && snapshotScript.contains("set visible of currentWindow to false"), "Already-visible zero-tab windows must be hidden")
         expect(!snapshotScript.contains("close ") && !snapshotScript.contains("do script "), "Window snapshots must never close sessions or create terminals")
+        snapshotFixtures(snapshotScript)
         result = .list()
         expect(manager.readTerminalWindowIDs() == [], "An empty snapshot must not reserve any layout slots")
         result = .init(boolean: true)
@@ -169,6 +171,60 @@ struct MenuContinueRegression {
         result = .init(string: "")
         _ = manager.applyWindowLayout(windowIDs: [12], frames: [.zero])
         expect(manager.automationAuthorized, "A successful automation call must clear the permission-denied flag")
+    }
+
+    @MainActor
+    static func snapshotFixtures(_ source: String) {
+        let fixture = """
+        script firstLiveWindow
+            property fixtureID : 12
+            property fixtureTabs : {1}
+            property fixtureVisible : true
+        end script
+        script closedWindow
+            property fixtureID : 13
+            property fixtureTabs : {}
+            property fixtureVisible : true
+        end script
+        script lastLiveWindow
+            property fixtureID : 14
+            property fixtureTabs : {1}
+            property fixtureVisible : true
+        end script
+        script pendingWindow
+            property fixtureID : missing value
+        end script
+        script invalidIDWindow
+            property fixtureID : -1
+        end script
+        script nonnumericIDWindow
+            property fixtureID : "not a window ID"
+        end script
+        script windowSource
+            property fixtureWindows : {}
+        end script
+        set fixtureWindows of windowSource to {missing value, firstLiveWindow, pendingWindow, closedWindow, invalidIDWindow, nonnumericIDWindow, missing value, lastLiveWindow}
+        """
+        // Alias Terminal dictionary terms so the same loop runs on local script properties.
+        let snapshot = source.replacingOccurrences(of: "tell application id \"com.apple.Terminal\"", with: "tell windowSource")
+            .replacingOccurrences(of: "in windows", with: "in (fixtureWindows of windowSource)")
+            .replacingOccurrences(of: "id of currentWindow", with: "fixtureID of currentWindow")
+            .replacingOccurrences(of: "tabs of currentWindow", with: "fixtureTabs of currentWindow")
+            .replacingOccurrences(of: "visible of currentWindow", with: "fixtureVisible of currentWindow")
+            .replacingOccurrences(of: "return liveWindowIDs", with: "return {liveWindowIDs, fixtureVisible of closedWindow}")
+        var error: NSDictionary?
+        let result = NSAppleScript(source: fixture + "\n" + snapshot)!.executeAndReturnError(&error)
+        expect(error == nil, "Stale window references must not abort a snapshot: \(error?.description ?? "")")
+        let ids = result.atIndex(1)
+        expect(ids?.numberOfItems == 2 && ids?.atIndex(1)?.int32Value == 12 && ids?.atIndex(2)?.int32Value == 14, "Snapshots must preserve live windows before and after stale, pending, nonnumeric, negative-ID and zero-tab windows")
+        expect(result.atIndex(2)?.booleanValue == false, "Snapshots must still hide zero-tab frames without closing live sessions")
+
+        for number in [-1743, -10000] {
+            let failingSnapshot = snapshot.replacingOccurrences(of: "set currentID to fixtureID of currentWindow", with: "error \"Unexpected window read failure\" number \(number)")
+            error = nil
+            _ = NSAppleScript(source: fixture + "\n" + failingSnapshot)!.executeAndReturnError(&error)
+            expect((error?[NSAppleScript.errorNumber] as? NSNumber)?.intValue == number, "Snapshot filtering must propagate permission failures and unexpected AppleEvent errors (\(number))")
+        }
     }
 
     @MainActor
