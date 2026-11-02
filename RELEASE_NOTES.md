@@ -1,3 +1,17 @@
+# TermYes v1.6.33
+
+## 简体中文
+
+- 修复按 `⌘O` 排列或轮转窗口时重新显示透明空窗口的问题。Terminal 会保留已关闭且没有标签页的窗口对象；TermYes 现在在读取窗口列表时过滤并隐藏这些空壳，不再占用布局位置。
+- 写入窗口布局前再次检查标签页，避免窗口在读取后关闭又被重新显示。保留原有终端会话及快捷键排列、轮转行为，不通过新建或关闭会话来清理空窗口。
+- 新增空窗口过滤、隐藏、无效 ID 和布局二次检查回归；同步当前主分支已有的菜单与定时继续更新。
+
+## English
+
+- Fix transparent empty windows reappearing when `⌘O` arranges or rotates Terminal windows. Terminal retains closed window objects with no tabs; TermYes now filters and hides those frames while reading the window list, without reserving layout slots for them.
+- Recheck tabs before applying a layout so a window closed after the snapshot cannot be shown again. Preserve existing terminal sessions and shortcut arrangement/rotation behavior; cleanup never creates or closes sessions.
+- Add regressions for empty-window filtering and hiding, invalid IDs, and the layout recheck. Include existing menu and scheduled-continue updates from the current main branch.
+
 # TermYes v1.6.32
 
 ## 简体中文

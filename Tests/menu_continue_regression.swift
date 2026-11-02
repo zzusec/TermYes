@@ -139,8 +139,22 @@ struct MenuContinueRegression {
         let scriptsAfterClose = scripts.count
         manager.closeAgentContinueWindows()
         expect(scripts.count == scriptsAfterClose, "Closing without a recorded continue round must not run a script")
+        result = .list()
+        result.insert(.init(int32: 12), at: 1)
+        result.insert(.null(), at: 2)
+        result.insert(.init(int32: -1), at: 3)
+        result.insert(.init(int32: 13), at: 4)
+        expect(manager.readTerminalWindowIDs() == [12, 13], "Window snapshots must retain live IDs and skip missing or invalid IDs")
+        let snapshotScript = scripts.last ?? ""
+        expect(snapshotScript.contains("if (count of tabs of currentWindow) > 0 then"), "Window snapshots must exclude closed zero-tab windows")
+        expect(snapshotScript.contains("else if visible of currentWindow then") && snapshotScript.contains("set visible of currentWindow to false"), "Already-visible zero-tab windows must be hidden")
+        expect(!snapshotScript.contains("close ") && !snapshotScript.contains("do script "), "Window snapshots must never close sessions or create terminals")
+        result = .list()
+        expect(manager.readTerminalWindowIDs() == [], "An empty snapshot must not reserve any layout slots")
+        result = .init(boolean: true)
         expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)]), "Layout script must compile")
         expect(scripts.last?.contains("try") == false, "Layout must not silently report success after per-window errors")
+        expect(scripts.last?.contains("if (count of tabs of currentWindow) > 0 then") == true, "Layout must recheck tabs before showing a window that may have closed after the snapshot")
         error = [NSAppleScript.errorNumber: -1743, NSAppleScript.errorMessage: "Not authorized"]
         expect(!manager.applyWindowLayout(windowIDs: [12], frames: [.zero]), "Denied automation must fail layout")
         expect(!manager.automationAuthorized && manager.phase == .needsAutomationPermission, "Permission denial must expose the automation-settings route")

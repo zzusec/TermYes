@@ -1,7 +1,20 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.32</h1>
+</style></head><body><h1>TermYes v1.6.33</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复按 <code>⌘O</code> 排列或轮转窗口时重新显示透明空窗口的问题。Terminal 会保留已关闭且没有标签页的窗口对象；TermYes 现在在读取窗口列表时过滤并隐藏这些空壳，不再占用布局位置。</li>
+<li>写入窗口布局前再次检查标签页，避免窗口在读取后关闭又被重新显示。保留原有终端会话及快捷键排列、轮转行为，不通过新建或关闭会话来清理空窗口。</li>
+<li>新增空窗口过滤、隐藏、无效 ID 和布局二次检查回归；同步当前主分支已有的菜单与定时继续更新。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Fix transparent empty windows reappearing when <code>⌘O</code> arranges or rotates Terminal windows. Terminal retains closed window objects with no tabs; TermYes now filters and hides those frames while reading the window list, without reserving layout slots for them.</li>
+<li>Recheck tabs before applying a layout so a window closed after the snapshot cannot be shown again. Preserve existing terminal sessions and shortcut arrangement/rotation behavior; cleanup never creates or closes sessions.</li>
+<li>Add regressions for empty-window filtering and hiding, invalid IDs, and the layout recheck. Include existing menu and scheduled-continue updates from the current main branch.</li>
+</ul>
+<h1>TermYes v1.6.32</h1>
 <h2>简体中文</h2>
 <ul>
 <li>菜单精简：顶部只保留自动排列、命令守卫、定时激活三个入口；「Agent 官方更新」并入「命令守卫」。更新检测状态、各 Agent 官方版本对比与手动触发收进统一入口，不再单列菜单。</li>

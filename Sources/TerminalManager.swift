@@ -365,9 +365,13 @@ final class TerminalManager: NSObject, ObservableObject {
             repeat with i from 1 to count of targetWindowIDs
                 set currentID to item i of targetWindowIDs
                 set currentWindow to first window whose id is currentID
-                set miniaturized of currentWindow to false
-                set visible of currentWindow to true
-                set bounds of currentWindow to item i of targetBounds
+                if (count of tabs of currentWindow) > 0 then
+                    set miniaturized of currentWindow to false
+                    set visible of currentWindow to true
+                    set bounds of currentWindow to item i of targetBounds
+                else
+                    set visible of currentWindow to false
+                end if
             end repeat
         end tell
         return count of targetBounds
@@ -395,8 +399,21 @@ final class TerminalManager: NSObject, ObservableObject {
         }
     }
 
-    private func readTerminalWindowIDs() -> [Int]? {
-        let source = "tell application id \"com.apple.Terminal\" to get id of every window"
+    func readTerminalWindowIDs() -> [Int]? {
+        // Terminal retains closed windows with no tabs; making them visible revives empty frames.
+        let source = """
+        set liveWindowIDs to {}
+        tell application id "com.apple.Terminal"
+            repeat with currentWindow in windows
+                if (count of tabs of currentWindow) > 0 then
+                    set end of liveWindowIDs to id of currentWindow
+                else if visible of currentWindow then
+                    set visible of currentWindow to false
+                end if
+            end repeat
+        end tell
+        return liveWindowIDs
+        """
         guard let result = executeAppleScript(source) else { return nil }
         guard result.numberOfItems > 0 else { return [] }
         // Terminal lists windows that are still materializing; their id comes back as
