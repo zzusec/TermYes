@@ -1,3 +1,15 @@
+# TermYes v1.6.35
+
+## 简体中文
+
+- 精简「命令守卫」菜单文案：删除每次检测的状态摘要行，缩短实测、修复、暂停和详情入口，菜单宽度从 539 点降到 204 点。
+- 保留全部原有功能与详情入口；「检查更新」照常执行检测，结果可在「更新详情…」查看。
+
+## English
+
+- Compact the Command Guard menu: drop the per-run status summary line and shorten the verify, repair, pause, and detail labels. Menu width falls from 539 to 204 points.
+- Keep every action and detail view; "Check for updates" still runs the check and reports results under "Update details…".
+
 # TermYes v1.6.34
 
 ## 简体中文

@@ -201,32 +201,32 @@ struct TermYesApp: App {
                 shortcutMenuContent
             }
             Menu("命令守卫") {
-                Button(agentGuard.isWorking ? "正在全面实测…" : "全面实测（会产生模型请求）") {
+                Button(agentGuard.isWorking ? "实测中…" : "全部实测（模型请求）") {
                     agentGuard.verifyAll()
                 }
                 .disabled(agentGuard.isWorking || detectedAgents.isEmpty)
                 if configuredAgentCount < detectedAgents.count {
-                    Button(agentGuard.isWorking ? "正在修复…" : "修复配置未就绪（\(detectedAgents.count - configuredAgentCount)）") {
+                    Button(agentGuard.isWorking ? "修复中…" : "修复配置（\(detectedAgents.count - configuredAgentCount)）") {
                         agentGuard.repairUnready()
                     }
                     .disabled(agentGuard.isWorking)
                 }
-                Button("刷新配置与实测记录") { agentGuard.refresh() }
+                Button("刷新状态") { agentGuard.refresh() }
                     .disabled(agentGuard.isWorking)
                 Divider()
                 ForEach(orderedDetectedAgents) { client in
                     Menu {
                         Text(agentVersionDetail(client))
-                        Text("命令守卫：" + agentStatusText(client))
+                        Text(agentStatusText(client))
                         Divider()
                         if client.isGuardPaused {
-                            Button("重新开启命令守卫") { agentGuard.resume(client) }
+                            Button("恢复守卫") { agentGuard.resume(client) }
                         } else {
-                            Button("暂停命令守卫 15 分钟") { agentGuard.pause(client, minutes: 15) }
-                            Button("暂停命令守卫 1 小时") { agentGuard.pause(client, minutes: 60) }
+                            Button("暂停 15 分钟") { agentGuard.pause(client, minutes: 15) }
+                            Button("暂停 1 小时") { agentGuard.pause(client, minutes: 60) }
                         }
                         Divider()
-                        Button("实测此 Agent（会产生模型请求）") {
+                        Button("实测（模型请求）") {
                             if client.liveStatus == "unsupported" {
                                 showIssue("\(client.name) 尚未实测", detail: client.liveReason ?? "该客户端暂不支持端到端验证，不能标为就绪。")
                             } else {
@@ -235,7 +235,7 @@ struct TermYesApp: App {
                         }
                         .disabled(client.isGuardPaused)
                         if !isAgentConfigured(client) {
-                            Button("修复此 Agent 配置") { agentGuard.repair(client) }
+                            Button("修复配置") { agentGuard.repair(client) }
                         }
                     } label: {
                         Label(agentVersionText(client), systemImage: agentStatusIcon(client))
@@ -243,22 +243,21 @@ struct TermYesApp: App {
                     .disabled(agentGuard.isWorking)
                 }
                 Divider()
-                Text("危险命令清单 v\(agentGuard.clients.first?.policyVersion ?? 0)\(agentGuard.clients.first?.policyError == true ? " · 异常" : "")")
-                Button("更新危险命令清单") { agentGuard.checkPolicy() }
+                Text("危险清单 v\(agentGuard.clients.first?.policyVersion ?? 0)\(agentGuard.clients.first?.policyError == true ? " · 异常" : "")")
+                Button("更新清单") { agentGuard.checkPolicy() }
                     .disabled(agentGuard.isWorking)
                 Divider()
-                Text("\(agentAutoUpdate.lastRunDescription) · \(agentAutoUpdate.message)")
-                Button(agentAutoUpdate.isRunning ? "正在检测并更新…" : "立即检测并更新 Agent 与插件") {
+                Button(agentAutoUpdate.isRunning ? "更新中…" : "检查更新") {
                     agentAutoUpdate.runNow()
                 }
                 .disabled(agentAutoUpdate.isRunning)
                 if !agentAutoUpdate.details.isEmpty {
-                    Button("查看全部更新详情…") {
+                    Button("更新详情…") {
                         showIssue("Agent 与插件更新详情", detail: agentAutoUpdate.details)
                     }
                 }
                 Divider()
-                Button("查看 Agent 状态与实测详情…") {
+                Button("状态详情…") {
                     showIssue("Agent 检查结果", detail: agentGuard.diagnosticDetails)
                 }
             }
