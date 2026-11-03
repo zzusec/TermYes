@@ -46,6 +46,7 @@ sources=(
   "$ROOT/Sources/ScheduledContinueController.swift"
   "$ROOT/Sources/UpdateController.swift"
   "$ROOT/Sources/LaunchAtLoginController.swift"
+  "$ROOT/Sources/MenuPresentation.swift"
   "$ROOT/Sources/TermYesApp.swift"
 )
 

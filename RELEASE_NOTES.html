@@ -1,7 +1,20 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.36</h1>
+</style></head><body><h1>TermYes v1.6.37</h1>
+<h2>简体中文</h2>
+<ul>
+<li>去掉「状态详情…」；危险清单与 Agent 更新收进「更新」子菜单，检查更新文案缩短。</li>
+<li>严格限制展开宽高：菜单不超过 280×320，标题超宽截断，Agent 每页 6 个，详情固定 320×140 滚动。命令守卫由 390 点高降到 272 点。</li>
+<li>新增原生命单尺寸、分页和详情窗口回归。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Remove "Status details…"; move the danger list and Agent updates under Updates, and shorten the check-for-updates label.</li>
+<li>Bound expanded UI: menus stay within 280×320, wide titles truncate, Agents paginate 6 per page, and details use a fixed 320×140 scroller. Command Guard height falls from 390 to 272 points.</li>
+<li>Add regressions for native menu size, pagination, and the bounded detail window.</li>
+</ul>
+<h1>TermYes v1.6.36</h1>
 <h2>简体中文</h2>
 <ul>
 <li>补上 pi 扩展自动更新：定时检测与「检查更新」都会运行 <code>pi update --extensions --no-approve</code>，本体已是最新版时也会检查扩展，不自动信任项目包。</li>

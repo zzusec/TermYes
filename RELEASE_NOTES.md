@@ -1,3 +1,17 @@
+# TermYes v1.6.37
+
+## 简体中文
+
+- 去掉「状态详情…」；危险清单与 Agent 更新收进「更新」子菜单，检查更新文案缩短。
+- 严格限制展开宽高：菜单不超过 280×320，标题超宽截断，Agent 每页 6 个，详情固定 320×140 滚动。命令守卫由 390 点高降到 272 点。
+- 新增原生命单尺寸、分页和详情窗口回归。
+
+## English
+
+- Remove "Status details…"; move the danger list and Agent updates under Updates, and shorten the check-for-updates label.
+- Bound expanded UI: menus stay within 280×320, wide titles truncate, Agents paginate 6 per page, and details use a fixed 320×140 scroller. Command Guard height falls from 390 to 272 points.
+- Add regressions for native menu size, pagination, and the bounded detail window.
+
 # TermYes v1.6.36
 
 ## 简体中文

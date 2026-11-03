@@ -23,6 +23,7 @@ def main():
         ('agent-readiness', ['Sources/AgentGuardController.swift', 'Tests/AgentGuardReadinessTests.swift']),
         ('login-items', ['Sources/LaunchAtLoginController.swift', 'Tests/LoginItemTests.swift']),
         ('agent-update-report', ['Sources/AgentAutoUpdateController.swift', 'Tests/AgentUpdateReportTests.swift']),
+        ('menu-presentation', ['Sources/MenuPresentation.swift', 'Tests/MenuPresentationTests.swift']),
         ('menu-continue', ['Sources/GridLayout.swift', 'Sources/ContinueSchedule.swift', 'Sources/TerminalManager.swift', 'Sources/GlobalHotKeyController.swift', 'Sources/ScheduledContinueController.swift', 'Tests/menu_continue_regression.swift']),
     ]
     commands = []
@@ -30,7 +31,7 @@ def main():
         for name, sources in suites:
             binary = str(Path(temp) / name)
             commands.extend([(name + ' build', ['swiftc', *sources, '-o', binary]), (name, [binary])])
-        for test in ('test_agent_guard.py', 'test_permission_modes.py', 'test_policy_update.py', 'test_quiet_hours.py', 'test_strict_policy.py', 'test_shell_syntax.py', 'test_agent_updates.py', 'test_guard_pause.py'):
+        for test in ('test_agent_guard.py', 'test_permission_modes.py', 'test_policy_update.py', 'test_quiet_hours.py', 'test_strict_policy.py', 'test_shell_syntax.py', 'test_agent_updates.py', 'test_guard_pause.py', 'test_menu_copy.py'):
             commands.append((test, ['/usr/bin/python3', '-B', 'Tests/' + test]))
         commands.extend([
             ('danger-list', ['bash', 'AgentGuard/test.sh']),

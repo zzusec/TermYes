@@ -35,6 +35,10 @@ jobs:
           /tmp/termyes-login-tests
           swiftc Sources/AgentAutoUpdateController.swift Tests/AgentUpdateReportTests.swift -o /tmp/termyes-report-tests
           /tmp/termyes-report-tests
+      - name: Test compact menu presentation
+        run: |
+          swiftc Sources/MenuPresentation.swift Tests/MenuPresentationTests.swift -o /tmp/termyes-menu-presentation-tests
+          /tmp/termyes-menu-presentation-tests
       - name: Test Agent guards and scheduled continue
         run: |
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_guard.py
@@ -45,6 +49,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_quiet_hours.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_updates.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_guard_pause.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_menu_copy.py
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
           node Tests/test_guard_plugins.mjs
