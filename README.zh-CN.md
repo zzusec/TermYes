@@ -23,7 +23,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 - **减少桌面干扰。** 窗口一起显示或隐藏，包含最小化窗口，内部进程继续运行。不显示 Dock 图标，不嵌入 Shell，不创建常驻控制窗口，也不调整其他应用的窗口。
 - **快捷键呼出。** 可配置全局快捷键，默认 `⌘O`；若要保留其他应用的“打开”命令，请修改它。
 - **统一管理 Agent 安全。** TermYes 启动时及此后每 5 分钟检查已检测到的 Agent，维护 YOLO/等效权限模式并安装、更新危险 Shell 命令守卫；被外部修改的守卫不会自动覆盖。
-- **以实测确认 Agent 状态。** 展开「命令守卫」可分别查看配置、真实请求与守卫加载结果。只有 YOLO/等效免确认、安全 Shell 执行和客户端实际调用守卫均通过，才显示勾选；安装文件或修复配置不等于就绪。单项和全面实测会产生模型请求，失败原因可查看、滚动与复制。
+- **以实测确认 Agent 状态。** 启动后及定时检测完成后自动实测尚未通过的 Agent，也可手动再测。只有 YOLO/等效免确认、安全 Shell 执行和客户端实际调用守卫均通过，才显示勾选；安装文件或修复配置不等于就绪。实测会产生模型请求。
 - **启动前尽力检查。** 新开的 zsh 终端会在启动 Agent 前检查守卫配置与 YOLO；检查失败只警告，仍以免确认模式继续启动。守卫文件就绪不等于客户端实际加载并信任 Hook。
 - **应用内更新。** 通过公开 GitHub Release 跳转检查版本（不占用匿名 API 配额），下载对应版本的安装包，验证校验和与应用签名，保留备份后替换并重新启动。
 - **Agent 官方版本与自动升级。**「Agent 官方更新」逐项展示本机版本、官方最新版、升级结果与来源；启动及每 30 分钟检查，有新版时按当前安装渠道升级。第三方发行包明确标注来源；未知、不支持或失败不会显示为最新。
@@ -34,7 +34,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 
 支持 **macOS 13+**，同时提供 Apple Silicon 与 Intel 架构。
 
-1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；v1.6.37 构建产物位于 `dist/TermYes-v1.6.37-macOS.dmg`。
+1. 从 [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest) 下载已发布版本；v1.6.38 构建产物位于 `dist/TermYes-v1.6.38-macOS.dmg`。
 2. 打开安装包，将 **TermYes.app** 拖入 **Applications**。
 3. 启动 TermYes，按提示允许控制 Terminal：
    **系统设置 → 隐私与安全性 → 自动化 → TermYes → Terminal**。
@@ -49,7 +49,7 @@ TermYes 将 **Termosaic 的终端画布**与 **bypass-yes 的命令守卫**整�
 GitHub 仓库现更名为 **`zzusec/TermYes`**。旧的 Termosaic 链接会重定向到新仓库；Bundle ID、配置目录和兼容安装包名称保持不变。
 
 - Bundle ID、已保存偏好、守卫运行目录和恢复记录沿用原标识，不因改名主动清空；macOS 仍可能再次请求自动化权限。
-- v1.6.37 另有 **`Termosaic-v1.6.37-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
+- v1.6.38 另有 **`Termosaic-v1.6.38-macOS.dmg` 旧版更新兼容包**。二者包含相同的已签名 TermYes 应用，仅外层应用目录名对应不同更新器的预期；发布版本时与正式安装包一同上传。
 - 自动升级后，安装目录可能仍叫 `Termosaic.app`，应用显示名称则为 **TermYes**。请勿同时运行新旧两个副本。
 - 安装守卫不会删除原 bypass-yes 仓库；新安装的运行文件不再依赖该仓库。
 

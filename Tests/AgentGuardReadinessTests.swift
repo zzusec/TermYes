@@ -39,6 +39,29 @@ struct AgentGuardReadinessTests {
         for key in ["liveStatus", "requestStatus", "guardLiveStatus"] { legacy.removeValue(forKey: key) }
         let item = try JSONDecoder().decode(AgentGuardClient.self, from: JSONSerialization.data(withJSONObject: legacy))
         precondition(item.configurationReady && !item.isVerified)
+        precondition(verified.needsAutomaticVerification == false)
+        let untested = try client(["liveStatus": "untested"])
+        let stale = try client(["liveStatus": "stale"])
+        let unsupported = try client(["liveStatus": "unsupported"])
+        precondition(untested.needsAutomaticVerification && stale.needsAutomaticVerification)
+        precondition(unsupported.needsAutomaticVerification == false)
+        precondition(paused.needsAutomaticVerification == false)
+        let recentFail = ISO8601DateFormatter()
+        recentFail.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let tenMinutesAgo = try client(["liveStatus": "failed", "liveCheckedAt": recentFail.string(from: Date().addingTimeInterval(-10 * 60))])
+        let twoHoursAgo = try client(["liveStatus": "failed", "liveCheckedAt": recentFail.string(from: Date().addingTimeInterval(-2 * 60 * 60))])
+        precondition(tenMinutesAgo.needsAutomaticVerification == false)
+        precondition(twoHoursAgo.needsAutomaticVerification)
+        let pythonStamp = DateFormatter()
+        pythonStamp.locale = Locale(identifier: "en_US_POSIX")
+        pythonStamp.timeZone = TimeZone(secondsFromGMT: 0)
+        pythonStamp.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX"
+        let pythonRecent = try client(["liveStatus": "failed", "liveCheckedAt": pythonStamp.string(from: Date().addingTimeInterval(-10 * 60))])
+        let pythonOld = try client(["liveStatus": "failed", "liveCheckedAt": "2026-11-02T15:27:08.928854+00:00"])
+        let undetected = try client(["detected": false, "liveStatus": "untested"])
+        precondition(pythonRecent.needsAutomaticVerification == false)
+        precondition(pythonOld.needsAutomaticVerification)
+        precondition(undetected.needsAutomaticVerification == false)
         print("Agent readiness regression passed: config alone never certifies a running YOLO Agent.")
     }
 }

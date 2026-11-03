@@ -26,6 +26,7 @@ SOURCE = Path(__file__).resolve().parent
 LIVE_MARKER = "TERMYES_AGENT_OK"
 VERIFY_TIMEOUT_SECONDS = 120
 VERIFY_MAX_AGE_SECONDS = 24 * 60 * 60
+AUTO_VERIFY_RETRY_SECONDS = 60 * 60
 
 CLIENTS = {
     "claude": ("Claude Code", ".claude", "settings.json", "danger-guard.py"),
@@ -972,11 +973,51 @@ def verify_all(home):
     return verify_clients(home)
 
 
+def _live_checked_at(raw):
+    if not raw:
+        return None
+    try:
+        checked = datetime.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=datetime.timezone.utc)
+    return checked
+
+
+def needs_auto_verify(item, now=None):
+    if not item.get("detected") or item.get("guardPaused"):
+        return False
+    configured = item["guardConfigured"] if "guardConfigured" in item else item.get("guardReady")
+    if not item.get("permissionReady") or not configured or item.get("serviceError"):
+        return False
+    status = item.get("liveStatus") or "untested"
+    if status in ("passed", "paused", "unsupported"):
+        return False
+    if status == "failed":
+        checked = _live_checked_at(item.get("liveCheckedAt"))
+        if checked is not None:
+            now = now or datetime.datetime.now(datetime.timezone.utc)
+            age = (now - checked).total_seconds()
+            if 0 <= age < AUTO_VERIFY_RETRY_SECONDS:
+                return False
+        return True
+    return status in ("untested", "stale")
+
+
+def verify_pending(home):
+    items = status(home)
+    selected = [item["id"] for item in items if needs_auto_verify(item)]
+    if not selected:
+        return items, {}
+    return verify_clients(home, selected)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "pause-client", "resume-client"),
+        choices=("status", "install", "uninstall", "reconcile", "enable-yolo", "monitor", "ensure", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "verify-pending", "pause-client", "resume-client"),
     )
     parser.add_argument("client", nargs="?", choices=CLIENTS)
     parser.add_argument("--minutes", type=int, choices=(15, 60), default=60)
@@ -1014,11 +1055,15 @@ def main():
         if failures:
             sys.exit(1)
         return
-    if args.action in ("verify", "verify-client"):
+    if args.action in ("verify", "verify-client", "verify-pending"):
         if args.action == "verify-client" and not args.client:
             parser.error("client required")
-        clients, failures = (verify_clients(args.home, [args.client])
-                             if args.action == "verify-client" else verify_all(args.home))
+        if args.action == "verify-pending":
+            clients, failures = verify_pending(args.home)
+        elif args.action == "verify-client":
+            clients, failures = verify_clients(args.home, [args.client])
+        else:
+            clients, failures = verify_all(args.home)
         print(json.dumps(clients, ensure_ascii=False))
         if failures:
             sys.exit(1)

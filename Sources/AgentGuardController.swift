@@ -48,6 +48,39 @@ struct AgentGuardClient: Decodable, Identifiable {
         configurationReady && !isGuardPaused && liveStatus == "passed" && requestStatus == "passed"
             && guardLiveStatus == "passed"
     }
+
+    var needsAutomaticVerification: Bool {
+        guard configurationReady, !isGuardPaused else { return false }
+        switch liveStatus {
+        case "passed", "paused", "unsupported":
+            return false
+        case "failed":
+            guard let checked = Self.parseLiveCheckedAt(liveCheckedAt) else { return true }
+            let age = Date().timeIntervalSince(checked)
+            return age < 0 || age >= 60 * 60
+        default:
+            return true
+        }
+    }
+
+    private static func parseLiveCheckedAt(_ raw: String?) -> Date? {
+        guard var raw, !raw.isEmpty else { return nil }
+        if raw.hasSuffix("Z") { raw.replaceSubrange(raw.index(raw.endIndex, offsetBy: -1)..., with: "+00:00") }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: raw) { return date }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: raw) { return date }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX", "yyyy-MM-dd'T'HH:mm:ssXXXXX"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: raw) { return date }
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -79,6 +112,8 @@ final class AgentGuardController: ObservableObject {
     }
     func resume(_ client: AgentGuardClient) { run("resume-client", client: client.id) }
 
+    private static let autoVerifyAfter = Set(["monitor", "repair-unready", "repair-client", "resume-client"])
+
     @objc private func checkAgain() { run("monitor") }
 
     var diagnosticDetails: String {
@@ -109,7 +144,7 @@ final class AgentGuardController: ObservableObject {
         isWorking = true
         message = action == "status"
             ? "正在检测 Agent 权限与守卫配置…"
-            : action == "verify" || action == "verify-client"
+            : action == "verify" || action == "verify-client" || action == "verify-pending"
                 ? "正在真实请求 Agent 并验证免确认与命令守卫…"
                 : action == "monitor" || action == "repair-unready" || action == "repair-client"
                     ? "正在检查并修复 Agent YOLO 与命令守卫…"
@@ -120,7 +155,7 @@ final class AgentGuardController: ObservableObject {
                 Self.execute(arguments)
             }.value
             details = String(decoding: result.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            let statusActions = ["status", "monitor", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "pause-client", "resume-client"]
+            let statusActions = ["status", "monitor", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "verify-pending", "pause-client", "resume-client"]
             if statusActions.contains(action) {
                 do {
                     clients = try JSONDecoder().decode([AgentGuardClient].self, from: result.1)
@@ -154,7 +189,7 @@ final class AgentGuardController: ObservableObject {
                         message = "\(failed.name) 未修复：\(failed.serviceError ?? (failed.permissionReady ? failed.guardReason : failed.permissionReason))"
                     } else if action == "repair-client" {
                         message = "\(repaired?.name ?? client ?? "Agent") 未修复：\(failed?.serviceError ?? failed?.guardReason ?? "未获取到就绪状态")"
-                    } else if action == "verify" || action == "verify-client" {
+                    } else if action == "verify" || action == "verify-client" || action == "verify-pending" {
                         let tested = action == "verify-client"
                             ? detected.filter { $0.id == client }
                             : detected.filter { !$0.isGuardPaused }
@@ -189,6 +224,10 @@ final class AgentGuardController: ObservableObject {
                 }
             }
             isWorking = false
+            if Self.autoVerifyAfter.contains(action),
+               clients.contains(where: \.needsAutomaticVerification) {
+                run("verify-pending")
+            }
         }
     }
 

@@ -1,3 +1,15 @@
+# TermYes v1.6.38
+
+## 简体中文
+
+- 启动后以及定时检测完成后自动实测尚未通过的 Agent，不必再点菜单。已通过的不重复；暂停、暂不支持和配置未就绪的不测；失败一小时后再试。
+- 仍可手动「全部实测」或对单个 Agent 再测。新增自动实测对象选择与冷却回归。
+
+## English
+
+- After launch and each scheduled configuration check, automatically verify Agents that are not yet passing. Skip passed, paused, unsupported, and unconfigured Agents; retry failures after one hour.
+- Manual "Verify all" and per-Agent verify remain. Add regressions for pending selection and failure cooldown.
+
 # TermYes v1.6.37
 
 ## 简体中文

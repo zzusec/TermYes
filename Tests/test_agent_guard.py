@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local classification/protocol/migration checks; never run the command strings or an agent."""
 import base64
+import datetime
 import fcntl
 import json
 import os
@@ -1152,5 +1153,59 @@ with mock.patch.dict(os.environ, {core.GUARD_PROBE_TOKEN_ENV: "", core.GUARD_PRO
     finally:
         authorization.unlink(missing_ok=True)
         receipt.unlink(missing_ok=True)
+
+now = datetime.datetime(2026, 11, 3, 12, 0, tzinfo=datetime.timezone.utc)
+
+def auto_item(**changes):
+    item = {
+        "id": "claude",
+        "detected": True,
+        "guardPaused": False,
+        "permissionReady": True,
+        "guardReady": True,
+        "guardConfigured": True,
+        "liveStatus": "untested",
+    }
+    item.update(changes)
+    return item
+
+check(manage.needs_auto_verify(auto_item()), "untested ready Agent is auto-verified")
+check(manage.needs_auto_verify(auto_item(liveStatus="stale")), "stale ready Agent is auto-verified")
+check(not manage.needs_auto_verify(auto_item(liveStatus="passed")), "passed Agent is not auto-verified")
+check(not manage.needs_auto_verify(auto_item(liveStatus="unsupported")), "unsupported Agent is not auto-verified")
+check(not manage.needs_auto_verify(auto_item(guardPaused=True)), "paused Agent is not auto-verified")
+check(not manage.needs_auto_verify(auto_item(detected=False)), "undetected Agent is not auto-verified")
+check(not manage.needs_auto_verify(auto_item(permissionReady=False)), "unconfigured Agent is not auto-verified")
+check(manage.needs_auto_verify(auto_item(liveStatus="failed"), now=now),
+      "failed Agent without a timestamp is retried")
+check(not manage.needs_auto_verify(
+        auto_item(liveStatus="failed", liveCheckedAt=(now - datetime.timedelta(minutes=10)).isoformat()),
+        now=now),
+      "recent failed Agent is not retried every monitor cycle")
+check(manage.needs_auto_verify(
+        auto_item(liveStatus="failed", liveCheckedAt=(now - datetime.timedelta(hours=2)).isoformat()),
+        now=now),
+      "failed Agent is retried after the cooldown")
+
+with tempfile.TemporaryDirectory(prefix="termyes-verify-pending-") as tmp:
+    home = Path(tmp).resolve()
+    pending = auto_item(id="claude", liveStatus="untested")
+    current = auto_item(id="pi", liveStatus="passed")
+    skipped = auto_item(id="agy", liveStatus="unsupported")
+    with mock.patch.object(manage, "status", return_value=[pending, current, skipped]), \
+            mock.patch.object(manage, "verify_clients", return_value=([pending, current, skipped], {})) as verify:
+        clients, failures = manage.verify_pending(home)
+    check(verify.call_args.args[1] == ["claude"] and not failures and clients[1]["id"] == "pi",
+          "verify_pending requests only Agents that still need automatic verification")
+
+with tempfile.TemporaryDirectory(prefix="termyes-verify-pending-empty-") as tmp:
+    home = Path(tmp).resolve()
+    current = auto_item(liveStatus="passed")
+    with mock.patch.object(manage, "status", return_value=[current]), \
+            mock.patch.object(manage, "verify_clients") as verify, \
+            mock.patch.object(manage.subprocess, "Popen") as launch:
+        clients, failures = manage.verify_pending(home)
+    check(clients == [current] and not failures and not verify.called and not launch.called,
+          "verify_pending is a no-op when every Agent is already verified")
 
 print(f"Agent guard checks passed: {checks}; 13 adapters; real client/YOLO validation NOT performed.")
