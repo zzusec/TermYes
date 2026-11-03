@@ -281,6 +281,50 @@ class AgentUpdateTests(unittest.TestCase):
             self.assertEqual(updates.update_plugins("codex"), [])
         run.assert_not_called()
 
+    def test_pi_extensions_use_official_command_without_updating_self(self):
+        with patch.object(updates, "cli_command", return_value=["/fake/pi"]), \
+                patch.object(updates, "supported_command", return_value=True) as supported, \
+                patch.object(updates, "run", return_value=(True, "Updated packages")) as run:
+            items = updates.update_plugins("pi")
+        supported.assert_called_once_with(["/fake/pi"], ["update", "--extensions"])
+        run.assert_called_once_with(["/fake/pi", "update", "--extensions", "--no-approve"])
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["ok"])
+        self.assertFalse(items[0]["changed"], "A generic success message does not prove a version changed")
+        self.assertEqual(items[0]["detail"], "Updated packages")
+
+    def test_pi_extension_update_failure_is_reported(self):
+        with patch.object(updates, "cli_command", return_value=["/fake/pi"]), \
+                patch.object(updates, "supported_command", return_value=True), \
+                patch.object(updates, "run", return_value=(False, "registry unreachable")):
+            items = updates.update_plugins("pi")
+        self.assertEqual(len(items), 1)
+        self.assertFalse(items[0]["ok"])
+        self.assertFalse(items[0]["changed"])
+        self.assertIn("registry unreachable", items[0]["detail"])
+
+    def test_unsupported_pi_extension_command_is_not_executed(self):
+        with patch.object(updates, "cli_command", return_value=["/fake/pi"]), \
+                patch.object(updates, "supported_command", return_value=False) as supported, \
+                patch.object(updates, "run") as run:
+            self.assertEqual(updates.update_plugins("pi"), [])
+        supported.assert_called_once_with(["/fake/pi"], ["update", "--extensions"])
+        run.assert_not_called()
+
+    def test_pi_extensions_are_updated_even_when_cli_is_current(self):
+        item = {"client": "pi", "target": "CLI", "ok": True, "changed": False, "status": "upToDate"}
+        with patch.object(updates.permission_modes, "is_detected", side_effect=lambda home, client: client == "pi"), \
+                patch.object(updates, "check_client", return_value=item), \
+                patch.object(updates, "apply_update") as apply_update, \
+                patch.object(updates, "cli_command", return_value=["/fake/pi"]), \
+                patch.object(updates, "supported_command", return_value=True), \
+                patch.object(updates, "run", return_value=(True, "Already up to date")) as run:
+            report = updates.build_report()
+        apply_update.assert_called_once_with(item)
+        run.assert_called_once_with(["/fake/pi", "update", "--extensions", "--no-approve"])
+        self.assertEqual(len(report["items"]), 2)
+        self.assertTrue(all(entry["ok"] and not entry["changed"] for entry in report["items"]))
+
     def test_plugin_update_success_text_does_not_claim_version_changed(self):
         self.assertFalse(updates.changed_from_output("Marketplace updated successfully"))
         self.assertFalse(updates.changed_from_output("Already up to date"))

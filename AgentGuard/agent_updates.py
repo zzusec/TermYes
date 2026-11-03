@@ -47,6 +47,7 @@ NATIVE_UPDATE = {
 PLUGIN_UPDATE_ALL = {
     "codex": [["plugin", "marketplace", "upgrade"]],
     "opencode": [["plugin", "update"]],
+    "pi": [["update", "--extensions", "--no-approve"]],
     "zcode": [["plugins", "marketplace", "update"], ["plugins", "update"]],
 }
 PLUGIN_LIST_ARGS = {"claude": ["plugin", "list"], "codebuddy": ["plugin", "list"], "qoder": ["plugins", "list"]}

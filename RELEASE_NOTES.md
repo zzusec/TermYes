@@ -1,3 +1,15 @@
+# TermYes v1.6.36
+
+## 简体中文
+
+- 补上 pi 扩展自动更新：定时检测与「检查更新」都会运行 `pi update --extensions --no-approve`，本体已是最新版时也会检查扩展，不自动信任项目包。
+- 新增更新成功、失败、命令不支持及本体无更新时的回归；未确认版本变化时不计为已升级。
+
+## English
+
+- Update pi extensions during scheduled and manual Agent updates with `pi update --extensions --no-approve`, even when pi itself is current, without granting project trust.
+- Add regressions for success, failure, unsupported commands, and an already-current CLI. Do not claim version changes from generic success output.
+
 # TermYes v1.6.35
 
 ## 简体中文
