@@ -19,10 +19,12 @@ struct MenuContinueRegression {
     static func main() async throws {
         scheduleReconfirmation()
         try terminalScripts()
+        terminalLayoutSnapshots()
+        terminalPollingLifecycle()
         shortcutFailures()
         try await scheduledContinue()
         try receiptValidation()
-        print("Menu continue regression tests passed (Terminal script compilation/error handling, shortcuts, schedule persistence/cancellation, dedicated-window receipts, explicit schedule reconfirmation/next timer date, fake requests/timeouts).")
+        print("Menu continue regression tests passed (Terminal scripts, complete layout snapshots/recovery, activation/hide/new/close lifecycle, shortcuts, schedule persistence/cancellation, dedicated-window receipts, explicit schedule reconfirmation/next timer date, fake requests/timeouts).")
     }
 
     @MainActor
@@ -154,9 +156,11 @@ struct MenuContinueRegression {
         result = .list()
         expect(manager.readTerminalWindowIDs() == [], "An empty snapshot must not reserve any layout slots")
         result = .init(boolean: true)
-        expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)]), "Layout script must compile")
+        expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)], nextWindowSize: CGSize(width: 500, height: 400)), "Layout script with next-window sizing must compile")
         expect(scripts.last?.contains("try") == false, "Layout must not silently report success after per-window errors")
         expect(scripts.last?.contains("if (count of tabs of currentWindow) > 0 then") == true, "Layout must recheck tabs before showing a window that may have closed after the snapshot")
+        expect(scripts.last?.contains("if not (visible of currentWindow) then") == true && scripts.last?.contains("if miniaturized of currentWindow then") == true, "Layout must not unconditionally re-show already-visible windows above frontmost apps")
+        expect(scripts.last?.contains("set number of columns of default settings to nextCols") == true && scripts.last?.contains("set number of rows of default settings to nextRows") == true, "Layout must pre-size default settings to the (N+1)th grid slot")
         error = [NSAppleScript.errorNumber: -1743, NSAppleScript.errorMessage: "Not authorized"]
         expect(!manager.applyWindowLayout(windowIDs: [12], frames: [.zero]), "Denied automation must fail layout")
         expect(!manager.automationAuthorized && manager.phase == .needsAutomationPermission, "Permission denial must expose the automation-settings route")
@@ -171,6 +175,146 @@ struct MenuContinueRegression {
         result = .init(string: "")
         _ = manager.applyWindowLayout(windowIDs: [12], frames: [.zero])
         expect(manager.automationAuthorized, "A successful automation call must clear the permission-denied flag")
+    }
+
+    @MainActor
+    static func terminalLayoutSnapshots() {
+        var liveIDs = [12, 13]
+        var candidateIDs: Set<Int>? = [12, 13]
+        var layouts: [String] = []
+        var layoutError: NSDictionary?
+        let manager = TerminalManager(scriptExecutor: { source in
+            if source.contains("return liveWindowIDs") {
+                let result = NSAppleEventDescriptor.list()
+                for (index, id) in liveIDs.enumerated() {
+                    result.insert(.init(int32: Int32(id)), at: index + 1)
+                }
+                return (result, nil)
+            }
+            layouts.append(source)
+            return (.init(boolean: true), layoutError)
+        }, windowServerSnapshot: {
+            candidateIDs
+        }, visibleFrame: {
+            CGRect(x: 0, y: 0, width: 1200, height: 800)
+        })
+
+        manager.tileTerminalWindows()
+        expect(layouts.count == 1 && manager.terminalWindowCount == 2, "Two live windows must produce a two-window layout")
+        let originalLayout = layouts.last
+
+        liveIDs = [12]
+        for _ in 0..<15 { manager.tileTerminalWindows() }
+        expect(layouts.count == 1 && manager.terminalWindowCount == 2, "Even after repeated retries, an incomplete snapshot must preserve the existing two-window layout instead of maximizing one window")
+
+        liveIDs = [12, 14]
+        manager.tileTerminalWindows()
+        expect(layouts.count == 1, "Matching counts with different window IDs must not pass snapshot validation")
+
+        liveIDs = [13, 12]
+        manager.tileTerminalWindows()
+        expect(layouts.count == 2 && layouts.last == originalLayout, "Recovery with the same Window Server candidates must restore both windows and preserve their original order")
+
+        candidateIDs = [12]
+        manager.tileTerminalWindows(force: false)
+        expect(layouts.count == 2 && manager.terminalWindowCount == 2, "Minimizing a window or changing Spaces must not force an unchanged set of live windows back onscreen")
+
+        candidateIDs = []
+        liveIDs = [12]
+        manager.tileTerminalWindows(force: false)
+        expect(layouts.count == 2, "Passive polling with zero onscreen candidates must not maximize a partial or minimized window set")
+        liveIDs = [13, 12]
+
+        candidateIDs = [12]
+        liveIDs = [12]
+        manager.tileTerminalWindows()
+        expect(layouts.count == 3 && manager.terminalWindowCount == 1, "A genuinely closed window must allow the remaining window to fill the screen")
+
+        // A minimized/offscreen live Terminal still occupies a slot when the canvas is shown.
+        liveIDs = [12, 13]
+        manager.tileTerminalWindows()
+        expect(layouts.count == 4 && manager.terminalWindowCount == 2, "Live offscreen or minimized windows must remain part of the layout")
+
+        candidateIDs = nil
+        liveIDs = [12]
+        manager.tileTerminalWindows()
+        expect(layouts.count == 4 && manager.terminalWindowCount == 2, "An unavailable Window Server snapshot must not shrink the layout")
+
+        candidateIDs = []
+        liveIDs = []
+        manager.tileTerminalWindows()
+        expect(layouts.count == 4 && manager.terminalWindowCount == 0, "Closing all windows must clear the count without writing a layout")
+
+        candidateIDs = [12]
+        liveIDs = [12]
+        layoutError = [NSAppleScript.errorNumber: -10000, NSAppleScript.errorMessage: "Window write failed"]
+        manager.tileTerminalWindows()
+        expect(manager.phase == .error("Terminal 自动化失败：Window write failed"), "Snapshot validation must not hide actual layout write failures")
+        layoutError = nil
+        manager.tileTerminalWindows()
+        expect(manager.phase == .visible && layouts.count == 6, "A failed layout must remain retryable with unchanged window candidates")
+
+        layoutError = [NSAppleScript.errorNumber: -10000, NSAppleScript.errorMessage: "Window write failed again"]
+        manager.tileTerminalWindows()
+        layoutError = nil
+        expect(manager.tileTerminalWindows(force: false) && manager.phase == .visible && layouts.count == 8, "Polling must retry a failed forced layout even when the same windows were previously laid out successfully")
+    }
+
+    @MainActor
+    static func terminalPollingLifecycle() {
+        var liveIDs = [12, 13]
+        var candidateIDs: Set<Int> = [12, 13]
+        var layoutWrites = 0
+        let manager = TerminalManager(scriptExecutor: { source in
+            if source.contains("return liveWindowIDs") {
+                let result = NSAppleEventDescriptor.list()
+                for (index, id) in liveIDs.enumerated() {
+                    result.insert(.init(int32: Int32(id)), at: index + 1)
+                }
+                return (result, nil)
+            }
+            layoutWrites += 1
+            return (.init(boolean: true), nil)
+        }, windowServerSnapshot: {
+            candidateIDs
+        }, visibleFrame: {
+            CGRect(x: 0, y: 0, width: 1200, height: 800)
+        })
+
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 1 && manager.terminalWindowCount == 2, "Activating Terminal normally must start automatic arrangement without the global hotkey")
+
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(layoutWrites == 1 && manager.phase == .visible, "Switching focus to Finder or another app must keep Terminal visible behind it without rewriting unchanged bounds")
+
+        manager.pollTerminalWindows(isHidden: true, isActive: false)
+        expect(manager.phase == .hidden, "Hiding Terminal must pause its canvas")
+        liveIDs = [12, 13, 14]
+        candidateIDs = [12, 13, 14]
+        manager.pollTerminalWindows(isHidden: true, isActive: false)
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(layoutWrites == 1, "Hidden or inactive Terminal must not resume itself or write a layout")
+
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 2 && manager.terminalWindowCount == 3 && manager.phase == .visible, "Returning normally and opening a window must resume automatic arrangement")
+
+        liveIDs = [12, 13]
+        candidateIDs = [12, 13]
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 3 && manager.terminalWindowCount == 2, "Closing a window after returning must automatically align the survivors")
+
+        manager.pollTerminalWindows(isHidden: true, isActive: false)
+        candidateIDs = [12]
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 3 && manager.terminalWindowCount == 2, "Returning with unchanged live windows must preserve minimized windows instead of forcing a layout")
+
+        manager.pollTerminalWindows(isHidden: true, isActive: false)
+        candidateIDs = [12, 13, 14]
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 3, "Resuming with an incomplete AppleScript list must wait without enlarging a window")
+        liveIDs = [12, 13, 14]
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 4 && manager.terminalWindowCount == 3, "The same candidates must be retried after the resumed snapshot becomes complete")
     }
 
     @MainActor
@@ -218,6 +362,14 @@ struct MenuContinueRegression {
         let ids = result.atIndex(1)
         expect(ids?.numberOfItems == 2 && ids?.atIndex(1)?.int32Value == 12 && ids?.atIndex(2)?.int32Value == 14, "Snapshots must preserve live windows before and after stale, pending, nonnumeric, negative-ID and zero-tab windows")
         expect(result.atIndex(2)?.booleanValue == false, "Snapshots must still hide zero-tab frames without closing live sessions")
+
+        let indexRaceSnapshot = snapshot.replacingOccurrences(
+            of: "set currentID to fixtureID of currentWindow",
+            with: "if currentWindow is closedWindow then error \"Invalid index\" number -1719\nset currentID to fixtureID of currentWindow"
+        )
+        error = nil
+        let indexRaceResult = NSAppleScript(source: fixture + "\n" + indexRaceSnapshot)!.executeAndReturnError(&error)
+        expect(error == nil && indexRaceResult.atIndex(1)?.numberOfItems == 2, "Mid-poll window closures throwing -1719 (errAEIllegalIndex) must be skipped instead of failing automation")
 
         for number in [-1743, -10000] {
             let failingSnapshot = snapshot.replacingOccurrences(of: "set currentID to fixtureID of currentWindow", with: "error \"Unexpected window read failure\" number \(number)")

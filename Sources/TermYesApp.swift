@@ -21,10 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func workspaceDidActivateApplication(_ notification: Notification) {
         LaunchAtLoginController.shared.refresh()
-        guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              application.bundleIdentifier != "com.apple.Terminal",
-              application.bundleIdentifier != "io.github.zzusec.termosaic" else { return }
-        TerminalManager.shared.hideDashboardIfVisible()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -34,7 +34,7 @@ TermYes brings **Termosaic's terminal canvas** and **bypass-yes's command guards
 
 Requires **macOS 13+**, on Apple Silicon or Intel.
 
-1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The v1.6.38 build artifact is at `dist/TermYes-v1.6.38-macOS.dmg`.
+1. Download the latest published version from [GitHub Releases](https://github.com/zzusec/TermYes/releases/latest). The v1.6.39 build artifact is at `dist/TermYes-v1.6.39-macOS.dmg`.
 2. Open it and drag **TermYes.app** to **Applications**.
 3. Launch TermYes and allow it to control Terminal when requested:
    **System Settings → Privacy & Security → Automation → TermYes → Terminal**.
@@ -49,7 +49,7 @@ Window management needs no Python or Node.js. The **optional guard module** need
 The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redirect to the renamed repository, while bundle identity and compatibility image names remain stable.
 
 - The bundle identifier, saved preferences, guard runtime directories, and restore records retain their existing identifiers. The rename does not intentionally reset them; macOS may still request automation permission again.
-- v1.6.38 includes a **`Termosaic-v1.6.38-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
+- v1.6.39 includes a **`Termosaic-v1.6.39-macOS.dmg` compatibility image** for older updaters. Both images contain the same signed TermYes app and are uploaded together when the release is published.
 - An automatic upgrade can keep the installed folder named `Termosaic.app` while the app displays **TermYes**. Do not run the old and new copies simultaneously.
 - Guard installation does not delete the old bypass-yes checkout. Newly installed runtime files no longer depend on that checkout.
 
@@ -59,7 +59,7 @@ The GitHub repository is now **`zzusec/TermYes`**. Existing Termosaic links redi
 | --- | --- |
 | Show and re-tile globally | `⌘O` by default; configurable |
 
-Switching to another application hides the canvas. Hiding windows does not stop the processes inside them. TermYes manages **Apple's Terminal.app only**, not iTerm2 or other terminal emulators.
+Switching to another application leaves Terminal at standard window level so other windows can sit above it for drag-and-drop; hiding the canvas from the menu does not stop the processes inside them. TermYes manages **Apple's Terminal.app only**, not iTerm2 or other terminal emulators.
 
 Auto Arrange lets you show or hide the terminal canvas. Its configurable global shortcut shows and re-tiles the canvas on the display under the pointer.
 

@@ -1,7 +1,20 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.38</h1>
+</style></head><body><h1>TermYes v1.6.39</h1>
+<h2>简体中文</h2>
+<ul>
+<li>切换到其他应用时保持普通窗口层级，不再自动隐藏终端，可将访达等窗口叠在终端上方直接拖入文件；从其他应用按快捷键呼出时保持原有窗口顺序。</li>
+<li>校验完整窗口快照并容错窗口关闭瞬间的 <code>-1719</code> 索引竞争错误，避免局部快照或空屏幕候选误将单个窗口放大铺满。</li>
+<li>每次排布 N 个窗口后自动按第 N+1 个网格单元预置 Terminal 默认新建窗口的行列数，新开窗口直接按目标分屏大小创建，不再先大后缩。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Keep Terminal at standard window level when switching applications instead of auto-hiding it, allowing Finder and other windows to sit above Terminal for drag-and-drop; invoking the shortcut from another app brings Terminal forward without rotating window order.</li>
+<li>Require complete Window Server snapshots and skip transient <code>-1719</code> window-index races when windows close, preventing partial snapshots or empty onscreen candidates from maximizing a single survivor.</li>
+<li>Pre-size Terminal's default new-window columns and rows to the (N+1)-th grid tile after arranging N windows so new windows open directly at their target tile size without flashing large and shrinking.</li>
+</ul>
+<h1>TermYes v1.6.38</h1>
 <h2>简体中文</h2>
 <ul>
 <li>启动后以及定时检测完成后自动实测尚未通过的 Agent，不必再点菜单。已通过的不重复；暂停、暂不支持和配置未就绪的不测；失败一小时后再试。</li>

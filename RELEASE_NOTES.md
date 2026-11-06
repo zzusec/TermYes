@@ -1,3 +1,17 @@
+# TermYes v1.6.39
+
+## 简体中文
+
+- 切换到其他应用时保持普通窗口层级，不再自动隐藏终端，可将访达等窗口叠在终端上方直接拖入文件；从其他应用按快捷键呼出时保持原有窗口顺序。
+- 校验完整窗口快照并容错窗口关闭瞬间的 `-1719` 索引竞争错误，避免局部快照或空屏幕候选误将单个窗口放大铺满。
+- 每次排布 $N$ 个窗口后自动按第 $N+1$ 个网格单元预置 Terminal 默认新建窗口的行列数，新开窗口直接按目标分屏大小创建，不再先大后缩。
+
+## English
+
+- Keep Terminal at standard window level when switching applications instead of auto-hiding it, allowing Finder and other windows to sit above Terminal for drag-and-drop; invoking the shortcut from another app brings Terminal forward without rotating window order.
+- Require complete Window Server snapshots and skip transient `-1719` window-index races when windows close, preventing partial snapshots or empty onscreen candidates from maximizing a single survivor.
+- Pre-size Terminal's default new-window columns and rows to the $(N+1)$-th grid tile after arranging $N$ windows so new windows open directly at their target tile size without flashing large and shrinking.
+
 # TermYes v1.6.38
 
 ## 简体中文
