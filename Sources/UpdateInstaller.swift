@@ -50,28 +50,42 @@ struct TermYesUpdateInstaller {
                 let openStatus = run("/usr/bin/open", [installed.path])
                 guard openStatus == 0 else { throw InstallerError.launchFailed(openStatus) }
             }
-
-            try? fileManager.removeItem(at: backup)
-            try? fileManager.removeItem(at: staged)
-            log("Update installed and application relaunched")
-            exit(0)
         } catch {
             log("Update failed: \(error.localizedDescription)")
+            var canRelaunch = !backedUp && fileManager.fileExists(atPath: installed.path)
             if backedUp {
                 do {
                     if fileManager.fileExists(atPath: installed.path) { try fileManager.removeItem(at: installed) }
                     try fileManager.moveItem(at: backup, to: installed)
                     log("Restored existing application")
-                    if !skipLaunch {
-                        let status = run("/usr/bin/open", [installed.path])
-                        if status != 0 { log("Restored application launch failed with status \(status)") }
-                    }
+                    canRelaunch = true
                 } catch {
                     log("Rollback failed: \(error.localizedDescription); backup retained at \(backup.path)")
                 }
             }
+            // The controller already exited, even if a precondition or the first move failed.
+            if canRelaunch && !skipLaunch {
+                let status = run("/usr/bin/open", [installed.path])
+                if status == 0 { log("Relaunched existing application") }
+                else { log("Existing application launch failed with status \(status)") }
+            }
             exit(1)
         }
+
+        // The new app is verified and may already be running. Cleanup can partially
+        // delete a backup, so a cleanup error must never enter the rollback path.
+        var cleanupFailed = false
+        for path in [backup, staged] {
+            do {
+                try fileManager.removeItem(at: path)
+            } catch {
+                cleanupFailed = true
+                log("Update failed: installed application retained; cleanup failed at \(path.path): \(error.localizedDescription)")
+            }
+        }
+        if cleanupFailed { exit(1) }
+        log(skipLaunch ? "Update installed (launch skipped)" : "Update installed and application relaunched")
+        exit(0)
     }
 
     private static func run(_ path: String, _ arguments: [String]) -> Int32 {

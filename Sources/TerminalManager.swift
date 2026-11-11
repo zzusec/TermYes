@@ -310,7 +310,13 @@ final class TerminalManager: NSObject, ObservableObject {
                     self.updatePhase(.error("无法启动 Terminal：\(error.localizedDescription)"))
                     return
                 }
-                guard let app, app.unhide() else {
+                guard let app else {
+                    self.updatePhase(.error("Terminal 启动后无法显示"))
+                    return
+                }
+                // Opening with activates=true normally returns an already-visible app.
+                // As in showDashboard(), a redundant unhide is not a launch failure.
+                if app.isHidden && !app.unhide() {
                     self.updatePhase(.error("Terminal 启动后无法显示"))
                     return
                 }

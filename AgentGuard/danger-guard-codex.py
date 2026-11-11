@@ -50,21 +50,21 @@ def main():
 
     # 会话毒化 token 守卫：先把会打死上游请求的特殊 token 中和掉，再做危险判定。
     # 必须在 classify 之前 —— 否则 guard 改写后的命令才是真正要执行的命令。
+    updated_input = None
     if EVENT == "PreToolUse" and not os.environ.get(core.TOXIC_GUARD_DISABLE):
         neutralized, hits = core.neutralize_toxic_tokens(cmd)
         if hits:
             core.log_toxic_hit(hits, data.get("tool_name"),
                                data.get("cwd") or os.getcwd())
-            print(json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "permissionDecisionReason":
-                        "[token 守卫] 已中和 %d 个会毒化会话的特殊 token" % hits,
-                    "updatedInput": {"command": neutralized},
-                }
-            }, ensure_ascii=False))
-            return
+            # Preserve argv arrays and the tool's other parameters. Rewriting a
+            # token must neither bypass classification nor change invocation shape.
+            updated_input = dict(data["tool_input"])
+            original = updated_input["command"]
+            updated_input["command"] = (
+                [core.neutralize_toxic_tokens(argument)[0] for argument in original]
+                if isinstance(original, list) else neutralized
+            )
+            cmd = core.command_text(updated_input["command"])
 
     level, reason = core.classify(cmd, data.get("cwd") or os.getcwd())
 
@@ -80,6 +80,16 @@ def main():
         core.play_sound()
         core.notify_user(cmd, reason)
         out_pretooluse("deny", reason)
+    elif updated_input is not None:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason":
+                    "[token 守卫] 已中和 %d 个会毒化会话的特殊 token；未命中危险清单" % hits,
+                "updatedInput": updated_input,
+            }
+        }, ensure_ascii=False))
 
 if __name__ == "__main__":
     try:

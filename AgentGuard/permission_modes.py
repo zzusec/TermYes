@@ -195,40 +195,127 @@ def _write_json(path, value):
     )
 
 
-def _top_level_toml_value(text, key):
-    pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*(.*)$")
-    string = re.compile(r"^(\"(?:[^\"\\]|\\.)*\"|'[^']*')\s*(?:#.*)?$")
-    for line in text.splitlines():
-        if line.lstrip().startswith("["):
+def _toml_string_value(literal):
+    if literal.startswith("'"):
+        return literal[1:-1]
+    # TOML basic strings additionally allow eight-digit Unicode escapes. Only
+    # inspect escape tokens, so a literal \\U sequence is not decoded twice.
+    def convert(match):
+        escape = match.group(0)
+        return json.dumps(chr(int(escape[2:], 16)), ensure_ascii=True)[1:-1] if escape.startswith("\\U") else escape
+    return json.loads(re.sub(r"\\(?:U[0-9A-Fa-f]{8}|.)", convert, literal))
+
+
+def _top_level_toml_entries(text):
+    """Locate root assignments without interpreting strings as keys or tables.
+
+    Keep unrelated TOML verbatim, including multiline strings and arrays. The
+    system Python is 3.9, so this small lexical scan does not require tomllib.
+    """
+    lines = text.splitlines()
+    part = r'''(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')'''
+    assignment = re.compile(r"^\s*(" + part + r"(?:\s*\.\s*" + part + r")*)\s*=")
+    entries = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].lstrip()
+        if not stripped or stripped.startswith("#"):
+            index += 1
+            continue
+        if stripped.startswith("["):
             break
-        match = pattern.match(line)
-        if match:
-            value = string.fullmatch(match.group(1).strip())
-            if value:
-                literal = value.group(1)
-                return json.loads(literal) if literal.startswith('"') else literal[1:-1]
-            return None
+        match = assignment.match(lines[index])
+        if not match:
+            raise ValueError("无法识别 TOML 顶层配置，第 %d 行" % (index + 1))
+        raw_key = match.group(1)
+        key = raw_key
+        if re.fullmatch(r"(?:\"(?:[^\"\\]|\\.)*\"|'[^']*')", raw_key):
+            key = _toml_string_value(raw_key)
+        start = index
+        column = match.end()
+        value_column = column
+        quote = None
+        brackets = []
+        while index < len(lines):
+            line = lines[index]
+            while column < len(line):
+                char = line[column]
+                if quote is not None:
+                    if quote.startswith('"') and char == "\\":
+                        column += 2
+                        continue
+                    if line.startswith(quote, column):
+                        column += len(quote)
+                        # TOML permits one or two extra quotes at a multiline end.
+                        if len(quote) == 3:
+                            for _ in range(2):
+                                if column < len(line) and line[column] == quote[0]:
+                                    column += 1
+                        quote = None
+                    else:
+                        column += 1
+                    continue
+                if char == "#":
+                    break
+                if char in ("'", '"'):
+                    quote = char * 3 if line.startswith(char * 3, column) else char
+                    column += len(quote)
+                    continue
+                if char in "[{":
+                    brackets.append(char)
+                elif char in "]}":
+                    if not brackets or brackets.pop() != ("[" if char == "]" else "{"):
+                        raise ValueError("TOML 配置括号不匹配")
+                column += 1
+            if quote is None and not brackets:
+                break
+            if quote is not None and len(quote) == 1:
+                raise ValueError("TOML 单行字符串未闭合")
+            index += 1
+            column = 0
+        if quote is not None or brackets:
+            raise ValueError("TOML 多行配置未闭合")
+        value = "\n".join([lines[start][value_column:], *lines[start + 1:index + 1]])
+        entries.append((key, start, index + 1, value.strip()))
+        index += 1
+    return lines, entries
+
+
+def _top_level_toml_value(text, key):
+    _, entries = _top_level_toml_entries(text)
+    values = [value for name, _, _, value in entries if name == key]
+    if len(values) > 1:
+        raise ValueError("TOML 顶层配置重复：" + key)
+    if not values:
+        return None
+    string = re.fullmatch(r'''("(?:[^"\\\n]|\\.)*"|'[^'\n]*')\s*(?:#.*)?''', values[0])
+    if string:
+        literal = string.group(1)
+        return _toml_string_value(literal)
     return None
 
 
 def _set_top_level_toml(text, values):
-    lines = text.splitlines()
-    first_table = next(
-        (index for index, line in enumerate(lines) if line.lstrip().startswith("[")),
-        len(lines),
-    )
-    prefix = lines[:first_table]
-    suffix = lines[first_table:]
-    for key, value in values.items():
-        replacement = key + " = " + json.dumps(value)
-        pattern = re.compile(r"^\s*" + re.escape(key) + r"\s*=")
-        for index, line in enumerate(prefix):
-            if pattern.match(line):
-                prefix[index] = replacement
-                break
+    lines, entries = _top_level_toml_entries(text)
+    edits = {}
+    seen = set()
+    for key, start, end, _ in entries:
+        if key not in values:
+            continue
+        if key in seen:
+            raise ValueError("TOML 顶层配置重复：" + key)
+        seen.add(key)
+        edits[start] = (end, key + " = " + json.dumps(values[key]))
+    updated = [key + " = " + json.dumps(value) for key, value in values.items() if key not in seen]
+    index = 0
+    while index < len(lines):
+        if index in edits:
+            index, replacement = edits[index]
+            updated.append(replacement)
         else:
-            prefix.insert(0, replacement)
-    return "\n".join(prefix + suffix).rstrip() + "\n"
+            updated.append(lines[index])
+            index += 1
+    return "\n".join(updated).rstrip() + "\n"
 
 
 def _json_spec(client):
@@ -362,7 +449,10 @@ for dir in "$HOME/.local/share/Termosaic/vendor/bin" "${{path[@]}}" {fallback}; 
   if [[ -x "$candidate" && ! -d "$candidate" ]]; then
     # A copied managed wrapper is also not an underlying CLI.
     header="$(/usr/bin/head -c 256 "$candidate")"
-    [[ "$header" == '#!'*$'\n{marker}\n'* ]] && continue
+    first_line="${{header%%$'\n'*}}"
+    remaining_header="${{header#*$'\n'}}"
+    second_line="${{remaining_header%%$'\n'*}}"
+    [[ "$first_line" == '#!'* && "$second_line" == "{marker}" ]] && continue
     manage_path="${{TERMYES_MANAGE_PY:-/Applications/TermYes.app/Contents/Resources/AgentGuard/manage.py}}"
     if [[ ! -r "$manage_path" ]]; then
       print -u2 "[TermYes] 缺少权限协调器：$manage_path；继续启动 $entry_name。"
@@ -397,7 +487,7 @@ def _shell_wrapper_content():
         for name in names:
             functions.append(
                 f'if (( $+commands[{name}] )) || [[ -x "$HOME/.local/bin/{name}" ]]; then '
-                f'{name}() {{ _termyes_agent_yolo {client} {name} "$@"; }}; fi'
+                f'function {name} {{ _termyes_agent_yolo {client} {name} "$@"; }}; fi'
             )
     wrapped = "|".join(WRAPPER_FLAGS)
     flag_cases = "\n".join(
@@ -507,6 +597,16 @@ def adopt_local_command(home, client):
         return None
     if destination.exists() or destination.is_symlink():
         raise ValueError("已有同名命令备份，未移动原文件：" + str(destination))
+    # Relocating a launcher that resolves assets from its own filename silently
+    # breaks the CLI. Keep it untouched rather than report a broken wrapper ready.
+    with original.open("rb") as handle:
+        is_script = handle.read(2) == b"#!"
+    if is_script:
+        script = original.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"\$0|\$\{0(?:\}|[^A-Za-z0-9_])|BASH_SOURCE|\$\{?\(%\).*%N|"
+                     r"__file__|__dirname|__filename|import\.meta\.(?:url|dirname|filename)|"
+                     r"sys\.argv\s*\[\s*0\s*\]|process\.argv\s*\[\s*1\s*\]", script):
+            raise ValueError("启动脚本引用自身位置，不能安全迁移；原命令保持不变：" + str(original))
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     original.rename(destination)
     return original, destination

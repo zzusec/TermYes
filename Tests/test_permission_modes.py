@@ -459,6 +459,122 @@ class PermissionModesTests(unittest.TestCase):
         self.assertIn('model = "user-model"', config.read_text())
         self.assertTrue(config.read_text().endswith(suffix))
 
+    def test_shell_loader_sources_with_existing_client_aliases(self):
+        self.cli("claude")
+        self.cli("gemini")
+        modes._ensure_zsh_path(self.home)
+        result = subprocess.run(
+            ["/bin/zsh", "-f", "-c",
+             'alias claude="command claude"\nalias gemini="command gemini"\n'
+             'source "$HOME/.local/bin/termyes-agent-yolo-shell"\n'
+             'print -r -- "source=$? gemini=${+functions[gemini]} claude=${+functions[claude]}"\n'
+             'claude --version\ngemini --version\n'],
+            capture_output=True, text=True,
+            env={**os.environ, "TERMYES_MANAGE_PY": str(self.manager())}, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("source=0 gemini=1 claude=1", result.stdout)
+        self.assertNotIn("parse error", result.stderr)
+        self.assertIn("--dangerously-skip-permissions", result.stdout.splitlines())
+        self.assertIn("--yolo", result.stdout.splitlines())
+
+    def test_standalone_wrapper_requires_managed_marker_on_second_line(self):
+        for second_line in ("# Original CLI launcher", ""):
+            with self.subTest(second_line=second_line):
+                actual = self.write(self.bin / "gemini",
+                                    "#!/bin/sh\n" + second_line + "\n" + modes.MANAGED_MARKER + "\n"
+                                    + 'printf "%s\\n" "$0" "$@"\n', True)
+                self.assertFalse(modes._is_managed_wrapper(actual))
+                modes.repair(self.home, "gemini")
+                result = self.run_wrapper("gemini", ["--version"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), [str(actual), "--yolo", "--version"])
+
+    def test_codex_multiline_values_do_not_hide_root_keys_or_get_rewritten(self):
+        self.cli("codex")
+        for quote in ('"""', "'''", '"'):
+            with self.subTest(quote=quote):
+                if len(quote) == 3:
+                    instructions = ('developer_instructions = ' + quote + '\n[project rules]\n'
+                                    'approval_policy = "keep this instruction"\n'
+                                    'sandbox_mode = "keep this too"\n' + quote + '\n')
+                else:
+                    instructions = 'notes = [\n  "[not a table]",\n  "keep"\n]\n'
+                permissions = 'approval_policy = "on-request"\nsandbox_mode = "read-only"\n'
+                suffix = '[profiles.custom]\napproval_policy = "on-request"\n'
+                config = self.write(self.home / ".codex/config.toml", instructions + permissions + suffix)
+                self.assertTrue(modes.repair(self.home, "codex")["permissionReady"])
+                expected = (instructions + 'approval_policy = "never"\n'
+                            'sandbox_mode = "danger-full-access"\n' + suffix)
+                self.assertEqual(config.read_text(), expected)
+                self.assertTrue(modes.inspect(self.home, "codex")["permissionReady"])
+                self.assertFalse(modes.repair(self.home, "codex")["repaired"])
+                self.assertEqual(config.read_text(), expected)
+
+    def test_codex_multiline_permission_replaces_entire_value(self):
+        self.cli("codex")
+        config = self.write(self.home / ".codex/config.toml",
+                            'approval_policy = """\non-request\n"""\nsandbox_mode = "read-only"\n')
+        self.assertTrue(modes.repair(self.home, "codex")["permissionReady"])
+        self.assertEqual(config.read_text(), 'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n')
+
+    def test_adoption_refuses_location_dependent_launcher_without_moving_it(self):
+        local_bin = self.home / ".local/bin"
+        original = self.write(local_bin / "gemini", '#!/bin/sh\nexec "${0%/*}/gemini-real" "$@"\n', True)
+        self.write(local_bin / "gemini-real", '#!/bin/sh\nprintf "REAL:%s\\n" "$@"\n', True)
+        contents = original.read_bytes()
+        before = subprocess.run([str(original), "--version"], capture_output=True, text=True, timeout=5)
+        self.assertEqual(before.returncode, 0, before.stderr)
+        with self.assertRaisesRegex(ValueError, "位置|迁移"):
+            modes.adopt_local_command(self.home, "gemini")
+        self.assertFalse(original.is_symlink())
+        self.assertEqual(original.read_bytes(), contents)
+        self.assertFalse((self.home / ".local/share/Termosaic/vendor/bin/gemini").exists())
+        after = subprocess.run([str(original), "--version"], capture_output=True, text=True, timeout=5)
+        self.assertEqual(after.returncode, 0, after.stderr)
+        self.assertEqual(after.stdout, before.stdout)
+
+    def test_adoption_preserves_self_contained_cli_and_yolo_arguments(self):
+        local_bin = self.home / ".local/bin"
+        original = self.write(local_bin / "gemini", '#!/bin/sh\nprintf "REAL:%s\\n" "$@"\n', True)
+        contents = original.read_bytes()
+        migration = modes.adopt_local_command(self.home, "gemini")
+        self.assertIsNotNone(migration)
+        self.assertEqual(migration[1].read_bytes(), contents)
+        self.assertTrue(modes.repair(self.home, "gemini")["permissionReady"])
+        result = self.run_wrapper("gemini", ["--version"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["REAL:--yolo", "REAL:--version"])
+
+    def test_codex_root_keys_ignore_multiline_text_and_accept_quoted_keys(self):
+        self.cli("codex")
+        instructions = 'notes = """\napproval_policy = "on-request"\n[not a table]\n"""\n'
+        permissions = '\'approval_policy\' = "never"\n"sandbox_mode" = "danger-full-access"\n'
+        config = self.write(self.home / ".codex/config.toml", instructions + permissions)
+        original = config.read_bytes()
+        self.assertTrue(modes.inspect(self.home, "codex")["permissionReady"])
+        self.assertFalse(modes.repair(self.home, "codex")["repaired"])
+        self.assertEqual(config.read_bytes(), original)
+
+    def test_codex_unicode_escaped_keys_preserve_unrelated_config(self):
+        self.cli("codex")
+        instructions = '"\\U0001F680" = "preserve"\n'
+        text = instructions + '"approval_polic\\U00000079" = "on-request"\nsandbox_mode = "read-only"\n'
+        config = self.write(self.home / ".codex/config.toml", text)
+        self.assertTrue(modes.repair(self.home, "codex")["permissionReady"])
+        self.assertEqual(config.read_text(), instructions + 'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n')
+        self.assertEqual(modes._toml_string_value('"\\\\U00000079"'), '\\U00000079')
+
+    def test_codex_unclosed_multiline_and_duplicate_keys_are_not_overwritten(self):
+        self.cli("codex")
+        for text in ('notes = """\n[not a table]\n',
+                     'approval_policy = "on-request"\napproval_policy = "never"\n'):
+            with self.subTest(text=text):
+                config = self.write(self.home / ".codex/config.toml", text)
+                self.assertFalse(modes.inspect(self.home, "codex")["permissionReady"])
+                with self.assertRaises(ValueError):
+                    modes.repair(self.home, "codex")
+                self.assertEqual(config.read_text(), text)
+
     def test_symlinked_config_is_not_overwritten(self):
         self.cli("claude")
         target = self.write(self.home / "settings.json", '{"custom":true}\n')

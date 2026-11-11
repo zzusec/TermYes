@@ -1,7 +1,28 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.39</h1>
+</style></head><body><h1>TermYes v1.6.40</h1>
+<h2>简体中文</h2>
+<ul>
+<li>修复危险命令漏拦：Codex 特殊 token 改写后继续危险分类；识别 <code>-lc</code>、引号选项、命令替换和可执行 heredoc；复合删除按全部目标、目录变化及变量作用域判断。保持 YOLO 与危险规则硬拒绝，普通文本示例仍可使用。</li>
+<li>修复定时「继续」的 selector 异常，实时显示 stdout/stderr，在超时或关闭专用窗口时回收请求进程组。</li>
+<li>修复守卫验证与策略更新并发覆盖、探针 CLI 指纹不一致、权限协调与 Hook 安装竞争、zcode 事件合并及模型切换掩盖受管 Hook 修改。</li>
+<li>修复 zsh 别名冲突、Codex 多行 TOML 改写和 wrapper 误识别；对依赖自身位置的启动脚本拒绝不安全迁移并保留原入口。</li>
+<li>Agent 与插件升级增加跨进程互斥和版本、来源复核，防止过期计划降级；插件探测失败明确显示。应用更新避免大输出死锁，前置失败恢复原应用，清理失败保留已验证的新应用并报告。</li>
+<li>检测失败不再沿用旧实测成功；停止后不追加实测；显示登录项错误。修复首次 Terminal 启动误报和空边界布局崩溃。</li>
+<li>完整自动回归 37/37 步通过，包括 1104 项守卫检查、13 个适配器、45 项权限测试及 43 项 Agent 更新测试。协议及模拟测试不代表真实客户端已加载并信任守卫。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Close command-guard gaps in token rewriting, shell flags, quoted options, substitutions, executable heredocs, compound removals, directory changes, and variable scope while preserving YOLO and literal-data handling.</li>
+<li>Fix scheduled-continue execution, stream actual output, and clean up request process groups on timeout or cancellation.</li>
+<li>Serialize policy and verification writes, align probe fingerprints, coordinate permission repair and Hook installation, and preserve zcode events and managed-Hook ownership.</li>
+<li>Fix aliases, multiline TOML, and wrapper identification; retain location-dependent launchers rather than moving them unsafely.</li>
+<li>Serialize Agent/plugin upgrades and revalidate plans to prevent downgrades. Expose probe errors, prevent update-tool output deadlocks, and improve installer recovery and cleanup reporting.</li>
+<li>Invalidate stale success after failed checks, stop follow-up verification, expose login-item errors, and fix Terminal activation and empty-bounds layouts.</li>
+<li>All 37 automated regression steps pass, including 1104 guard checks across 13 adapters, 45 permission tests, and 43 Agent-update tests. Mock results do not certify real-client Hook loading or trust.</li>
+</ul>
+<h1>TermYes v1.6.39</h1>
 <h2>简体中文</h2>
 <ul>
 <li>切换到其他应用时保持普通窗口层级，不再自动隐藏终端，可将访达等窗口叠在终端上方直接拖入文件；从其他应用按快捷键呼出时保持原有窗口顺序。</li>

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Versioned danger-list updates use mock responses, never execute shell commands."""
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "AgentGuard"
@@ -115,4 +117,44 @@ with tempfile.TemporaryDirectory(prefix="termyes-policy-") as temp:
             else:
                 raise AssertionError("invalid rm rule accepted")
 
+def test_concurrent_policy_updates_cannot_downgrade():
+    with tempfile.TemporaryDirectory(prefix="termyes-policy-concurrent-") as temp:
+        home = Path(temp).resolve()
+        older_ready = threading.Event()
+        newer_started = threading.Event()
+        release_older = threading.Event()
+        older_version = rules.BUILTIN_VERSION + 1
+        newer_version = older_version + 1
+
+        def paused_write(path, content, mode=0o600):
+            if path == rules.policy_path(home) and json.loads(content)["version"] == older_version:
+                older_ready.set()
+                assert release_older.wait(5), "older update was not released"
+            manage.atomic_write(path, content, mode)
+
+        def update_newer():
+            newer_started.set()
+            return policy_update.check(home, paused_write, force=True, fetch=lambda: encoded(newer_version))
+
+        with mock.patch.dict(os.environ, {"HOME": str(home)}), ThreadPoolExecutor(max_workers=2) as pool:
+            older = pool.submit(policy_update.check, home, paused_write,
+                                force=True, fetch=lambda: encoded(older_version))
+            try:
+                assert older_ready.wait(5), "older update never reached its write"
+                newer = pool.submit(update_newer)
+                assert newer_started.wait(5), "newer update never started"
+                try:
+                    newer.result(timeout=0.2)
+                except TimeoutError:
+                    pass  # A serialized update waits until the old writer commits.
+            finally:
+                release_older.set()
+            older.result(timeout=5)
+            result = newer.result(timeout=5)
+        assert result[0] == newer_version and not result[2], result
+        assert rules.active_policy(home)[0]["version"] == newer_version, "concurrent older write downgraded policy"
+        assert json.loads(rules.policy_path(home).read_bytes())["version"] == newer_version
+
+
+test_concurrent_policy_updates_cannot_downgrade()
 print("danger policy updates: pass")

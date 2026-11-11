@@ -2,6 +2,8 @@
 """Check the installed distribution before updating; never treat errors as latest."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -68,11 +70,28 @@ def cli_command(client):
     return None
 
 
-def run(args, timeout=TIMEOUT):
+@contextmanager
+def update_lock():
+    # One persistent inode for all clients and app copies; never unlink on release.
+    lock = HOME / "Library/Application Support/Termosaic/AgentGuard/.update.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+") as locked:
+        try:
+            fcntl.flock(locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("另一个 Agent 或插件升级正在运行；本次未执行，请稍后重试")
+        # Closing (not LOCK_UN) keeps the lock held by an inherited updater fd
+        # if this Python process exits before its installer does.
+        yield locked.fileno()
+
+
+def run(args, timeout=TIMEOUT, lock_fd=None):
     try:
         process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True, env=env(), cwd=str(HOME),
-                                   stdin=subprocess.DEVNULL, start_new_session=True)
+                                   stdin=subprocess.DEVNULL, start_new_session=True,
+                                   pass_fds=() if lock_fd is None else (lock_fd,))
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -280,28 +299,49 @@ def apply_update(item):
     if item["status"] != "updateAvailable":
         return
     try:
-        client = item["client"]
-        cli = cli_command(client)
-        if not cli:
-            raise ValueError("找不到客户端入口")
-        args, reason = update_command(client, cli, npm_installation(client, cli), item["latestVersion"])
-        if not args:
-            item["detail"] = "发现新版本；" + reason
-            return
-        item["command"] = shlex.join(args)
-        ok, output = run(args)
-        if not ok:
-            raise ValueError("升级命令失败：" + output[-500:])
-        after_cli = cli_command(client)
-        if not after_cli:
-            raise ValueError("升级后找不到客户端入口")
-        after = current_version(after_cli)
-        if version_key(after) < version_key(item["latestVersion"]):
-            raise ValueError("升级命令返回成功，但实际版本仍为 {}，目标为 {}；{}".format(after, item["latestVersion"], output[-300:]))
-        before = item["currentVersion"]
-        item.update(currentVersion=after, changed=True, status="updated", detail="已验证实际版本：{} → {}".format(before, after))
+        with update_lock() as lock_fd:
+            _apply_update(item, lock_fd)
     except Exception as error:
         item.update(ok=False, status="failed", detail=str(error)[-600:])
+
+
+def _apply_update(item, lock_fd):
+    client = item["client"]
+    cli = cli_command(client)
+    if not cli:
+        raise ValueError("找不到客户端入口")
+    # Checks run in parallel and can precede an earlier client's long install.
+    # Revalidate the plan only after obtaining the cross-process write lock.
+    before = current_version(cli)
+    item["currentVersion"] = before
+    installation = npm_installation(client, cli)
+    source = version_source(client, installation, before)
+    if item.get("source") and item["source"] != source:
+        raise ValueError("发行源已变化，未执行旧升级计划；请重新检查")
+    current_key, latest_key = version_key(before), version_key(item["latestVersion"])
+    if current_key >= latest_key:
+        item.update(ok=True, changed=False, status="upToDate" if current_key == latest_key else "ahead",
+                    command=shlex.join(cli + ["--version"]),
+                    detail="执行前复核：当前版本与发行源一致" if current_key == latest_key else "执行前复核：本机版本高于该发行源；保留本机版本，不自动降级")
+        return
+    args, reason = update_command(client, cli, installation, item["latestVersion"])
+    if not args:
+        item["detail"] = "发现新版本；" + reason
+        return
+    command = shlex.join(args)
+    if item.get("command") and item["command"] != command:
+        raise ValueError("安装入口或安装来源已变化，未执行旧升级计划；请重新检查")
+    item["command"] = command
+    ok, output = run(args, lock_fd=lock_fd)
+    if not ok:
+        raise ValueError("升级命令失败：" + output[-500:])
+    after_cli = cli_command(client)
+    if not after_cli:
+        raise ValueError("升级后找不到客户端入口")
+    after = current_version(after_cli)
+    if version_key(after) < latest_key:
+        raise ValueError("升级命令返回成功，但实际版本仍为 {}，目标为 {}；{}".format(after, item["latestVersion"], output[-300:]))
+    item.update(ok=True, currentVersion=after, changed=True, status="updated", detail="已验证实际版本：{} → {}".format(before, after))
 
 
 def changed_from_output(output):
@@ -321,11 +361,21 @@ def plugin_ids_from_output(text):
 
 
 def supported_command(cli, subcommand):
-    ok, output = run(cli + subcommand + ["--help"], timeout=30)
-    return ok and bool(re.search(r"Usage|USAGE|DESCRIPTION", output)) and not re.search(r"unknown command|unrecognized|not found", output, re.I)
+    args = cli + subcommand + ["--help"]
+    ok, output = run(args, timeout=30)
+    if re.search(r"(?:unknown|unrecognized|unsupported|invalid)\s+(?:command|subcommand)\b|\bcommand\s+(?:[^\n]{0,120}\s+)?not found\b", output, re.I):
+        return False
+    if not ok:
+        raise ValueError("插件命令探测失败（{}）：{}".format(shlex.join(args), output[-400:]))
+    return bool(re.search(r"Usage|USAGE|DESCRIPTION", output))
 
 
 def update_plugins(client):
+    with update_lock() as lock_fd:
+        return _update_plugins(client, lock_fd)
+
+
+def _update_plugins(client, lock_fd):
     cli = cli_command(client)
     if not cli:
         return []
@@ -349,10 +399,16 @@ def update_plugins(client):
             commands += [PLUGIN_UPDATE_ONE[client] + [identifier] for identifier in plugin_ids]
     items = []
     for subcommand in commands:
-        if not supported_command(cli, subcommand[:3] if client == "codex" else subcommand[:2]):
+        try:
+            supported = supported_command(cli, subcommand[:3] if client == "codex" else subcommand[:2])
+        except ValueError as error:
+            items.append({"client": client, "target": " ".join(subcommand), "command": shlex.join(cli + subcommand + ["--help"]),
+                          "ok": False, "changed": False, "detail": str(error)[-500:]})
+            continue
+        if not supported:
             continue
         args = cli + subcommand
-        ok, output = run(args)
+        ok, output = run(args, lock_fd=lock_fd)
         items.append({"client": client, "target": " ".join(subcommand), "command": shlex.join(args),
                       "ok": ok, "changed": ok and changed_from_output(output),
                       "detail": output[-500:] or ("插件更新命令执行完成" if ok else "插件更新命令失败")})
@@ -367,7 +423,7 @@ def build_report(check_only=False):
     for item in cli_items:
         items.append(item)
         if not check_only:
-            # npm clients can share an installation prefix; never update them concurrently.
+            # Writes also share a user-level lock across Python processes/app copies.
             apply_update(item)
             if item["status"] not in ("failed", "unsupported"):
                 try:

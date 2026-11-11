@@ -92,6 +92,7 @@ final class AgentGuardController: ObservableObject {
     @Published private(set) var message = "正在检测 Agent YOLO 模式与命令守卫"
     private var details = ""
     private var timer: Timer?
+    private var lifecycleGeneration = 0
 
     func refresh() { run("status") }
     func start() {
@@ -101,7 +102,11 @@ final class AgentGuardController: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
-    func stop() { timer?.invalidate(); timer = nil }
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        lifecycleGeneration += 1
+    }
     func repairUnready() { run("repair-unready") }
     func repair(_ client: AgentGuardClient) { run("repair-client", client: client.id) }
     func checkPolicy() { run("policy-update") }
@@ -117,10 +122,9 @@ final class AgentGuardController: ObservableObject {
     @objc private func checkAgain() { run("monitor") }
 
     var diagnosticDetails: String {
-        guard !clients.isEmpty else { return details.isEmpty ? message : details }
         let reports = clients.filter(\.detected).map { client in
             """
-            \(client.name)：\(client.isGuardPaused ? client.pauseDescription : client.isVerified ? "端到端实测通过" : "未就绪")
+            \(client.name)：\(lastCheckFailed ? "本次检查失败，状态未确认" : client.isGuardPaused ? client.pauseDescription : client.isVerified ? "端到端实测通过" : "未就绪")
             YOLO：\(client.permissionReason)
             守卫配置：\(client.guardReason)
             请求/免确认：\(client.requestReason ?? "尚未实测")
@@ -129,7 +133,14 @@ final class AgentGuardController: ObservableObject {
             \(client.serviceError.map { "修复错误：" + $0 } ?? "")
             """
         }
-        return ([message, "危险清单：" + policyDetails] + reports).joined(separator: "\n\n")
+        var sections = [message]
+        if !clients.isEmpty {
+            sections += ["危险清单：" + policyDetails] + reports
+        }
+        if !details.isEmpty && (lastCheckFailed || clients.isEmpty) {
+            sections.append("管理器输出：\n" + details)
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     var policyDetails: String { clients.first?.policyStatus ?? message }
@@ -137,10 +148,13 @@ final class AgentGuardController: ObservableObject {
     private func run(_ action: String, client: String? = nil, extraArguments: [String] = []) {
         guard !isWorking else { return }
         guard let script = Bundle.main.url(forResource: "manage", withExtension: "py", subdirectory: "AgentGuard") else {
+            clients = []
+            details = ""
             message = "守卫资源缺失，请重新构建或安装 TermYes"
             lastCheckFailed = true
             return
         }
+        let generation = lifecycleGeneration
         isWorking = true
         message = action == "status"
             ? "正在检测 Agent 权限与守卫配置…"
@@ -154,7 +168,8 @@ final class AgentGuardController: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) {
                 Self.execute(arguments)
             }.value
-            details = String(decoding: result.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            details = "操作：\(action) · 退出码：\(result.0)\n" +
+                String(decoding: result.1, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let statusActions = ["status", "monitor", "policy-update", "repair-unready", "repair-client", "verify", "verify-client", "verify-pending", "pause-client", "resume-client"]
             if statusActions.contains(action) {
                 do {
@@ -199,14 +214,21 @@ final class AgentGuardController: ObservableObject {
                         message = "已检测 \(detected.count) 个 Agent：YOLO \(ready)，守卫配置 \(guarded)" +
                             (result.0 == 0 ? "（客户端加载需验证）" : "；部分修复失败，请查看客户端详情")
                     }
+                    if result.0 != 0 {
+                        message = "守卫操作失败（退出码 \(result.0)）；" + message
+                    }
                     if action == "repair-client" {
                         showRepairResult(name: repaired?.name ?? client ?? "Agent", success: repairSucceeded,
                                          detail: repairSucceeded
                                             ? "请重启对应 Agent，以加载新的命令守卫。" : message)
                     }
                 } catch {
+                    clients = []
                     lastCheckFailed = true
-                    message = "Agent 权限状态无法解析；请复制详情检查"
+                    message = result.0 == 0
+                        ? "Agent 权限状态无法解析；请复制详情检查"
+                        : "守卫操作失败（退出码 \(result.0)）；请复制详情检查"
+                    details += "\n解析错误：\(error)"
                     if action == "repair-client" {
                         showRepairResult(name: client ?? "Agent", success: false, detail: message)
                     }
@@ -224,7 +246,8 @@ final class AgentGuardController: ObservableObject {
                 }
             }
             isWorking = false
-            if Self.autoVerifyAfter.contains(action),
+            if lifecycleGeneration == generation, result.0 == 0, !lastCheckFailed,
+               Self.autoVerifyAfter.contains(action),
                clients.contains(where: \.needsAutomaticVerification) {
                 run("verify-pending")
             }

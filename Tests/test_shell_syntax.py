@@ -93,6 +93,113 @@ class ShellSyntaxTests(unittest.TestCase):
             r"eval $'re\x62oot'",
         ], "block")
 
+    def test_executable_arguments_are_not_masked_as_data(self):
+        self.assert_level([
+            "rm '-rf' ~",
+            "'rm' -rf /etc",
+            "git reset '--hard' HEAD",
+            "git 'reset' --hard HEAD",
+            'dd if=/dev/zero of="/dev/disk2"',
+            "chmod '-R' 777 '/etc'",
+        ], "block")
+        self.assert_level([
+            "printf '%s\\n' 'rm -rf ~'",
+            "printf '%s\\n' 'git reset --hard HEAD'",
+            "printf '%s\\n' 'dd if=/dev/zero of=/dev/disk2'",
+            "git commit -m 'reset --hard reboot'",
+            "grep 'reboot' notes.txt",
+        ], "safe")
+
+    def test_shell_options_and_nested_data(self):
+        self.assert_level([
+            "bash -lc 'git reset --hard HEAD'",
+            "/bin/zsh -ilc 'git reset --hard HEAD'",
+            "sudo bash -lc 'git reset --hard HEAD'",
+            "eval 'git reset --hard HEAD'",
+        ], "block")
+        self.assert_level([
+            "printf '%s\\n' 'bash -lc \"git reset --hard HEAD\"'",
+            "printf '%s\\n' 'bash -c \"git reset --hard HEAD\"'",
+            "bash -lc 'printf %s \"git reset --hard HEAD\"'",
+            "bash -lc 'rm -rf /tmp/termyes-safe'",
+        ], "safe")
+
+    def test_executable_substitutions_not_literal_examples(self):
+        self.assert_level([
+            'printf "%s\\n" "$(git reset --hard HEAD)"',
+            'printf "%s\\n" "`git reset --hard HEAD`"',
+            'printf %s $(git reset --hard HEAD)',
+            'printf %s "$(rm -rf /etc)"',
+        ], "block")
+        self.assert_level([
+            "printf '%s\\n' '$(git reset --hard HEAD)'",
+            r'printf "%s\n" "\$(git reset --hard HEAD)"',
+            'printf "%s\\n" "$(printf %s \'reboot\')"',
+        ], "safe")
+
+    def test_heredoc_shell_executes_quoted_body_but_cat_does_not(self):
+        self.assert_level([
+            "bash <<'EOF'\ngit reset --hard HEAD\nEOF",
+            "sudo /bin/zsh <<'EOF'\nrm -rf /etc\nEOF",
+        ], "block")
+        self.assert_level([
+            "cat <<'EOF'\ngit reset --hard HEAD\nEOF",
+            "bash <<'EOF'\nprintf '%s\\n' 'git reset --hard HEAD'\nEOF",
+            "bash <<'EOF'\nrm -rf /tmp/termyes-safe\nEOF",
+        ], "safe")
+
+    def test_safe_rm_cannot_mask_wrapped_danger(self):
+        self.assert_level([
+            "rm -rf /tmp/termyes-safe; bash -c 'rm -rf /etc'",
+            "rm -rf /tmp/termyes-safe; sudo rm -rf /etc/guard-victim",
+            "rm -rf /tmp/termyes-safe; /bin/rm -rf /etc/guard-victim",
+            "rm -rf /tmp/termyes-safe; env X=1 rm -rf /etc",
+        ], "block")
+        self.assert_level([
+            "rm -rf /tmp/termyes-a; bash -c 'rm -rf /tmp/termyes-b'",
+            "rm -rf /tmp/termyes-a; sudo rm -rf /tmp/termyes-b",
+        ], "safe")
+
+    def test_unparsed_compound_deletion_keeps_conservative_protection(self):
+        self.assert_level([
+            "(rm -rf /etc)",
+            "{ rm -rf /etc; }",
+            "if true; then rm -rf /etc; fi",
+            'for target in /etc; do rm -rf "$target"; done',
+            "rm -rf /tmp/termyes-safe; (rm -rf /etc)",
+        ], "block")
+
+    def test_cd_affects_later_relative_deletion(self):
+        self.assert_level([
+            "cd /; rm -rf etc",
+            "cd / && rm -rf etc",
+            "cd /etc; rm -rf guard-victim",
+            "cd \"$UNKNOWN\"; rm -rf relative",
+            "env --chdir=/ rm -rf etc",
+            "sudo --chdir=/ rm -rf etc",
+        ], "block")
+        self.assert_level([
+            "cd /tmp && rm -rf /tmp/termyes-safe",
+            "cd /tmp; rm -rf termyes-safe",
+        ], "safe")
+
+    def test_command_environment_does_not_replace_shell_variable(self):
+        self.assert_level([
+            'D=/etc; D=/tmp/termyes-safe true; rm -rf "$D"',
+            'D=/etc; D=/tmp/termyes-safe rm -rf "$D"',
+        ], "block")
+        self.assert_level([
+            'D=/tmp/termyes-safe; rm -rf "$D"',
+            'export D=/tmp/termyes-safe; rm -rf "$D"',
+            'D=/tmp/termyes-safe; D=/etc true; rm -rf "$D"',
+        ], "safe")
+
+    def test_home_operand_uses_home_policy_even_when_unknown_is_allowed(self):
+        policy = {**rules.BUNDLED_POLICY, "rm": {**rules.BUNDLED_POLICY["rm"], "block": ["home"], "warn": []}}
+        with mock.patch.object(rules, "active_policy", return_value=(policy, None)):
+            self.assert_level(['rm -rf "$HOME"', 'rm -rf ${HOME}', 'rm -rf ~'], "block")
+            self.assert_level(['rm -rf "$UNSET"'], "safe")
+
     def test_comment_mask_preserves_offsets_and_newlines(self):
         command = "printf ok # user's reboot comment\nprintf next"
         masked = core.strip_shell_comments(command)

@@ -96,7 +96,7 @@ struct GridLayout {
     }
     static func clockwiseFrames(count: Int, within bounds: CGRect, gap: CGFloat = 10) -> [CGRect] {
         let rowMajorFrames = frames(count: count, within: bounds, gap: gap)
-        guard count > 1 else { return rowMajorFrames }
+        guard count > 1, rowMajorFrames.count == count else { return rowMajorFrames }
 
         if !count.isMultiple(of: 2) {
             let leftCount = (count + 1) / 2

@@ -89,6 +89,7 @@ struct TermYesApp: App {
     }
 
     private func agentStatusText(_ client: AgentGuardClient) -> String {
+        if agentGuard.lastCheckFailed { return "本次检查失败，状态未确认" }
         if client.isGuardPaused { return client.pauseDescription }
         if !isAgentConfigured(client) { return "配置待修复" }
         if client.isVerified { return "实测通过" }
@@ -100,6 +101,7 @@ struct TermYesApp: App {
     }
 
     private func agentStatusIcon(_ client: AgentGuardClient) -> String {
+        if agentGuard.lastCheckFailed { return "exclamationmark.triangle.fill" }
         if client.isGuardPaused { return "pause.circle" }
         if !isAgentConfigured(client) { return "xmark.square" }
         if client.isVerified { return "checkmark.square.fill" }
@@ -220,6 +222,13 @@ struct TermYesApp: App {
                 shortcutMenuContent
             }
             Menu("命令守卫") {
+                if agentGuard.lastCheckFailed {
+                    Button("守卫检测失败 · 查看原因…") {
+                        showIssue("守卫检测失败", detail: agentGuard.diagnosticDetails)
+                    }
+                    Text(MenuPresentation.title(agentGuard.message))
+                    Divider()
+                }
                 Button(agentGuard.isWorking ? "实测中…" : "全部实测（模型请求）") {
                     agentGuard.verifyAll()
                 }
@@ -260,8 +269,10 @@ struct TermYesApp: App {
             if loginItem.status == .requiresApproval {
                 Button(MenuPresentation.title(loginItem.statusDescription + "…")) { loginItem.openSettings() }
             }
-            if let issue = loginItem.issue, loginItem.status != .notFound {
-                Button("自启动设置失败 · 查看原因…") { showIssue("登录时自启动", detail: issue) }
+            if let issue = loginItem.issue {
+                Button("自启动设置失败 · 查看原因…") {
+                    showIssue("登录时自启动", detail: issue + "\n\n" + loginItem.statusDescription)
+                }
             }
             Text(MenuPresentation.title(updateVersionText))
             Button(updater.isChecking ? "检查中…" : updater.isDownloading || updater.isInstallingUpdate ? "更新中…" : "检查更新") {

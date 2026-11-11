@@ -53,43 +53,54 @@ def write_result(directory, client, result):
 def run_visible(command, home, environment, timeout):
     process = subprocess.Popen(
         command, cwd=str(home), env=environment, stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    captured = {"stdout": b"", "stderr": b""}
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    captured = {"stdout": bytearray(), "stderr": bytearray()}
     selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
-    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
     deadline = time.monotonic() + timeout
     timed_out = False
+    completed = False
     try:
-        while selector.get_timeout() is not None or True:
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        # Drain both pipes through EOF and also wait for an agent that closes its
+        # output before exiting. Selectors have no get_timeout() API.
+        while selector.get_map() or process.poll() is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
                 break
-            events = selector.select(remaining)
-            if not events:
-                if process.poll() is not None:
-                    break
-                continue
-            for key, _ in events:
+            for key, _ in selector.select(min(remaining, 0.1)):
                 chunk = os.read(key.fileobj.fileno(), 65536)
                 if not chunk:
                     selector.unregister(key.fileobj)
                 else:
-                    captured[key.data] += chunk
-            if process.poll() is not None and not selector.select(0):
-                break
+                    captured[key.data].extend(chunk)
+                    destination = sys.stdout if key.data == "stdout" else sys.stderr
+                    destination.buffer.write(chunk)
+                    destination.buffer.flush()
+        completed = not timed_out
     finally:
+        if not completed:
+            # A closed Terminal window raises ContinueCancelled. Stop the entire
+            # request, including tools/downloaders spawned by the Agent, even if
+            # the launcher already exited while a child kept its pipes open.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        process.wait()
         selector.close()
         for stream in (process.stdout, process.stderr):
             stream.close()
-    return process.returncode, captured["stdout"], captured["stderr"], timed_out
+    return process.returncode, bytes(captured["stdout"]), bytes(captured["stderr"]), timed_out
 
 
 def continue_task(client, directory, home, manager=None, timeout=120):

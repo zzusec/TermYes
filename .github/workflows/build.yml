@@ -27,6 +27,8 @@ jobs:
           /tmp/termosaic-release-location-tests
           swiftc Sources/GitHubCLI.swift Tests/GitHubCLITests.swift -o /tmp/termyes-private-release-tests
           /tmp/termyes-private-release-tests
+          swiftc Sources/SemanticVersion.swift Sources/GitHubReleaseLocation.swift Sources/GitHubCLI.swift Sources/UpdateController.swift Tests/UpdateToolTests.swift -o /tmp/termyes-update-tool-tests
+          /tmp/termyes-update-tool-tests
       - name: Test verified Agent readiness
         run: |
           swiftc Sources/AgentGuardController.swift Tests/AgentGuardReadinessTests.swift -o /tmp/termyes-readiness-tests
@@ -50,6 +52,9 @@ jobs:
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_agent_updates.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_guard_pause.py
           PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_menu_copy.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_continue_task.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_codex_token_guard.py
+          PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B Tests/test_regression_runner.py
           bash AgentGuard/test.sh
           PYTHONDONTWRITEBYTECODE=1 bash AgentGuard/test-codex.sh
           node Tests/test_guard_plugins.mjs

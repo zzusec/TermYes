@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local classification/protocol/migration checks; never run the command strings or an agent."""
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import fcntl
 import json
@@ -8,9 +9,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +124,7 @@ for client in manage.CLIENTS:
             old.parent.mkdir(parents=True, exist_ok=True)
             old.write_text("// existing bypass-yes plugin\n")
             originals[old] = old.read_bytes()
-        manage.install(home, client)
+        manage.locked_action(home, client, "install")
         first = {p: p.read_bytes() for p in home.rglob("*") if p.is_file()}
         check((runtime / adapter).is_file(), client + " copied standalone adapter")
         check(denied(hook(client, payload(client), source=runtime)), client + " installed standalone adapter denies")
@@ -1207,5 +1211,233 @@ with tempfile.TemporaryDirectory(prefix="termyes-verify-pending-empty-") as tmp:
         clients, failures = manage.verify_pending(home)
     check(clients == [current] and not failures and not verify.called and not launch.called,
           "verify_pending is a no-op when every Agent is already verified")
+
+def test_concurrent_verification_preserves_other_clients():
+    with tempfile.TemporaryDirectory(prefix="termyes-verify-concurrent-") as tmp:
+        home = Path(tmp).resolve()
+        historical = {"liveStatus": "failed", "liveReason": "historical evidence"}
+        manage.write_verification(home, {"clients": {"pi": historical}})
+        ready = threading.Barrier(2)
+
+        def fake_status(probe_home, selected=None):
+            return [{"id": client, "detected": True} for client in selected or ()]
+
+        def fake_verify(probe_home, client):
+            ready.wait(timeout=5)
+            return {"liveStatus": "failed", "liveReason": client + " isolated result"}
+
+        with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                mock.patch.object(manage, "status", side_effect=fake_status), \
+                mock.patch.object(manage, "verify_client", side_effect=fake_verify), \
+                mock.patch.object(manage.subprocess, "Popen") as launch, \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {client: pool.submit(manage.verify_clients, home, [client])
+                       for client in ("claude", "codex")}
+            for client, future in futures.items():
+                check(future.result(timeout=5)[1] == {client: client + " isolated result"},
+                      client + " concurrent verifier keeps its actual failure")
+        stored = manage.read_verification(home)["clients"]
+        check(set(stored) == {"pi", "claude", "codex"} and stored["pi"] == historical,
+              "concurrent verification merges into the latest record without losing another client")
+        check(not launch.called, "concurrent verification regression never launches an Agent")
+
+
+def test_probe_timeout_kills_surviving_child():
+    with tempfile.TemporaryDirectory(prefix="termyes-probe-timeout-") as tmp:
+        home = Path(tmp).resolve()
+        program = (
+            "import os, signal, time\n"
+            "reader, writer = os.pipe()\n"
+            "child = os.fork()\n"
+            "if child == 0:\n"
+            "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "    os.write(writer, b'ready')\n"
+            "else:\n"
+            "    os.read(reader, 5)\n"
+            "print(('CHILD' if child == 0 else 'PARENT') + ' ' + str(os.getpid()), flush=True)\n"
+            "time.sleep(30)\n"
+        )
+        parent_pid = None
+        try:
+            code, output, timed_out = manage.run_probe(
+                sys.executable, ["-I", "-B", "-c", program], home, timeout=0.8)
+            parent_pid = int(re.search(r"PARENT (\d+)", output).group(1))
+            child_pid = int(re.search(r"CHILD (\d+)", output).group(1))
+            check(timed_out and code != 0, "probe reports timeout after terminating its parent")
+            deadline = time.monotonic() + 2
+            running = True
+            while running and time.monotonic() < deadline:
+                result = subprocess.run(["/bin/ps", "-o", "stat=", "-p", str(child_pid)],
+                                        capture_output=True, text=True, timeout=2)
+                state = result.stdout.strip()
+                running = bool(state) and not state.startswith("Z")
+                if running:
+                    time.sleep(0.02)
+            check(not running, "probe timeout kills a TERM-ignoring child even when its parent already exited")
+        finally:
+            if parent_pid is not None:
+                try:
+                    os.killpg(parent_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+
+def test_probe_path_matches_fingerprinted_cli():
+    with tempfile.TemporaryDirectory(prefix="termyes-probe-path-") as tmp:
+        home = Path(tmp).resolve()
+        local = home / ".local/bin"
+        tools = home / "tools"
+        fallback = home / ".opencode/bin"
+        vendor = home / ".local/share/Termosaic/vendor/bin"
+        for directory in (local, tools, fallback, vendor):
+            directory.mkdir(parents=True, exist_ok=True)
+        for path, label in ((tools / "agy", "primary"), (fallback / "agy", "fallback"),
+                            (tools / "claude", "primary"), (local / "claude", "local")):
+            path.write_text("#!/bin/sh\nprintf '%s\\n' " + label + "\n")
+            path.chmod(0o755)
+        with mock.patch.dict(os.environ, {
+                "HOME": str(home), "PATH": f"{tools}:{local}:/usr/bin:/bin",
+                "TERMYES_MANAGE_PY": "/dev/null"}), \
+                mock.patch.object(permission_modes, "APP_PATHS", {}), \
+                mock.patch.object(permission_modes, "_default_search_dirs",
+                                  return_value=[local, vendor, fallback, Path("/usr/bin"), Path("/bin")]):
+            permission_modes._ensure_wrapper(home, "agy")
+            for client in ("agy", "claude"):
+                expected = tools / client
+                command = permission_modes.launcher_path(home, client)
+                check(expected in permission_modes.executable_paths(home, client),
+                      client + " fingerprint includes the custom PATH executable")
+                code, output, timed_out = manage.run_probe(command, ["--version"], home)
+                check(code == 0 and not timed_out and output.strip() == "primary",
+                      client + " probe executes the same CLI as its fingerprint, not a fallback")
+            # Even with tools first in the caller PATH, child commands must find local wrappers first.
+            code, output, timed_out = manage.run_probe(
+                "/bin/sh", ["-c", "printf '%s' \"$PATH\""], home)
+            check(code == 0 and not timed_out and output.split(os.pathsep)[0] == str(local),
+                  "probe preserves local wrapper precedence")
+            vendor_cli = vendor / "agy"
+            vendor_cli.write_text("#!/bin/sh\nprintf 'vendor\\n'\n")
+            vendor_cli.chmod(0o755)
+            check(vendor_cli in permission_modes.executable_paths(home, "agy"),
+                  "managed vendor selection is fingerprinted")
+            code, output, timed_out = manage.run_probe(permission_modes.launcher_path(home, "agy"),
+                                                      ["--version"], home)
+            check(code == 0 and not timed_out and output.strip() == "vendor",
+                  "probe retains managed wrapper vendor precedence")
+
+
+def test_permission_cli_uses_install_lock():
+    with tempfile.TemporaryDirectory(prefix="termyes-permission-lock-") as tmp:
+        home = Path(tmp).resolve()
+        cli = home / ".local/bin/claude"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\nexit 0\n")
+        cli.chmod(0o755)
+        environment = {**ENV, "HOME": str(home), "PATH": f"{cli.parent}:/usr/bin:/bin"}
+        with mock.patch.dict(os.environ, environment):
+            manage.locked_action(home, "claude", "install")
+            config = manage.locations(home, "claude")[1]
+            installed_hooks = json.loads(config.read_bytes())["hooks"]
+            lock = manage.receipt_path(home, "claude").parent / ".install.lock"
+            for arguments in (("enable-yolo", "claude"), ("reconcile", "claude"), ("reconcile",)):
+                changed = json.loads(config.read_bytes())
+                changed["permissions"]["defaultMode"] = "default"
+                config.write_bytes(manage.json_bytes(changed))
+                before = {p: p.read_bytes() for p in home.rglob("*") if p.is_file()}
+                with lock.open("r+") as locked:
+                    fcntl.flock(locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SOURCE / "manage.py"), *arguments, "--home", str(home)],
+                        capture_output=True, text=True, env=environment, timeout=5)
+                check(result.returncode != 0, "permission CLI honors an active install lock: " + " ".join(arguments))
+                check(before == {p: p.read_bytes() for p in home.rglob("*") if p.is_file()},
+                      "locked permission CLI writes no stale config or wrapper")
+            for arguments in (("enable-yolo", "claude"), ("reconcile", "claude"), ("reconcile",)):
+                result = subprocess.run(
+                    [sys.executable, "-B", str(SOURCE / "manage.py"), *arguments, "--home", str(home)],
+                    capture_output=True, text=True, env=environment, timeout=5)
+                restored = json.loads(config.read_bytes())
+                check(result.returncode == 0 and restored["hooks"] == installed_hooks
+                      and restored["permissions"]["defaultMode"] == "bypassPermissions",
+                      " ".join(arguments) + " repairs after the install lock is released without dropping hooks")
+
+
+def test_zcode_rebase_preserves_nested_events():
+    with tempfile.TemporaryDirectory(prefix="termyes-zcode-rebase-") as tmp:
+        home = Path(tmp).resolve()
+        cli = home / ".local/bin/zcode"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\nexit 0\n")
+        cli.chmod(0o755)
+        with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": f"{cli.parent}:/usr/bin:/bin"}):
+            manage.locked_action(home, "zcode", "install")
+            config = manage.locations(home, "zcode")[1]
+            altered = json.loads(config.read_bytes())
+            third_party = [{"hooks": [{"type": "command", "command": "printf thirdparty"}]}]
+            altered["hooks"]["events"]["SessionStart"] = third_party
+            altered["hooks"]["custom"] = {"keep": True}
+            altered["model"] = "user-choice"
+            config.write_bytes(manage.json_bytes(altered))
+            clients, failures = manage.repair_unready(home, ["zcode"])
+            state = next(item for item in clients if item["id"] == "zcode")
+            check(not failures and state["guardReady"] and json.loads(config.read_bytes()) == altered,
+                  "zcode rebase uses hooks.events and preserves third-party metadata: " + str(failures))
+            receipt = manage.receipt_path(home, "zcode").read_bytes()
+            tampered = json.loads(config.read_bytes())
+            tampered["hooks"]["events"]["PreToolUse"][0]["matcher"] = "OtherTool"
+            config.write_bytes(manage.json_bytes(tampered))
+            _, failures = manage.repair_unready(home, ["zcode"])
+            check("zcode" in failures and json.loads(config.read_bytes()) == tampered
+                  and manage.receipt_path(home, "zcode").read_bytes() == receipt,
+                  "zcode still rejects edits to its nested managed hook")
+            config.write_bytes(manage.json_bytes(altered))
+            manage.uninstall(home, "zcode")
+            restored = json.loads(config.read_bytes())
+            check(restored["hooks"]["events"] == {"SessionStart": third_party}
+                  and restored["hooks"]["enabled"] is True and restored["hooks"]["custom"] == {"keep": True}
+                  and restored["model"] == "user-choice" and restored["permission"]["mode"] == "yolo",
+                  "zcode uninstall retains user events, metadata and YOLO")
+
+
+def test_provider_switch_cannot_hide_managed_hook_edits():
+    with tempfile.TemporaryDirectory(prefix="termyes-provider-hook-edit-") as tmp:
+        home = Path(tmp).resolve()
+        cli = home / ".local/bin/claude"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\nexit 0\n")
+        cli.chmod(0o755)
+        with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": f"{cli.parent}:/usr/bin:/bin"}):
+            manage.locked_action(home, "claude", "install")
+            config = manage.locations(home, "claude")[1]
+            original = config.read_bytes()
+            receipt = manage.receipt_path(home, "claude").read_bytes()
+            for field in ("matcher", "timeout"):
+                altered = json.loads(original)
+                altered["model"] = "changed-provider"
+                altered["env"] = {"ANTHROPIC_BASE_URL": "https://provider.invalid"}
+                group = altered["hooks"]["PreToolUse"][0]
+                if field == "matcher":
+                    group["matcher"] = "OtherTool"
+                else:
+                    group["hooks"][0]["timeout"] = 37
+                config.write_bytes(manage.json_bytes(altered))
+                before = config.read_bytes()
+                with mock.patch.object(manage.policy_update, "check"):
+                    clients, failures = manage.monitor(home, ["claude"])
+                check("claude" in failures and not clients[0]["guardReady"]
+                      and config.read_bytes() == before
+                      and manage.receipt_path(home, "claude").read_bytes() == receipt,
+                      "provider switch cannot hide a user edit to the managed " + field)
+            config.write_bytes(original)
+
+
+for regression in (
+        test_concurrent_verification_preserves_other_clients,
+        test_probe_timeout_kills_surviving_child,
+        test_probe_path_matches_fingerprinted_cli,
+        test_permission_cli_uses_install_lock,
+        test_zcode_rebase_preserves_nested_events,
+        test_provider_switch_cannot_hide_managed_hook_edits):
+    regression()
 
 print(f"Agent guard checks passed: {checks}; 13 adapters; real client/YOLO validation NOT performed.")

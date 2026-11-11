@@ -8,9 +8,10 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "AgentGuard"))
 import agent_updates as updates
@@ -24,6 +25,9 @@ class AgentUpdateTests(unittest.TestCase):
         self.home_patch = patch.object(updates, "HOME", self.home)
         self.home_patch.start()
         self.addCleanup(self.home_patch.stop)
+        self.env_patch = patch.dict(os.environ, {"HOME": str(self.home)})
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
 
     def npm_fixture(self, client="codex", name="@openai/codex", prefix=None):
         prefix = prefix or self.home / "npm"
@@ -33,7 +37,7 @@ class AgentUpdateTests(unittest.TestCase):
         binary = root / "cli.js"
         binary.write_text("#!/usr/bin/env node\n")
         binary.chmod(0o755)
-        (prefix / "bin").mkdir(parents=True)
+        (prefix / "bin").mkdir(parents=True, exist_ok=True)
         entry = prefix / "bin" / client
         entry.symlink_to(binary)
         npm = prefix / "bin/npm"
@@ -41,12 +45,84 @@ class AgentUpdateTests(unittest.TestCase):
         npm.chmod(0o755)
         return prefix, binary, entry
 
+    def runnable_npm_fixture(self, client="codex", name="@openai/codex"):
+        prefix, binary, entry = self.npm_fixture(client, name)
+        version = self.home / (client + ".version")
+        version.write_text("1.0.0")
+        binary.write_text("#!" + sys.executable + " -I\n" +
+                          "from pathlib import Path\nprint(Path(" + repr(str(version)) + ").read_text())\n")
+        (prefix / "bin/npm").write_text("#!" + sys.executable + " -I\n" + textwrap.dedent('''\
+            import json, os, sys, time
+            from pathlib import Path
+            home = Path(os.environ["HOME"])
+            active = home / "npm-active"
+            try:
+                fd = os.open(active, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
+            except FileExistsError:
+                (home / "overlap").touch()
+            worker = os.environ.get("TEST_WORKER", "single")
+            (home / ("started-" + worker)).write_text(str(os.getpid()))
+            with (home / "installs.jsonl").open("a") as log:
+                log.write(json.dumps(sys.argv[1:]) + "\\n")
+            deadline = time.monotonic() + 10
+            while os.environ.get("TEST_HOLD") == "1" and not (home / ("release-" + worker)).exists():
+                if time.monotonic() > deadline:
+                    raise TimeoutError("fake installer release timed out")
+                time.sleep(0.01)
+            package, version = sys.argv[-1].rsplit("@", 1)
+            client = {"@openai/codex": "codex", "@google/gemini-cli": "gemini"}[package]
+            (home / (client + ".version")).write_text(version)
+            active.unlink(missing_ok=True)
+            (home / ("done-" + worker)).touch()
+        '''))
+        return prefix, binary, entry
+
+    def start_report(self, worker, client="codex", hold=False):
+        code = textwrap.dedent('''\
+            import json, sys
+            from pathlib import Path
+            sys.path.insert(0, sys.argv[1])
+            import agent_updates as updates
+            home = updates.HOME
+            client = sys.argv[2]
+            updates.permission_modes._search_dirs = lambda _: [home / "npm/bin"]
+            updates.permission_modes.is_detected = lambda _, value: value == client
+            updates.latest_version = lambda value, install, current: ("2.0.0", updates.version_source(value, install, current))
+            updates.update_plugins = lambda _: []
+            print(json.dumps(updates.build_report()))
+        ''')
+        process = subprocess.Popen([sys.executable, "-I", "-B", "-c", code,
+                                    str(Path(updates.__file__).parent), client],
+                                   env=dict(os.environ, TEST_WORKER=worker, TEST_HOLD="1" if hold else "0"),
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=str(self.home))
+        self.addCleanup(self.stop_process, process)
+        return process
+
+    @staticmethod
+    def stop_process(process):
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=5)
+
+    def wait_for_file(self, path):
+        deadline = time.monotonic() + 5
+        while not path.exists():
+            if time.monotonic() > deadline:
+                self.fail("test subprocess did not create " + str(path))
+            time.sleep(0.01)
+
+    def read_report(self, process):
+        stdout, stderr = process.communicate(timeout=5)
+        self.assertEqual(process.returncode, 0, stderr)
+        return json.loads(stdout)
+
     def check(self, client="codex", current="1.0.0", latest="1.1.0", check_only=True, **extra):
         with ExitStack() as stack:
             stack.enter_context(patch.object(updates, "cli_command", return_value=["/fake/" + client]))
             stack.enter_context(patch.object(updates, "current_version", return_value=current))
             stack.enter_context(patch.object(updates, "npm_installation", return_value=None))
-            stack.enter_context(patch.object(updates, "latest_version", return_value=(latest, "https://official.example/latest")))
+            stack.enter_context(patch.object(updates, "latest_version", side_effect=lambda client, installation, current: (latest, updates.version_source(client, installation, current))))
             stack.enter_context(patch.object(updates, "update_command", return_value=(["/fake/updater"], "")))
             for name, value in extra.items():
                 stack.enter_context(patch.object(updates, name, **value))
@@ -126,6 +202,127 @@ class AgentUpdateTests(unittest.TestCase):
         self.assertEqual(item["status"], "ahead")
         run.assert_not_called()
 
+    def test_apply_rechecks_current_version_before_installing_stale_plan(self):
+        prefix, _, _ = self.runnable_npm_fixture()
+        with patch.object(updates.permission_modes, "_search_dirs", return_value=[prefix / "bin"]), \
+                patch.object(updates, "latest_version", side_effect=lambda client, install, current: ("2.0.0", updates.version_source(client, install, current))):
+            plan = updates.check_client("codex", check_only=True)
+            self.assertEqual(plan["status"], "updateAvailable")
+            for version, status in (("2.0.0", "upToDate"), ("3.0.0", "ahead")):
+                with self.subTest(version=version):
+                    item = dict(plan)
+                    (self.home / "codex.version").write_text(version)
+                    updates.apply_update(item)
+                    self.assertEqual(item["status"], status)
+                    self.assertEqual(item["currentVersion"], version)
+                    self.assertTrue(item["ok"])
+                    self.assertFalse(item["changed"])
+                    self.assertFalse((self.home / "installs.jsonl").exists())
+                    self.assertEqual((self.home / "codex.version").read_text(), version)
+
+    def test_apply_rejects_installation_prefix_change_since_check(self):
+        prefix, _, entry = self.npm_fixture()
+        replacement_prefix, _, replacement = self.npm_fixture(prefix=self.home / "other-npm")
+        with patch.object(updates, "cli_command", return_value=[str(entry)]), \
+                patch.object(updates, "current_version", return_value="1.0.0"), \
+                patch.object(updates, "latest_version", side_effect=lambda client, install, current: ("2.0.0", updates.version_source(client, install, current))):
+            item = updates.check_client("codex", check_only=True)
+            self.assertIn(str(prefix), item["command"])
+            with patch.object(updates, "cli_command", return_value=[str(replacement)]), patch.object(updates, "run") as run:
+                updates.apply_update(item)
+        self.assertEqual(item["status"], "failed")
+        self.assertIn("安装来源已变化", item["detail"])
+        self.assertNotIn(str(replacement_prefix), item["command"])
+        run.assert_not_called()
+
+    def test_apply_rejects_release_source_change_since_check(self):
+        item = self.check(client="pi", npm_installation={"return_value": {"name": "@mariozechner/pi-coding-agent", "prefix": self.home}})
+        with patch.object(updates, "cli_command", return_value=["/fake/pi"]), \
+                patch.object(updates, "current_version", return_value="1.0.0"), \
+                patch.object(updates, "npm_installation", return_value={"name": "@earendil-works/pi-coding-agent", "prefix": self.home}), \
+                patch.object(updates, "run") as run:
+            updates.apply_update(item)
+        self.assertEqual(item["status"], "failed")
+        self.assertIn("发行源已变化", item["detail"])
+        run.assert_not_called()
+
+    def test_apply_cannot_update_when_version_recheck_fails(self):
+        item = self.check()
+        with patch.object(updates, "cli_command", return_value=["/fake/codex"]), \
+                patch.object(updates, "current_version", side_effect=ValueError("version read failed")), \
+                patch.object(updates, "run") as run:
+            updates.apply_update(item)
+        self.assertEqual(item["status"], "failed")
+        self.assertFalse(item["changed"])
+        self.assertIn("version read failed", item["detail"])
+        run.assert_not_called()
+
+    def test_separate_report_processes_never_overlap_shared_prefix_installs(self):
+        self.runnable_npm_fixture()
+        self.runnable_npm_fixture("gemini", "@google/gemini-cli")
+        first = self.start_report("first", hold=True)
+        self.addCleanup((self.home / "release-first").touch)
+        self.wait_for_file(self.home / "started-first")
+        second = self.read_report(self.start_report("second", client="gemini"))
+        self.assertEqual(second["items"][0]["status"], "failed")
+        self.assertIn("另一个", second["items"][0]["detail"])
+        self.assertFalse((self.home / "started-second").exists())
+        (self.home / "release-first").touch()
+        self.assertEqual(self.read_report(first)["items"][0]["status"], "updated")
+        third = self.read_report(self.start_report("third", client="gemini"))
+        self.assertEqual(third["items"][0]["status"], "updated")
+        self.assertFalse((self.home / "overlap").exists())
+        self.assertEqual(len((self.home / "installs.jsonl").read_text().splitlines()), 2)
+
+    def test_orphaned_installer_keeps_lock_until_it_exits(self):
+        self.runnable_npm_fixture()
+        first = self.start_report("orphan", hold=True)
+        self.addCleanup((self.home / "release-orphan").touch)
+        self.wait_for_file(self.home / "started-orphan")
+        first.kill()
+        first.wait(timeout=5)
+        blocked = self.read_report(self.start_report("blocked"))
+        self.assertEqual(blocked["items"][0]["status"], "failed")
+        self.assertIn("另一个", blocked["items"][0]["detail"])
+        self.assertFalse((self.home / "started-blocked").exists())
+        (self.home / "release-orphan").touch()
+        self.wait_for_file(self.home / "done-orphan")
+        first.communicate(timeout=5)
+        recovered = self.read_report(self.start_report("recovered"))
+        self.assertEqual(recovered["items"][0]["status"], "upToDate")
+        self.assertFalse((self.home / "overlap").exists())
+        self.assertEqual(len((self.home / "installs.jsonl").read_text().splitlines()), 1)
+
+    def test_lock_failure_is_visible_and_other_checks_still_run(self):
+        detected = {"codex", "gemini"}
+        def checked(client, check_only):
+            return dict(client=client, target="CLI", ok=True, changed=False,
+                        command="/fake/updater", status="updateAvailable", latestVersion="2.0.0", currentVersion="1.0.0")
+        with patch.object(updates.permission_modes, "is_detected", side_effect=lambda _, client: client in detected), \
+                patch.object(updates, "check_client", side_effect=checked) as check, \
+                patch.object(updates, "update_lock", side_effect=OSError("lock unavailable")), \
+                patch.object(updates, "run") as run:
+            report = updates.build_report()
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual({item["client"] for item in report["items"]}, detected)
+        self.assertTrue(all(item["status"] == "failed" and "lock unavailable" in item["detail"] for item in report["items"]))
+        run.assert_not_called()
+
+    def test_plugin_lock_contention_does_not_prevent_cli_checks(self):
+        item = dict(client="pi", target="CLI", ok=True, changed=False, status="upToDate")
+        with updates.update_lock(), \
+                patch.object(updates.permission_modes, "is_detected", side_effect=lambda _, client: client == "pi"), \
+                patch.object(updates, "check_client", return_value=item) as check, \
+                patch.object(updates, "run") as run:
+            report = updates.build_report()
+            check_only_report = updates.build_report(check_only=True)
+        self.assertEqual(check.call_count, 2)
+        self.assertEqual(report["items"][0]["status"], "upToDate")
+        self.assertFalse(report["items"][1]["ok"])
+        self.assertIn("另一个", report["items"][1]["detail"])
+        self.assertEqual(check_only_report["items"], [item])
+        run.assert_not_called()
+
     def test_check_only_does_not_execute_or_update_plugins(self):
         with patch.object(updates, "run") as run, patch.object(updates, "update_plugins") as plugins:
             item = self.check()
@@ -136,7 +333,7 @@ class AgentUpdateTests(unittest.TestCase):
 
     def test_success_requires_reading_the_new_version(self):
         with patch.object(updates, "run", return_value=(True, "success")):
-            item = self.check(check_only=False, current_version={"side_effect": ["1.0.0", "1.1.0"]})
+            item = self.check(check_only=False, current_version={"side_effect": ["1.0.0", "1.0.0", "1.1.0"]})
         self.assertEqual(item["status"], "updated")
         self.assertEqual(item["currentVersion"], "1.1.0")
         self.assertTrue(item["changed"])
@@ -281,13 +478,48 @@ class AgentUpdateTests(unittest.TestCase):
             self.assertEqual(updates.update_plugins("codex"), [])
         run.assert_not_called()
 
+    def test_explicit_unknown_plugin_command_is_unsupported(self):
+        for output in ("error: unknown command 'update'", "unrecognized subcommand 'extensions'", "command 'plugin' not found"):
+            with self.subTest(output=output), patch.object(updates, "run", return_value=(False, output)):
+                self.assertFalse(updates.supported_command(["/fake/pi"], ["update", "--extensions"]))
+
+    def test_plugin_probe_failures_are_reported_and_other_checks_continue(self):
+        for output in ("Fatal error: extension module not found", "超时（30 秒），已终止升级进程组"):
+            with self.subTest(output=output):
+                def checked(client, check_only):
+                    return dict(client=client, target="CLI", ok=True, changed=False, status="upToDate")
+                with patch.object(updates.permission_modes, "is_detected", side_effect=lambda _, client: client in ("pi", "zcode")), \
+                        patch.object(updates, "check_client", side_effect=checked) as check, \
+                        patch.object(updates, "cli_command", side_effect=lambda client: ["/fake/" + client]), \
+                        patch.object(updates, "run", side_effect=lambda args, **kwargs: (False, output) if args[0] == "/fake/pi" else (False, "unknown command 'plugins'")) as run:
+                    report = updates.build_report()
+                self.assertEqual(check.call_count, 2)
+                failures = [item for item in report["items"] if not item["ok"]]
+                self.assertEqual(len(failures), 1)
+                self.assertEqual(failures[0]["client"], "pi")
+                self.assertIn(output, failures[0]["detail"])
+                self.assertIn("插件命令探测失败", failures[0]["detail"])
+                self.assertIn("失败或暂不支持 1 项", report["message"])
+                self.assertTrue(all(call.args[0][-1] == "--help" for call in run.call_args_list))
+
+    def test_later_plugin_probe_failure_preserves_earlier_result(self):
+        with patch.object(updates, "cli_command", return_value=["/fake/zcode"]), \
+                patch.object(updates, "run", side_effect=[(True, "Usage: plugins marketplace update"),
+                                                        (True, "plugin 1.0.0 -> 1.1.0"),
+                                                        (False, "Fatal error: extension failed")]):
+            items = updates.update_plugins("zcode")
+        self.assertEqual(len(items), 2)
+        self.assertTrue(items[0]["ok"] and items[0]["changed"])
+        self.assertFalse(items[1]["ok"])
+        self.assertIn("Fatal error: extension failed", items[1]["detail"])
+
     def test_pi_extensions_use_official_command_without_updating_self(self):
         with patch.object(updates, "cli_command", return_value=["/fake/pi"]), \
                 patch.object(updates, "supported_command", return_value=True) as supported, \
                 patch.object(updates, "run", return_value=(True, "Updated packages")) as run:
             items = updates.update_plugins("pi")
         supported.assert_called_once_with(["/fake/pi"], ["update", "--extensions"])
-        run.assert_called_once_with(["/fake/pi", "update", "--extensions", "--no-approve"])
+        run.assert_called_once_with(["/fake/pi", "update", "--extensions", "--no-approve"], lock_fd=ANY)
         self.assertEqual(len(items), 1)
         self.assertTrue(items[0]["ok"])
         self.assertFalse(items[0]["changed"], "A generic success message does not prove a version changed")
@@ -321,7 +553,7 @@ class AgentUpdateTests(unittest.TestCase):
                 patch.object(updates, "run", return_value=(True, "Already up to date")) as run:
             report = updates.build_report()
         apply_update.assert_called_once_with(item)
-        run.assert_called_once_with(["/fake/pi", "update", "--extensions", "--no-approve"])
+        run.assert_called_once_with(["/fake/pi", "update", "--extensions", "--no-approve"], lock_fd=ANY)
         self.assertEqual(len(report["items"]), 2)
         self.assertTrue(all(entry["ok"] and not entry["changed"] for entry in report["items"]))
 

@@ -1,3 +1,25 @@
+# TermYes v1.6.40
+
+## 简体中文
+
+- 修复危险命令漏拦：Codex 特殊 token 改写后继续执行危险分类；识别 `-lc`、引号中的选项、命令替换和传给 Shell 的 heredoc；复合删除按全部目标、目录变化及变量作用域判断。保持 YOLO 模式与危险规则硬拒绝，不把普通文本示例当作执行命令。
+- 修复定时「继续」的 selector 异常，实时显示实际 stdout/stderr，并在超时或关闭专用窗口时回收请求进程组。
+- 修复守卫验证与策略更新的并发覆盖、探针 CLI 与缓存指纹不一致、权限协调与 Hook 安装竞争、zcode 事件合并，以及模型切换掩盖受管 Hook 修改的问题。
+- 修复已有 zsh 别名导致启动器加载失败、Codex 多行 TOML 被错误改写及普通启动器误识别；对依赖自身位置的启动脚本拒绝不安全迁移，保留原入口。
+- Agent 与插件升级增加跨进程互斥，执行前复核版本和安装来源，防止过期计划降级；插件探测崩溃与超时会明确显示。应用更新避免大输出管道死锁，前置失败恢复原应用，清理失败保留已验证的新应用并报告错误。
+- 检测失败不再沿用旧的「实测通过」；停止后不追加自动实测；显示登录项失败原因。修复首次启动 Terminal 的误报和空边界布局崩溃。
+- 完整自动回归 37/37 步通过，包括 1104 项守卫检查、13 个适配器、45 项权限测试和 43 项 Agent 更新测试。新增安装、回滚、并发与输出捕获回归。协议及模拟测试不代表每个真实客户端已经加载并信任守卫。
+
+## English
+
+- Close command-guard gaps in Codex token rewriting, combined shell flags, quoted options, command substitutions, executable heredocs, compound removals, directory changes, and variable scope. Preserve YOLO execution and hard-deny danger rules without treating literal examples as executable commands.
+- Fix the scheduled-continue selector failure, stream actual stdout/stderr to its dedicated window, and clean up request process groups on timeout or cancellation.
+- Serialize policy and verification updates, align probe execution with executable fingerprints, coordinate permission repair with Hook installation, and preserve zcode events and managed-Hook ownership across provider changes.
+- Fix zsh alias collisions, multiline Codex TOML edits, and wrapper identification. Refuse unsafe relocation of launchers that depend on their own location, leaving the original command intact.
+- Serialize Agent/plugin upgrades across processes and recheck versions and installation sources before applying plans. Report plugin probe failures, prevent update-tool output deadlocks, relaunch the existing app on early installation failure, and retain the verified new app when cleanup fails.
+- Invalidate stale success displays after failed checks, prevent follow-up verification after stopping, expose login-item errors, and fix initial Terminal activation and empty-bounds layout handling.
+- Pass all 37 automated regression steps, including 1104 guard checks across 13 adapters, 45 permission tests, and 43 Agent-update tests. Add installation, rollback, concurrency, and output-capture coverage; protocol and mock tests do not certify real-client Hook loading or trust.
+
 # TermYes v1.6.39
 
 ## 简体中文

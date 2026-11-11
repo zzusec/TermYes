@@ -15,6 +15,12 @@ func overlaps(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
 
 let bounds = CGRect(x: 0, y: 0, width: 1200, height: 800)
 
+for count in [-1, 0, 1, 2, 3, 4, 5] {
+    for emptyBounds in [CGRect.zero, CGRect(x: 0, y: 0, width: 1200, height: 0), CGRect(x: 0, y: 0, width: 0, height: 800)] {
+        expect(GridLayout.clockwiseFrames(count: count, within: emptyBounds).isEmpty, "Invalid screen bounds must not crash clockwise layout for \(count) windows")
+    }
+}
+
 let one = GridLayout.frames(count: 1, within: bounds, gap: 10)
 expect(one.count == 1, "one window should produce one frame")
 expect(one[0].width > 1100 && one[0].height > 700, "one window should fill the usable screen")

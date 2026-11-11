@@ -197,6 +197,19 @@ def write_verification(home, value):
     }))
 
 
+def merge_verification(home, clients):
+    # Probes can take minutes: lock only the fresh read/merge/write, not the probes.
+    lock = verification_path(home).with_name(".verification.lock")
+    checked_path(lock)
+    lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+") as locked:
+        fcntl.flock(locked, fcntl.LOCK_EX)
+        verification = read_verification(home)
+        verification["clients"].update(clients)
+        write_verification(home, verification)
+
+
 def live_status(home, client, verification=None):
     try:
         paused_until = core.guard_paused_until(home, client)
@@ -512,11 +525,28 @@ def install(home, client):
                     if baseline_hooks is not None:
                         restored_config["hooks"] = baseline_hooks
                 elif client == "claude" and claude_config_was_replaced(installed_config, current_config):
+                    # Provider/settings changes may require a fresh YOLO/config
+                    # snapshot, but cannot waive ownership checks on hooks that
+                    # are still present. A whole-file replacement may omit hooks.
+                    if "hooks" in current_config:
+                        rebase_claude_hooks(installed_config, current_config, restored_config, paths)
                     permission_modes.repair(home, client)
                     current_config = mapping(json.loads(config.read_bytes()))
                     restored_config = without_managed_claude_hooks(current_config, paths)
                     files = desired_files(home, client)
                     updated[key]["data"] = base64.b64encode(files[config]).decode()
+                elif client == "zcode":
+                    # zcode stores metadata next to hooks.events; only events
+                    # have the Claude-style event -> group-list shape.
+                    installed_hooks = mapping(installed_config.get("hooks", {}))
+                    current_hooks = mapping(current_config.get("hooks", {}))
+                    restored_events = rebase_claude_hooks(
+                        {"hooks": installed_hooks.get("events", {})},
+                        {"hooks": current_hooks.get("events", {})}, {}, paths,
+                    )
+                    restored_config = {**current_config, "hooks": {
+                        **current_hooks, "events": restored_events.get("hooks", {}),
+                    }}
                 else:
                     restored_config = rebase_claude_hooks(installed_config, current_config, restored_config, paths)
             updated[key]["mode"] = stored["mode"] & current["mode"] & 0o600
@@ -677,7 +707,7 @@ def resume_client(home, client):
 
 
 def locked_action(home, client, action, minutes=60):
-    lock = receipt_path(home, client).parent / ".install.lock"
+    lock = verification_path(home).parent / ".install.lock"
     checked_path(lock)
     lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
@@ -686,6 +716,10 @@ def locked_action(home, client, action, minutes=60):
             fcntl.flock(locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError("另一个安装或恢复操作正在运行，请稍后再试")
+        if action == "enable-yolo":
+            return permission_modes.repair(home, client)
+        if action == "reconcile":
+            return permission_modes.reconcile(home, [client] if client else None)
         if action == "pause-client":
             return pause_client(home, client, minutes)
         if action == "resume-client":
@@ -767,13 +801,11 @@ def run_probe(command, arguments, home, extra_env=None, timeout=VERIFY_TIMEOUT_S
     environment = dict(os.environ)
     environment.update({
         "HOME": str(home),
-        "PATH": os.pathsep.join((
-            str(home / ".local/bin"),
-            str(home / ".local/share/Termosaic/vendor/bin"),
-            str(home / ".opencode/bin"),
-            str(home / ".qoder/entry"),
-            str(home / ".pi/agent/bin"),
-            "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+        # Use the same underlying CLI search order as executable_paths. The
+        # absolute launcher is already selected; local wrappers stay first for
+        # its child commands, and managed wrappers skip this directory anyway.
+        "PATH": os.pathsep.join(dict.fromkeys(
+            str(path.absolute()) for path in (home / ".local/bin", *permission_modes._search_dirs(home))
         )),
         "PYTHONDONTWRITEBYTECODE": "1",
         "DANGER_GUARD_SILENT": "1",
@@ -799,13 +831,19 @@ def run_probe(command, arguments, home, extra_env=None, timeout=VERIFY_TIMEOUT_S
             timed_out = True
             try:
                 os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
                 process.wait(timeout=3)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait()
+            except subprocess.TimeoutExpired:
+                pass
+            # Reaping the leader does not mean its children exited. Always kill
+            # the remaining session process group, including TERM-ignoring ones.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
         output.seek(0, os.SEEK_END)
         size = output.tell()
         output.seek(max(0, size - 16384))
@@ -953,7 +991,7 @@ def verify_client(home, client):
 
 
 def verify_clients(home, selected=None):
-    verification = read_verification(home)
+    read_verification(home)  # Reject a malformed record before launching any probes.
     failures = {}
     candidates = [item["id"] for item in status(home, selected) if item["detected"]]
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -961,12 +999,11 @@ def verify_clients(home, selected=None):
         for completed in as_completed(pending):
             client = pending[completed]
             record = completed.result()
-            verification["clients"][client] = record
-            write_verification(home, verification)
+            merge_verification(home, {client: record})
             if record["liveStatus"] not in ("passed", "paused"):
                 failures[client] = record["liveReason"]
     if not candidates:
-        write_verification(home, verification)
+        merge_verification(home, {})
     return status(home), failures
 
 def verify_all(home):
@@ -1088,14 +1125,11 @@ def main():
     if args.action == "enable-yolo":
         if not args.client:
             parser.error("client required")
-        permission_modes.repair(args.home, args.client)
+        locked_action(args.home, args.client, "enable-yolo")
         print(json.dumps(status(args.home), ensure_ascii=False))
         return
     if args.action == "reconcile":
-        results = permission_modes.reconcile(
-            args.home,
-            [args.client] if args.client else None,
-        )
+        results = locked_action(args.home, args.client, "reconcile")
         failures = [item for item in results if item["detected"] and not item["permissionReady"]]
         print(json.dumps(status(args.home), ensure_ascii=False))
         if failures:

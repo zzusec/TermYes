@@ -185,10 +185,16 @@ final class UpdateController: NSObject, ObservableObject {
         }
 
         statusMessage = "正在验证应用包…"
-        return try stageApplication(from: cachedDMG, version: version, cacheDirectory: cacheDirectory)
+        guard let currentVersion = currentSemanticVersion else { throw UpdateError.invalidVersion }
+        let identifier = bundleIdentifier
+        return try await Task.detached(priority: .utility) {
+            try Self.stageApplication(from: cachedDMG, version: version, cacheDirectory: cacheDirectory,
+                                      bundleIdentifier: identifier, currentVersion: currentVersion)
+        }.value
     }
 
-    private func stageApplication(from dmgURL: URL, version: SemanticVersion, cacheDirectory: URL) throws -> URL {
+    nonisolated private static func stageApplication(from dmgURL: URL, version: SemanticVersion, cacheDirectory: URL,
+                                                     bundleIdentifier: String, currentVersion: SemanticVersion) throws -> URL {
         let mountPoint = FileManager.default.temporaryDirectory
             .appendingPathComponent("TermYesUpdate-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: mountPoint, withIntermediateDirectories: true)
@@ -215,7 +221,6 @@ final class UpdateController: NSObject, ObservableObject {
               let stagedVersionString = stagedBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
               let stagedVersion = SemanticVersion(stagedVersionString),
               stagedVersion == version,
-              let currentVersion = currentSemanticVersion,
               stagedVersion > currentVersion else {
             throw UpdateError.invalidApplication
         }
@@ -285,30 +290,46 @@ final class UpdateController: NSObject, ObservableObject {
         }
     }
 
-    private func runTool(_ path: String, _ arguments: [String]) -> (status: Int32, output: String, error: String) {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        process.standardOutput = stdout
-        process.standardError = stderr
+    nonisolated static func runTool(_ path: String, _ arguments: [String]) -> (status: Int32, output: String, error: String) {
+        let files = FileManager.default
+        let temporary = files.temporaryDirectory.appendingPathComponent("TermYes-update-tool-\(UUID().uuidString)")
         do {
+            try files.createDirectory(at: temporary, withIntermediateDirectories: false,
+                                      attributes: [.posixPermissions: 0o700])
+            defer { try? files.removeItem(at: temporary) }
+            let stdoutURL = temporary.appendingPathComponent("stdout")
+            let stderrURL = temporary.appendingPathComponent("stderr")
+            for file in [stdoutURL, stderrURL] {
+                guard files.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                    throw UpdateError.captureFailed
+                }
+            }
+            let stdout = try FileHandle(forWritingTo: stdoutURL)
+            defer { try? stdout.close() }
+            let stderr = try FileHandle(forWritingTo: stderrURL)
+            defer { try? stderr.close() }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: path)
+            process.arguments = arguments
+            process.standardInput = FileHandle.nullDevice
+            // Files cannot fill a pipe buffer while the parent waits for exit.
+            process.standardOutput = stdout
+            process.standardError = stderr
             try process.run()
             process.waitUntilExit()
+            let output = String(decoding: try Data(contentsOf: stdoutURL), as: UTF8.self)
+            let error = String(decoding: try Data(contentsOf: stderrURL), as: UTF8.self)
+            return (process.terminationStatus, output, error.trimmingCharacters(in: .whitespacesAndNewlines))
         } catch {
             return (127, "", error.localizedDescription)
         }
-        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return (process.terminationStatus, output, error.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private enum UpdateError: LocalizedError {
         case invalidReleaseURL, invalidVersion, invalidChecksumFile, checksumMismatch
         case mountFailed(String), appMissingFromDMG, stagingFailed(String), invalidApplication
         case signatureInvalid(String), notInstalledInApplications, applicationsNotWritable, helperMissing
-        case httpFailure(Int)
+        case httpFailure(Int), captureFailed
 
         var errorDescription: String? {
             switch self {
@@ -324,6 +345,7 @@ final class UpdateController: NSObject, ObservableObject {
             case .notInstalledInApplications: return "请先将 TermYes 安装到 /Applications"
             case .applicationsNotWritable: return "/Applications 当前不可写，无法自动替换"
             case .helperMissing: return "更新助手缺失"
+            case .captureFailed: return "无法创建更新工具的私有输出文件"
             case .httpFailure(let code): return "GitHub 请求失败（HTTP \(code)）"
             }
         }

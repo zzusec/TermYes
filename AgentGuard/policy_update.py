@@ -1,5 +1,7 @@
 """Check the versioned, data-only GitHub danger list without touching installed hooks."""
+import fcntl
 import json
+import os
 import time
 from urllib.request import Request, urlopen
 
@@ -44,6 +46,20 @@ def fetch_policy():
 
 
 def check(home, atomic_write, now=None, fetch=fetch_policy, force=False):
+    # Version comparison and replacement form one transaction, including the
+    # retry timestamp. A slower old response must not overwrite a newer policy.
+    lock = rules.policy_path(home).with_name(".policy-update.lock")
+    for path in (lock, *lock.parents):
+        if path.is_symlink():
+            raise ValueError("不自动修改符号链接：" + str(path))
+    lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "r+") as locked:
+        fcntl.flock(locked, fcntl.LOCK_EX)
+        return _check_locked(home, atomic_write, now, fetch, force)
+
+
+def _check_locked(home, atomic_write, now, fetch, force):
     now = time.time() if now is None else now
     record = state(home)
     last_attempt = record.get("lastAttempt")

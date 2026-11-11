@@ -165,76 +165,217 @@ def mask_strings(cmd):
     return ''.join(out)
 
 
-def extract_code(cmd):
-    """提取会被 shell 重新执行的内联代码(bash -c / sh -c / eval),作为危险扫描的补充输入,
-    防止把真正危险命令藏在引号里绕过 mask_strings()。"""
-    def literal_text(literal):
-        if literal.startswith("$'"):
-            # Decode ASCII escape sequences only; preserve surrounding Unicode.
-            return re.sub(
-                r"\\(?:[\\'\"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})",
-                lambda match: match[0].encode("ascii").decode("unicode_escape"),
-                literal[2:-1],
-            )
-        return literal[1:-1] if literal[0] in "'\"" else literal
+def shell_words(segment):
+    """Return quote-removed words with their source spelling, without evaluating them."""
+    words = []
+    i = 0
+    while i < len(segment):
+        if segment[i].isspace():
+            i += 1
+            continue
+        start = i
+        value = []
+        quote = None
+        while i < len(segment):
+            char = segment[i]
+            if quote is None and char.isspace():
+                break
+            if quote is None and segment.startswith("$'", i):
+                quote = "$'"
+                i += 2
+                continue
+            if quote == "$'" and char == "\\":
+                match = re.match(r"\\(?:[\\'\"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})", segment[i:])
+                if match:
+                    value.append(match[0].encode("ascii").decode("unicode_escape"))
+                    i += len(match[0])
+                    continue
+            if char == "\\" and quote != "'" and i + 1 < len(segment):
+                following = segment[i + 1]
+                if quote is None or following in '$`"\\\n':
+                    if following != "\n":
+                        value.append(following)
+                    i += 2
+                    continue
+            if quote is None and char in "'\"":
+                quote = char
+            elif quote and char == quote[-1]:
+                quote = None
+            else:
+                value.append(char)
+            i += 1
+        if quote:
+            raise ValueError("命令引号未闭合")
+        words.append(("".join(value), segment[start:i]))
+    return words
 
+
+def command_arguments(args):
+    """Peel common executable wrappers, never words contained in a data argument."""
+    args = list(args)
+    while args:
+        while args and ASSIGN_RE.match(args[0]):
+            args.pop(0)
+        if not args:
+            break
+        name = os.path.basename(args[0])
+        if name not in ("sudo", "env", "command", "exec", "nohup", "time"):
+            break
+        args.pop(0)
+        while args and args[0].startswith("-"):
+            option = args.pop(0)
+            if option == "--":
+                break
+            if option in ("-u", "-g", "-h", "-p", "-C", "-D", "-T", "--user", "--group", "--host", "--prompt", "--chdir", "--unset") and args:
+                args.pop(0)
+    return args
+
+
+def is_shell(name):
+    return os.path.basename(name) in ("sh", "bash", "zsh", "dash", "ksh", "ash", "csh", "tcsh")
+
+
+def extract_substitutions(cmd):
+    """Find executable substitutions, but not single-quoted or escaped examples."""
     payloads = []
-    literal_pattern = r"(\$'(?:\\.|[^'\\])*'|'[^']*'|\"[^\"]*\"|\S+)"
-    for m in re.finditer(r"\b(?:ba|z|da|t?c|k|a)?sh\b[^\n;|&]*?\s-c\s+" + literal_pattern, cmd):
-        literal = m.group(1)
-        payloads.append(literal_text(literal))
-    for m in re.finditer(r"\beval\s+(\$'(?:\\.|[^'\\])*'|'[^']*'|\"[^\"]*\"|[^\n;|&]+)", cmd):
-        literal = m.group(1)
-        payloads.append(literal_text(literal))
+    quote = None
+    i = 0
+    while i < len(cmd):
+        char = cmd[i]
+        if char == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote in ("'", "$'"):
+            if char == "'":
+                quote = None
+            i += 1
+            continue
+        if quote is None and cmd.startswith("$'", i):
+            quote = "$'"
+            i += 2
+            continue
+        if char == "'" and quote is None:
+            quote = "'"
+        elif char == '"':
+            quote = None if quote == '"' else '"'
+        elif cmd.startswith("$(", i):
+            end = _skip_cmdsub(cmd, i + 2)
+            if end is None:
+                break
+            # Arithmetic expansion is not a shell command, but may contain one.
+            body = cmd[i + 2:end - 1]
+            payloads.extend(extract_substitutions(body) if body.startswith("(") else [body])
+            i = end
+            continue
+        elif char == "`":
+            end = i + 1
+            while end < len(cmd) and cmd[end] != "`":
+                end += 2 if cmd[end] == "\\" else 1
+            if end >= len(cmd):
+                break
+            payloads.append(cmd[i + 1:end])
+            i = end + 1
+            continue
+        i += 1
     return payloads
 
 
-def strip_heredocs(cmd):
-    """把「定界符带引号」的 heredoc 正文清空(<<'EOF' / <<"EOF")。
+def extract_code(cmd):
+    """Extract only executable shell/eval arguments and command substitutions."""
+    cmd = strip_shell_comments(cmd)
+    payloads = extract_substitutions(cmd)
+    outer = mask_cmd_subs(cmd)
+    if outer is None:
+        return payloads
+    for segment in shell_segments(outer):
+        args = command_arguments([word for word, _ in shell_words(segment)])
+        if not args:
+            continue
+        if os.path.basename(args[0]) == "eval":
+            payloads.append(" ".join(args[1:]))
+        elif is_shell(args[0]):
+            for index, arg in enumerate(args[1:], 1):
+                if arg == "--" or not arg.startswith("-"):
+                    break
+                if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", arg) and index + 1 < len(args):
+                    payloads.append(args[index + 1])
+                    break
+    return payloads
 
-    这类正文不做变量/命令替换,也不会被当作命令执行,是纯数据 —— 里面的 JS 模板串反引号、
-    SQL、$(...)、reboot 之类的词都不该影响判定(否则写个 seed 脚本都要弹确认)。
-    不带引号的 <<EOF 正文会被 shell 展开(可能触发命令替换),保持原样继续扫描。
-    """
+
+def heredoc_parts(cmd):
+    """Separate quoted heredoc data from bodies passed to an actual shell."""
     if "<<" not in cmd:
-        return cmd
+        return cmd, []
     lines = cmd.split("\n")
-    mlines = mask_strings(cmd).split("\n")   # 与原文等长,用来判断 << 是否在引号外
-    if len(mlines) != len(lines):
-        return cmd
-    out = []
+    out, payloads = [], []
     i = 0
     while i < len(lines):
-        out.append(lines[i])
+        line = lines[i]
+        out.append(line)
         delims = []
         bare = False
-        for m in re.finditer(r"<<-?", mlines[i]):
-            dm = re.match(r"\s*(?:'([^']*)'|\"([^\"]*)\")", lines[i][m.end():])
-            if dm:
-                delims.append(dm.group(1) if dm.group(1) is not None else dm.group(2))
+        for match in re.finditer(r"<<-?", mask_strings(line)):
+            delimiter = re.match(r"\s*(?:'([^']*)'|\"([^\"]*)\")", line[match.end():])
+            if delimiter:
+                prefix = shell_segments(line[:match.start()])
+                args = command_arguments([word for word, _ in shell_words(prefix[-1])]) if prefix else []
+                executable = bool(args and is_shell(args[0]))
+                delims.append((delimiter.group(1) if delimiter.group(1) is not None else delimiter.group(2),
+                               match[0].endswith("-"), executable))
             else:
-                bare = True   # <<EOF / <<< / << 变量:交给原逻辑保守处理
+                bare = True  # Preserve existing handling of unquoted expansion/<<<.
         i += 1
         if bare or not delims:
             continue
-        for delim in delims:      # 多个 heredoc 时正文按顺序排列
-            while i < len(lines) and lines[i].strip() != delim:
-                out.append("")    # 正文清空,保留行数
+        for delimiter, strip_tabs, executable in delims:
+            body = []
+            while i < len(lines) and (lines[i].lstrip("\t") if strip_tabs else lines[i]) != delimiter:
+                body.append(lines[i].lstrip("\t") if strip_tabs else lines[i])
+                out.append("")
                 i += 1
             if i < len(lines):
-                out.append("")    # 结束定界符行
+                out.append("")
                 i += 1
-    return "\n".join(out)
+            if executable:
+                payloads.append("\n".join(body))
+    return "\n".join(out), payloads
 
 
-def build_scan_text(cmd):
-    """用于危险匹配的文本 = 屏蔽数据后的命令 + 内联代码补扫。"""
-    cmd = strip_shell_comments(cmd)
+def strip_heredocs(cmd):
+    return heredoc_parts(cmd)[0]
+
+
+def build_scan_text(cmd, depth=0):
+    """Mask data while preserving executable names, options and path operands."""
+    if depth >= 16:
+        raise ValueError("Shell 嵌套过深，无法可靠判定")
+    cmd, heredocs = heredoc_parts(strip_shell_comments(cmd))
     masked = mask_strings(cmd)
-    payloads = [strip_shell_comments(payload) for payload in extract_code(cmd)]
-    if payloads:
-        return masked + "\n" + "\n".join(payloads)
-    return masked
+    outer = mask_cmd_subs(cmd)
+    normalized = []
+    if outer is not None:
+        for segment in shell_segments(outer):
+            words = shell_words(segment)
+            args = command_arguments([value for value, _ in words])
+            if not args:
+                continue
+            # Shell payloads are parsed recursively below, never as flat strings.
+            # The first argv word is executable even when the shell quotes it.
+            start = len(words) - len(args)
+            name = os.path.basename(args[0])
+            parts = [name]
+            for index, (value, spelling) in enumerate(words[start + 1:], 1):
+                semantic = (
+                    (name in ("git", "npm", "docker", "diskutil") and index == 1)
+                    or (name in ("git", "crontab", "docker", "chmod", "chown") and value.startswith("-"))
+                    or (name in ("chmod", "chown") and value.startswith("/"))
+                    or (name == "dd" and value.startswith("of="))
+                )
+                parts.append(value if semantic and not any(c.isspace() for c in value) else mask_strings(spelling))
+            normalized.append(" ".join(parts))
+    payloads = extract_code(cmd) + heredocs
+    return "\n".join([masked, *normalized, *(build_scan_text(payload, depth + 1) for payload in payloads)])
 
 
 # ============================================================
@@ -439,20 +580,41 @@ def mask_cmd_subs(cmd):
 
 
 def shell_segments(cmd):
-    """按顶层 shell 分隔符切段;引号内的分隔符保留为参数内容。"""
+    """Split top-level shell commands without cutting quoted or substituted code."""
     out, buf = [], []
     quote = None
     i = 0
     while i < len(cmd):
         c = cmd[i]
+        if c == "\\" and quote != "'" and i + 1 < len(cmd):
+            buf.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if quote not in ("'", "$'") and cmd.startswith("$(", i):
+            end = _skip_cmdsub(cmd, i + 2)
+            if end is None:
+                return []
+            buf.append(cmd[i:end])
+            i = end
+            continue
+        if quote not in ("'", "$'") and c == "`":
+            end = i + 1
+            while end < len(cmd) and cmd[end] != "`":
+                end += 2 if cmd[end] == "\\" else 1
+            if end >= len(cmd):
+                return []
+            buf.append(cmd[i:end + 1])
+            i = end + 1
+            continue
         if quote:
             buf.append(c)
-            if quote == '"' and c == "\\" and i + 1 < len(cmd):
-                buf.append(cmd[i + 1])
-                i += 2
-                continue
-            if c == quote:
+            if c == quote[-1]:
                 quote = None
+        elif cmd.startswith("$'", i):
+            quote = "$'"
+            buf.append("$'")
+            i += 2
+            continue
         elif c in ("'", '"'):
             quote = c
             buf.append(c)
@@ -562,46 +724,89 @@ def expand_vars(text, env):
     return None if unknown else out
 
 
-def classify_rm_targets(cmd, cwd, policy):
-    """解析原始命令里所有直接执行的 rm -rf 目标,聚合为 block/warn/safe;解析不了一律 warn。
-
-    同一条命令里 `DIR=/tmp/x; rm -rf $DIR` 这种字面量赋值会先展开再判定 —— 展开后按真实路径
-    走同一套分级(展开成家目录照样 block),既不误拦临时目录,也不会被变量绕过。
-    """
-    cmd = mask_cmd_subs(cmd)
-    if cmd is None:
-        return rm_level("unknown", policy)  # 引号/命令替换不闭合,解析不了
-
+def classify_rm_targets(cmd, cwd, policy, env=None, depth=0):
+    """Aggregate every executed rm, including wrappers, with local shell state."""
+    if depth >= 16:
+        return rm_level("unknown", policy)
+    cmd, heredocs = heredoc_parts(strip_shell_comments(cmd))
     home = os.path.expanduser("~")
-    found = False
-    worst = "safe"
-    env = {}
+    env = {"HOME": home, **(env or {})}
+    directories = [cwd]
+    levels = []
     for segment in shell_segments(cmd):
-        try:
-            args = shlex.split(segment, posix=True)
-        except ValueError:
-            return rm_level("unknown", policy)
+        # Substitutions execute before the outer command. Their directory/env
+        # changes do not propagate out of their subshell.
+        for payload in extract_substitutions(segment):
+            for directory in directories:
+                level = classify_rm_targets(payload, directory, policy, env, depth + 1)
+                if level is not None:
+                    levels.append(level)
+        outer = mask_cmd_subs(segment)
+        if outer is None:
+            levels.append(rm_level("unknown", policy))
+            continue
+        words = shell_words(outer)
+        args = [value for value, _ in words]
         if not args:
             continue
-
-        # 前置赋值(含 `export A=b` / `A=b cmd` 形态)记进 env,供后面的 $VAR 展开
-        i = 0
-        if args[0] == "export" and len(args) > 1:
-            i = 1
-        while i < len(args):
-            m = ASSIGN_RE.match(args[i])
-            if not m:
+        local_env = dict(env)
+        index = 1 if args[0] == "export" else 0
+        while index < len(args):
+            match = ASSIGN_RE.match(args[index])
+            if not match:
                 break
-            value = expand_vars(m.group(2), env)
+            value = expand_vars(match.group(2), local_env)
             if value is None:
-                env.pop(m.group(1), None)   # 值里有未知变量 → 该变量此后不可信
+                local_env.pop(match.group(1), None)
             else:
-                env[m.group(1)] = value
-            i += 1
-        args = args[i:]
-        if not args or args[0] != "rm":
+                local_env[match.group(1)] = value
+            index += 1
+        # NAME=value command has a temporary environment; it cannot rewrite the
+        # shell's later $NAME. Operands of that command expand in the original env.
+        if index == len(args) or args[0] == "export":
+            env = local_env
             continue
-
+        invocation = args[index:]
+        args = command_arguments(invocation)
+        if not args:
+            continue
+        command_directories = directories
+        if invocation and os.path.basename(invocation[0]) in ("env", "sudo"):
+            # These wrapper flags change only the child's directory. An unknown
+            # relative target must not be resolved against the outer shell's cwd.
+            flags = invocation[1:len(invocation) - len(args)]
+            if any(flag in ("-C", "-D", "--chdir") or flag.startswith("--chdir=") for flag in flags):
+                command_directories = [None]
+        name = os.path.basename(args[0])
+        if name == "cd":
+            targets = [value for value in args[1:] if value != "--"]
+            target = expand_vars(targets[0], env) if len(targets) == 1 else home if not targets else None
+            if target is not None and target != "-":
+                if target == "~" or target.startswith("~/"):
+                    target = home + target[1:]
+                updated = [os.path.normpath(target if os.path.isabs(target) else os.path.join(directory, target))
+                           if directory is not None or os.path.isabs(target) else None for directory in directories]
+            else:
+                updated = [None]
+            # A preceding cd may fail (or live on the other side of ||). Keep
+            # every possible directory rather than assuming the safe branch ran.
+            directories = list(dict.fromkeys(directories + updated))
+            continue
+        for payload in extract_code(outer):
+            for directory in command_directories:
+                level = classify_rm_targets(payload, directory, policy, local_env, depth + 1)
+                if level is not None:
+                    levels.append(level)
+        if name != "rm":
+            # Compound shell grammar (if/for/groups/functions) is not fully
+            # interpreted here. Do not let a known safe deletion elsewhere turn
+            # an unparsed executable rm into a safe result. Quoted data stays masked.
+            for match in re.finditer(r"\brm\b([^;&|\n()]*)", mask_strings(outer)):
+                options = match.group(1)
+                if ((re.search(r"(?:^|\s)-\w*r", options, re.I) or "--recursive" in options)
+                        and (re.search(r"(?:^|\s)-\w*f", options, re.I) or "--force" in options)):
+                    levels.append(rm_level("unknown", policy))
+            continue
         has_r = has_f = False
         operands = []
         end_options = False
@@ -609,89 +814,27 @@ def classify_rm_targets(cmd, cwd, policy):
             if not end_options and arg == "--":
                 end_options = True
             elif not end_options and arg.startswith("-") and arg != "-":
-                has_r = has_r or arg == "--recursive" or "r" in arg[1:].lower()
-                has_f = has_f or arg == "--force" or "f" in arg[1:].lower()
+                has_r = has_r or arg == "--recursive" or (not arg.startswith("--") and "r" in arg[1:].lower())
+                has_f = has_f or arg == "--force" or (not arg.startswith("--") and "f" in arg[1:].lower())
             else:
                 operands.append(arg)
-
         if has_r and has_f:
-            found = True
             if not operands:
-                return rm_level("unknown", policy)
+                levels.append(rm_level("unknown", policy))
             for path in operands:
                 path = expand_vars(path, env) or path
-                level = rm_target_level(path, cwd, home, policy)
-                if level == "block":
-                    return "block"
-                if level == "warn":
-                    worst = "warn"
-
-    if not found:
-        return rm_level("unknown", policy)
-    return worst
-
-
-def rm_arg_windows(text):
-    """每个 rm 调用的参数窗口 = `rm` 之后到下一个 shell 分隔符之前的文本。
-
-    -r/-f 必须在 rm 自己的参数里判定:整条命令通扫会把别的命令的选项算到 rm 头上,
-    例如 `sips -r 90 a.jpg && rm -f b.png` 曾被误判成 rm -rf 而弹确认。
-    """
-    out = []
-    for m in re.finditer(r"\brm\b", text):
-        rest = text[m.end():]
-        cut = re.search(r"[;&|\n()]", rest)
-        out.append(rest[:cut.start()] if cut else rest)
-    return out
-
-
-def classify_rm(text, raw_cmd, cwd, policy):
-    """删根/家/用户目录级 → block;删整个项目/系统路径 → warn;普通目录 → safe。
-    非递归 rm(如 `rm -f 单个文件`)不归本函数管,返回 None。"""
-    rf_windows = [
-        w for w in rm_arg_windows(text)
-        if (re.search(r"(?:^|\s)-\w*r", w, re.I) or "--recursive" in w)
-        and (re.search(r"(?:^|\s)-\w*f", w, re.I) or "--force" in w)
-    ]
-    if not rf_windows:
-        return None
-    known = "safe"
-    for w in rf_windows:
-        for match in re.finditer(r"(?:^|\s)(/|/\*|~|~/|~/\*|\$HOME|\$HOME/|\$HOME/\*|\$\{HOME\})(?:\s|$)", w):
-            level = rm_level("root" if match.group(1).startswith("/") else "home", policy)
-            if level == "block":
-                return level
-            if level == "warn":
-                known = level
-    parsed = classify_rm_targets(raw_cmd, cwd, policy)
-    return "warn" if parsed != "block" and known == "warn" else parsed
+                levels.extend(rm_target_level(path, directory, home, policy) for directory in command_directories)
+    for payload in heredocs:
+        for directory in directories:
+            level = classify_rm_targets(payload, directory, policy, env, depth + 1)
+            if level is not None:
+                levels.append(level)
+    return "block" if "block" in levels else "warn" if "warn" in levels else "safe" if levels else None
 
 
 # ============================================================
 # 对外唯一入口
 # ============================================================
-
-def _unwrap_rm(cmd, cwd, fallback, policy, depth=0):
-    """Only relax wrapper noise if every extracted deletion is safe.
-
-    ponytail: bounded shell-wrapper inspection, not a full shell parser. An outer rm,
-    an unknown inner target, or excessive nesting keeps the conservative denial.
-    """
-    if depth >= 4 or re.search(r"\brm\b", mask_strings(cmd)):
-        return fallback
-    saw_safe = False
-    for inner in extract_code(cmd):
-        level = classify_rm(build_scan_text(inner), inner, cwd, policy)
-        if level == "warn":
-            level = _unwrap_rm(inner, cwd, level, policy, depth + 1)
-        if level == "block":
-            return "block"
-        if level == "warn":
-            return fallback
-        if level == "safe":
-            saw_safe = True
-    return "safe" if saw_safe else fallback
-
 
 def _guard_probe(cmd):
     token = os.environ.get(GUARD_PROBE_TOKEN_ENV, "")
@@ -757,15 +900,12 @@ def classify(cmd, cwd=None, bypass=None):
 
 
 def _classify(cmd, cwd=None):
-    core = strip_heredocs(cmd)
-    scan = build_scan_text(core)
+    scan = build_scan_text(cmd)
     cwd = cwd or os.getcwd()
     policy, _ = rules.active_policy()
 
     rm_policy = policy["rm"]
-    rm = classify_rm(scan, core, cwd, rm_policy)
-    if rm == "warn":
-        rm = _unwrap_rm(cmd, cwd, rm, rm_policy)
+    rm = classify_rm_targets(cmd, cwd, rm_policy)
 
     if rm == "block":
         return "block", rm_policy["blockReason"]
