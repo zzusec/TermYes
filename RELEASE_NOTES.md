@@ -1,3 +1,19 @@
+# TermYes v1.6.41
+
+## 简体中文
+
+- 单窗口保持系统默认尺寸：仅有 1 个在屏终端窗口时沿用 `Terminal.app` 的 `default settings` 默认行列与原生位置，不再强制铺满全屏；从 2 个及以上分屏窗口关剩最后 1 个时，自动恢复为系统默认新开终端大小并居中显示；2 个及以上窗口继续自动无间隙网格平铺。
+- 停止在排布时改写 `Terminal.app` 的 `default settings` 行列数，保留用户原有的终端描述文件设置。
+- 区分在屏窗口、最小化窗口与其他桌面空间/全屏窗口：后台轮询保留最小化状态且不为其他空间的窗口预留网格槽位；显式呼出画布时恢复最小化窗口并纳入网格；顺时针快捷键轮转仅作用于当前在屏窗口并在切换空间返回后保持顺序。
+- 新增单窗口默认尺寸、回退居中、最小化与跨空间窗口过滤的完整回归测试。
+
+## English
+
+- Preserve Terminal's default window size for a single onscreen window instead of maximizing it across the screen; closing from two or more tiled windows down to one restores `default settings` dimensions and centers the window, while two or more windows continue automatic zero-gap grid tiling.
+- Stop mutating `Terminal.app` `default settings` columns and rows during layout so user profile settings remain untouched.
+- Track per-window visibility and minimized states alongside Window Server onscreen windows: passive polling preserves minimized windows and excludes offscreen, fullscreen, and other-Space windows from reserving grid slots; explicit show/re-tile restores minimized windows; clockwise rotation rotates only onscreen windows and preserves order across Space switches.
+- Add executable AppleScript and snapshot regressions for single-window default sizing, recentering, minimized preservation, and cross-Space filtering.
+
 # TermYes v1.6.40
 
 ## 简体中文

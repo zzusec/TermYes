@@ -24,6 +24,17 @@ final class TerminalManager: NSObject, ObservableObject {
     private let pollInterval: TimeInterval = 0.2
     private var pollTimer: Timer?
     private var menuTrackingObservers: [NSObjectProtocol] = []
+    struct TerminalWindowState: Equatable {
+        let id: Int
+        let visible: Bool
+        let miniaturized: Bool
+    }
+
+    private struct WindowServerSnapshot {
+        let candidateIDs: Set<Int>
+        let onScreenIDs: Set<Int>
+    }
+
     private var continueWindowIDs: [ContinueAgent: Int] = [:]
     private var lastTiledWindowIDs: [Int] = []
     private var lastWindowServerCandidateIDs: Set<Int>?
@@ -89,9 +100,10 @@ final class TerminalManager: NSObject, ObservableObject {
         targetScreen = screenUnderPointer() ?? NSScreen.main
 
         if let terminal = terminalApplication() {
+            let wasHidden = terminal.isHidden
             // unhide() returns false when the app is already visible. That is
             // a no-op, not a connection failure; hotkeys must still re-tile it.
-            if terminal.isHidden && !terminal.unhide() {
+            if wasHidden && !terminal.unhide() {
                 updatePhase(.error("无法显示 Terminal"))
                 return
             }
@@ -101,24 +113,45 @@ final class TerminalManager: NSObject, ObservableObject {
                 return
             }
             updatePhase(.visible)
-            scheduleTilePasses()
+            scheduleTilePasses(afterUnhide: wasHidden)
         } else {
             launchTerminal()
         }
+    }
+
+    @discardableResult
+    func rotateVisibleOrderClockwise() -> Bool {
+        guard let snapshot = readWindowServerSnapshot(),
+              let liveWindows = readTerminalWindowStates() else { return false }
+        let allLiveIDs = liveWindows.map(\.id)
+        guard snapshot.candidateIDs.isSubset(of: Set(allLiveIDs)) else { return false }
+
+        let targetIDs = targetWindowIDs(
+            from: liveWindows,
+            onScreenIDs: snapshot.onScreenIDs,
+            restoreMinimized: false
+        )
+        let currentOrder = stableWindowOrder(targetIDs: targetIDs, allLiveIDs: allLiveIDs)
+        guard currentOrder.count > 1 else { return false }
+
+        let rotatedTarget = GridLayout.advancedClockwise(currentOrder)
+        let targetSet = Set(targetIDs)
+        var rotatedIndex = 0
+        orderedWindowIDs = orderedWindowIDs.map { id in
+            guard targetSet.contains(id) else { return id }
+            defer { rotatedIndex += 1 }
+            return rotatedTarget[rotatedIndex]
+        }
+        lastTiledWindowIDs = []
+        return true
     }
 
     func advanceDashboard() {
         if dashboardRequested,
            let terminal = terminalApplication(),
            !terminal.isHidden,
-           terminal.isActive,
-           let candidateIDs = readWindowServerCandidateIDs(),
-           let currentWindowIDs = readTerminalWindowIDs(),
-           candidateIDs.isSubset(of: Set(currentWindowIDs)) {
-            orderedWindowIDs = GridLayout.advancedClockwise(
-                stableWindowOrder(currentWindowIDs: currentWindowIDs)
-            )
-            lastTiledWindowIDs = []
+           terminal.isActive {
+            _ = rotateVisibleOrderClockwise()
         }
         showDashboard()
     }
@@ -268,26 +301,26 @@ final class TerminalManager: NSObject, ObservableObject {
         if isActive && !dashboardRequested {
             dashboardRequested = true
             lastWindowServerCandidateIDs = nil
-            targetScreen = targetScreen ?? screenUnderPointer() ?? NSScreen.main
+            targetScreen = activeScreen()
             updatePhase(.visible)
         }
 
         guard dashboardRequested else { return }
 
-        guard let candidateIDs = readWindowServerCandidateIDs(),
-              candidateIDs != lastWindowServerCandidateIDs else { return }
-        guard tileTerminalWindows(force: false) else {
+        guard let snapshot = readWindowServerSnapshot(),
+              snapshot.candidateIDs != lastWindowServerCandidateIDs else { return }
+        guard tileTerminalWindows(force: false, restoreMinimized: false) else {
             if pollTimer != nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                     guard let self, self.dashboardRequested, self.pollTimer != nil else { return }
-                    _ = self.tileTerminalWindows(force: false)
+                    _ = self.tileTerminalWindows(force: false, restoreMinimized: false)
                 }
             }
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
             guard let self, self.dashboardRequested else { return }
-            self.tileTerminalWindows()
+            self.tileTerminalWindows(force: true, restoreMinimized: false)
         }
     }
 
@@ -326,40 +359,53 @@ final class TerminalManager: NSObject, ObservableObject {
         }
     }
 
-    private func scheduleTilePasses() {
+    private func scheduleTilePasses(afterUnhide: Bool = false) {
         lastTiledWindowIDs = []
-        tileTerminalWindows()
-        for delay in [0.2, 0.8] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        let passes: [(delay: TimeInterval, restoreMinimized: Bool)]
+        if afterUnhide {
+            passes = [(0.12, true), (0.35, false), (0.90, false)]
+        } else {
+            tileTerminalWindows(force: true, restoreMinimized: true)
+            passes = [(0.25, false), (0.85, false)]
+        }
+        for pass in passes {
+            DispatchQueue.main.asyncAfter(deadline: .now() + pass.delay) { [weak self] in
                 guard let self, self.dashboardRequested else { return }
-                self.tileTerminalWindows()
+                self.tileTerminalWindows(force: true, restoreMinimized: pass.restoreMinimized)
             }
         }
     }
 
     @discardableResult
-    func tileTerminalWindows(force: Bool = true) -> Bool {
-        guard let candidateIDs = readWindowServerCandidateIDs(),
-              let currentWindowIDs = readTerminalWindowIDs() else { return false }
+    func tileTerminalWindows(force: Bool = true, restoreMinimized: Bool = true) -> Bool {
+        guard let snapshot = readWindowServerSnapshot(),
+              let liveWindows = readTerminalWindowStates() else { return false }
 
+        let allLiveIDs = liveWindows.map(\.id)
+        let allLiveSet = Set(allLiveIDs)
         // Terminal can briefly omit a still-visible window from its AppleScript list.
         // Every pass, including delayed/hotkey passes, must wait for a complete snapshot.
         // Do not change the saved order or cache a partial snapshot: polling must retry it.
-        guard candidateIDs.isSubset(of: Set(currentWindowIDs)) else {
+        guard snapshot.candidateIDs.isSubset(of: allLiveSet) else {
             lastWindowServerCandidateIDs = nil
             return false
         }
-        let windowIDs = stableWindowOrder(currentWindowIDs: currentWindowIDs)
+        let targetIDs = targetWindowIDs(
+            from: liveWindows,
+            onScreenIDs: snapshot.onScreenIDs,
+            restoreMinimized: restoreMinimized
+        )
+        let windowIDs = stableWindowOrder(targetIDs: targetIDs, allLiveIDs: allLiveIDs)
         let count = windowIDs.count
         updateWindowCount(count)
 
-        if !force && (windowIDs == lastTiledWindowIDs || (candidateIDs.isEmpty && !windowIDs.isEmpty)) {
-            lastWindowServerCandidateIDs = candidateIDs
+        if !force && windowIDs == lastTiledWindowIDs {
+            lastWindowServerCandidateIDs = snapshot.candidateIDs
             return false
         }
         guard count > 0 else {
             lastTiledWindowIDs = []
-            lastWindowServerCandidateIDs = candidateIDs
+            lastWindowServerCandidateIDs = snapshot.candidateIDs
             updatePhase(.visible)
             return false
         }
@@ -367,30 +413,138 @@ final class TerminalManager: NSObject, ObservableObject {
         if let visibleFrame {
             screenFrame = visibleFrame()
         } else {
-            screenFrame = (targetScreen ?? NSScreen.main)?.visibleFrame
+            screenFrame = activeScreen()?.visibleFrame
         }
         guard let screenFrame else {
             updatePhase(.error("找不到可用显示器"))
             return false
         }
 
+        if count == 1 {
+            let accessibilityScreen = accessibilityFrame(from: screenFrame)
+            let recenter = lastTiledWindowIDs.count > 1
+            guard applySingleWindowDefaultSize(
+                windowID: windowIDs[0],
+                within: accessibilityScreen,
+                recenter: recenter
+            ) else {
+                lastTiledWindowIDs = []
+                lastWindowServerCandidateIDs = nil
+                return false
+            }
+            lastTiledWindowIDs = windowIDs
+            lastWindowServerCandidateIDs = snapshot.candidateIDs
+            updatePhase(.visible)
+            return true
+        }
+
         let frames = GridLayout.clockwiseFrames(count: count, within: screenFrame, gap: 0)
             .map(accessibilityFrame(from:))
         guard frames.count == count else { return false }
-        let nextWindowSize = GridLayout.clockwiseFrames(count: count + 1, within: screenFrame, gap: 0).last?.size
 
-        guard applyWindowLayout(windowIDs: windowIDs, frames: frames, nextWindowSize: nextWindowSize) else {
+        guard applyWindowLayout(windowIDs: windowIDs, frames: frames) else {
             lastTiledWindowIDs = []
             lastWindowServerCandidateIDs = nil
             return false
         }
         lastTiledWindowIDs = windowIDs
-        lastWindowServerCandidateIDs = candidateIDs
+        lastWindowServerCandidateIDs = snapshot.candidateIDs
         updatePhase(.visible)
         return true
     }
 
-    func applyWindowLayout(windowIDs: [Int], frames: [CGRect], nextWindowSize: CGSize? = nil) -> Bool {
+    func applySingleWindowDefaultSize(windowID: Int, within screenBounds: CGRect, recenter: Bool = false) -> Bool {
+        guard screenBounds.width > 0, screenBounds.height > 0 else { return false }
+        let screenLeft = Int(screenBounds.minX.rounded())
+        let screenTop = Int(screenBounds.minY.rounded())
+        let screenRight = Int(screenBounds.maxX.rounded())
+        let screenBottom = Int(screenBounds.maxY.rounded())
+        let forceRecenter = recenter ? "true" : "false"
+
+        let source = """
+        set targetWindowIDs to {\(windowID)}
+        set screenBounds to {\(screenLeft), \(screenTop), \(screenRight), \(screenBottom)}
+        set forceRecenter to \(forceRecenter)
+        tell application id "com.apple.Terminal"
+            set defaultCols to number of columns of default settings
+            set defaultRows to number of rows of default settings
+            repeat with i from 1 to count of targetWindowIDs
+                set currentID to item i of targetWindowIDs
+                set currentWindow to first window whose id is currentID
+                if (count of tabs of currentWindow) > 0 then
+                    if miniaturized of currentWindow then
+                        set miniaturized of currentWindow to false
+                    end if
+                    if not (visible of currentWindow) then
+                        set visible of currentWindow to true
+                    end if
+                    set sizeChanged to false
+                    if defaultCols > 0 and number of columns of selected tab of currentWindow is not defaultCols then
+                        set number of columns of selected tab of currentWindow to defaultCols
+                        set sizeChanged to true
+                    end if
+                    if defaultRows > 0 and number of rows of selected tab of currentWindow is not defaultRows then
+                        set number of rows of selected tab of currentWindow to defaultRows
+                        set sizeChanged to true
+                    end if
+                    set currentBounds to bounds of currentWindow
+                    set curLeft to item 1 of currentBounds
+                    set curTop to item 2 of currentBounds
+                    set curRight to item 3 of currentBounds
+                    set curBottom to item 4 of currentBounds
+                    set winWidth to curRight - curLeft
+                    set winHeight to curBottom - curTop
+                    set screenLeft to item 1 of screenBounds
+                    set screenTop to item 2 of screenBounds
+                    set screenRight to item 3 of screenBounds
+                    set screenBottom to item 4 of screenBounds
+                    set screenWidth to screenRight - screenLeft
+                    set screenHeight to screenBottom - screenTop
+                    if winWidth > screenWidth then set winWidth to screenWidth
+                    if winHeight > screenHeight then set winHeight to screenHeight
+                    set centerX to curLeft + (winWidth div 2)
+                    set centerY to curTop + (winHeight div 2)
+                    set offTargetScreen to (centerX < screenLeft or centerX > screenRight or centerY < screenTop or centerY > screenBottom)
+                    if forceRecenter or sizeChanged or offTargetScreen then
+                        set newLeft to screenLeft + ((screenWidth - winWidth) div 2)
+                        set newTop to screenTop + ((screenHeight - winHeight) div 2)
+                        if newLeft < screenLeft then set newLeft to screenLeft
+                        if newTop < screenTop then set newTop to screenTop
+                        set bounds of currentWindow to {newLeft, newTop, newLeft + winWidth, newTop + winHeight}
+                        set postResize to false
+                        if defaultCols > 0 and number of columns of selected tab of currentWindow is not defaultCols then
+                            set number of columns of selected tab of currentWindow to defaultCols
+                            set postResize to true
+                        end if
+                        if defaultRows > 0 and number of rows of selected tab of currentWindow is not defaultRows then
+                            set number of rows of selected tab of currentWindow to defaultRows
+                            set postResize to true
+                        end if
+                        if postResize then
+                            set currentBounds to bounds of currentWindow
+                            set winWidth to (item 3 of currentBounds) - (item 1 of currentBounds)
+                            set winHeight to (item 4 of currentBounds) - (item 2 of currentBounds)
+                            if winWidth > screenWidth then set winWidth to screenWidth
+                            if winHeight > screenHeight then set winHeight to screenHeight
+                            set newLeft to screenLeft + ((screenWidth - winWidth) div 2)
+                            set newTop to screenTop + ((screenHeight - winHeight) div 2)
+                            if newLeft < screenLeft then set newLeft to screenLeft
+                            if newTop < screenTop then set newTop to screenTop
+                            set bounds of currentWindow to {newLeft, newTop, newLeft + winWidth, newTop + winHeight}
+                        end if
+                    end if
+                else if visible of currentWindow then
+                    set visible of currentWindow to false
+                end if
+            end repeat
+        end tell
+        return count of targetWindowIDs
+        """
+
+        return executeAppleScript(source) != nil
+    }
+
+    func applyWindowLayout(windowIDs: [Int], frames: [CGRect]) -> Bool {
         let windowIDList = windowIDs.map(String.init).joined(separator: ", ")
         let boundsList = frames.map { frame in
             let left = Int(frame.minX.rounded())
@@ -400,44 +554,11 @@ final class TerminalManager: NSObject, ObservableObject {
             return "{\(left), \(top), \(right), \(bottom)}"
         }.joined(separator: ", ")
 
-        let nextWindowSizingBlock: String
-        if let nextWindowSize, !windowIDs.isEmpty {
-            let nextPixelWidth = max(120, Int(nextWindowSize.width.rounded()))
-            let nextPixelHeight = max(80, Int(nextWindowSize.height.rounded()))
-            nextWindowSizingBlock = """
-                set sampleWindow to first window whose id is (item 1 of targetWindowIDs)
-                if (count of tabs of sampleWindow) > 0 and not (miniaturized of sampleWindow) then
-                    set sampleBounds to bounds of sampleWindow
-                    set sampleCols to number of columns of selected tab of sampleWindow
-                    set sampleRows to number of rows of selected tab of sampleWindow
-                    if sampleCols > 0 and sampleRows > 0 then
-                        set cellWidth to ((item 3 of sampleBounds) - (item 1 of sampleBounds) - 20) / sampleCols
-                        set cellHeight to ((item 4 of sampleBounds) - (item 2 of sampleBounds) - 49) / sampleRows
-                        if cellWidth > 1 and cellHeight > 1 then
-                            set nextCols to round ((\(nextPixelWidth) - 20) / cellWidth) rounding to nearest
-                            set nextRows to round ((\(nextPixelHeight) - 49) / cellHeight) rounding to nearest
-                            if nextCols < 20 then set nextCols to 20
-                            if nextRows < 5 then set nextRows to 5
-                            if number of columns of default settings is not nextCols then
-                                set number of columns of default settings to nextCols
-                            end if
-                            if number of rows of default settings is not nextRows then
-                                set number of rows of default settings to nextRows
-                            end if
-                        end if
-                    end if
-                end if
-
-            """
-        } else {
-            nextWindowSizingBlock = ""
-        }
-
         let source = """
         set targetWindowIDs to {\(windowIDList)}
         set targetBounds to {\(boundsList)}
         tell application id "com.apple.Terminal"
-        \(nextWindowSizingBlock)    repeat with i from 1 to count of targetWindowIDs
+            repeat with i from 1 to count of targetWindowIDs
                 set currentID to item i of targetWindowIDs
                 set currentWindow to first window whose id is currentID
                 if (count of tabs of currentWindow) > 0 then
@@ -459,38 +580,59 @@ final class TerminalManager: NSObject, ObservableObject {
         return executeAppleScript(source) != nil
     }
 
-    private func readWindowServerCandidateIDs() -> Set<Int>? {
-        if let windowServerSnapshot { return windowServerSnapshot() }
+    private func activeScreen() -> NSScreen? {
+        if let targetScreen, NSScreen.screens.contains(targetScreen) {
+            return targetScreen
+        }
+        targetScreen = screenUnderPointer() ?? NSScreen.main
+        return targetScreen
+    }
+
+    private func readWindowServerSnapshot() -> WindowServerSnapshot? {
+        if let windowServerSnapshot {
+            guard let ids = windowServerSnapshot() else { return nil }
+            return WindowServerSnapshot(candidateIDs: ids, onScreenIDs: ids)
+        }
         guard let terminal = terminalApplication() else {
             updatePhase(.terminalNotRunning)
             updateWindowCount(0)
             return nil
         }
-        return windowServerCandidateIDs(pid: terminal.processIdentifier)
+        return windowServerSnapshot(pid: terminal.processIdentifier)
     }
 
-    private func windowServerCandidateIDs(pid: pid_t) -> Set<Int>? {
+    private func windowServerSnapshot(pid: pid_t) -> WindowServerSnapshot? {
         guard let windows = CGWindowListCopyWindowInfo(
             // Hidden Terminal utility windows are not part of the AppleScript window list.
-            // Live minimized/offscreen terminals are still included by readTerminalWindowIDs().
+            // Live minimized/offscreen windows are filtered against onScreenIDs before tiling.
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
         ) as? [[String: Any]] else { return nil }
 
-        return windows.reduce(into: Set<Int>()) { result, window in
+        var candidateIDs = Set<Int>()
+        var onScreenIDs = Set<Int>()
+        for window in windows {
             guard (window[kCGWindowOwnerPID as String] as? Int32) == pid,
                   (window[kCGWindowLayer as String] as? Int) == 0,
                   let windowNumber = (window[kCGWindowNumber as String] as? NSNumber)?.intValue,
                   let bounds = window[kCGWindowBounds as String] as? [String: Any],
                   let width = (bounds["Width"] as? NSNumber)?.doubleValue,
                   let height = (bounds["Height"] as? NSNumber)?.doubleValue,
-                  width >= 300,
-                  height >= 160 else { return }
-            result.insert(windowNumber)
+                  width > 0,
+                  height > 0 else { continue }
+            onScreenIDs.insert(windowNumber)
+            if width >= 290, height >= 145 {
+                candidateIDs.insert(windowNumber)
+            }
         }
+        return WindowServerSnapshot(candidateIDs: candidateIDs, onScreenIDs: onScreenIDs)
     }
 
     func readTerminalWindowIDs() -> [Int]? {
+        readTerminalWindowStates()?.map(\.id)
+    }
+
+    func readTerminalWindowStates() -> [TerminalWindowState]? {
         // Terminal retains closed windows with no tabs and stale references with no ID.
         // Read IDs first: asking a stale reference for its tabs fails the entire snapshot.
         let source = """
@@ -502,7 +644,7 @@ final class TerminalManager: NSObject, ObservableObject {
                     if class of currentID is integer then
                         if currentID > 0 then
                             if (count of tabs of currentWindow) > 0 then
-                                set end of liveWindowIDs to currentID
+                                set end of liveWindowIDs to {currentID, visible of currentWindow, miniaturized of currentWindow}
                             else if visible of currentWindow then
                                 set visible of currentWindow to false
                             end if
@@ -520,21 +662,57 @@ final class TerminalManager: NSObject, ObservableObject {
         // Terminal lists windows that are still materializing; their id comes back as
         // `missing value` and would otherwise occupy a tile that no window can fill.
         return (1...result.numberOfItems).compactMap { index in
-            guard let item = result.atIndex(index), item.descriptorType == typeSInt32 else { return nil }
-            let id = Int(item.int32Value)
-            return id > 0 ? id : nil
+            guard let item = result.atIndex(index) else { return nil }
+            if item.descriptorType == typeAEList,
+               item.numberOfItems >= 3,
+               let idDescriptor = item.atIndex(1),
+               idDescriptor.descriptorType == typeSInt32 {
+                let id = Int(idDescriptor.int32Value)
+                guard id > 0 else { return nil }
+                let visible = item.atIndex(2)?.booleanValue ?? true
+                let miniaturized = item.atIndex(3)?.booleanValue ?? false
+                return TerminalWindowState(id: id, visible: visible, miniaturized: miniaturized)
+            }
+            if item.descriptorType == typeSInt32 {
+                let id = Int(item.int32Value)
+                guard id > 0 else { return nil }
+                return TerminalWindowState(id: id, visible: true, miniaturized: false)
+            }
+            return nil
         }
     }
 
-    private func stableWindowOrder(currentWindowIDs: [Int]) -> [Int] {
-        let currentSet = Set(currentWindowIDs)
-        let surviving = orderedWindowIDs.filter { currentSet.contains($0) }
-        let survivingSet = Set(surviving)
-        let added = currentWindowIDs.filter { !survivingSet.contains($0) }.sorted()
-        orderedWindowIDs = surviving.isEmpty && orderedWindowIDs.isEmpty
-            ? currentWindowIDs.sorted()
-            : surviving + added
-        return orderedWindowIDs
+    private func targetWindowIDs(
+        from liveWindows: [TerminalWindowState],
+        onScreenIDs: Set<Int>,
+        restoreMinimized: Bool
+    ) -> [Int] {
+        liveWindows.compactMap { window in
+            if restoreMinimized {
+                // Exclude visible, unminimized windows absent from WindowServer's onscreen list
+                // (ghost restored windows, native fullscreen windows, and windows on other Spaces).
+                guard onScreenIDs.contains(window.id) || window.miniaturized || !window.visible else {
+                    return nil
+                }
+                return window.id
+            }
+            guard onScreenIDs.contains(window.id) && !window.miniaturized else {
+                return nil
+            }
+            return window.id
+        }
+    }
+
+    private func stableWindowOrder(targetIDs: [Int], allLiveIDs: [Int]) -> [Int] {
+        let liveSet = Set(allLiveIDs)
+        let survivingAll = orderedWindowIDs.filter { liveSet.contains($0) }
+        let survivingSet = Set(survivingAll)
+        let addedAll = allLiveIDs.filter { !survivingSet.contains($0) }.sorted()
+        orderedWindowIDs = survivingAll.isEmpty && orderedWindowIDs.isEmpty
+            ? allLiveIDs.sorted()
+            : survivingAll + addedAll
+        let targetSet = Set(targetIDs)
+        return orderedWindowIDs.filter { targetSet.contains($0) }
     }
 
     private func executeAppleScript(_ source: String) -> NSAppleEventDescriptor? {

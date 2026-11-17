@@ -1,7 +1,22 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.40</h1>
+</style></head><body><h1>TermYes v1.6.41</h1>
+<h2>简体中文</h2>
+<ul>
+<li>单窗口保持系统默认尺寸：仅有 1 个在屏终端窗口时沿用 <code>Terminal.app</code> 的 <code>default settings</code> 默认行列与原生位置，不再强制铺满全屏；从 2 个及以上分屏窗口关剩最后 1 个时，自动恢复为系统默认新开终端大小并居中显示；2 个及以上窗口继续自动无间隙网格平铺。</li>
+<li>停止在排布时改写 <code>Terminal.app</code> 的 <code>default settings</code> 行列数，保留用户原有的终端描述文件设置。</li>
+<li>区分在屏窗口、最小化窗口与其他桌面空间/全屏窗口：后台轮询保留最小化状态且不为其他空间的窗口预留网格槽位；显式呼出画布时恢复最小化窗口并纳入网格；顺时针快捷键轮转仅作用于当前在屏窗口并在切换空间返回后保持顺序。</li>
+<li>新增单窗口默认尺寸、回退居中、最小化与跨空间窗口过滤的完整回归测试。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Preserve Terminal's default window size for a single onscreen window instead of maximizing it across the screen; closing from two or more tiled windows down to one restores <code>default settings</code> dimensions and centers the window, while two or more windows continue automatic zero-gap grid tiling.</li>
+<li>Stop mutating <code>Terminal.app</code> <code>default settings</code> columns and rows during layout so user profile settings remain untouched.</li>
+<li>Track per-window visibility and minimized states alongside Window Server onscreen windows: passive polling preserves minimized windows and excludes offscreen, fullscreen, and other-Space windows from reserving grid slots; explicit show/re-tile restores minimized windows; clockwise rotation rotates only onscreen windows and preserves order across Space switches.</li>
+<li>Add executable AppleScript and snapshot regressions for single-window default sizing, recentering, minimized preservation, and cross-Space filtering.</li>
+</ul>
+<h1>TermYes v1.6.40</h1>
 <h2>简体中文</h2>
 <ul>
 <li>修复危险命令漏拦：Codex 特殊 token 改写后继续危险分类；识别 <code>-lc</code>、引号选项、命令替换和可执行 heredoc；复合删除按全部目标、目录变化及变量作用域判断。保持 YOLO 与危险规则硬拒绝，普通文本示例仍可使用。</li>

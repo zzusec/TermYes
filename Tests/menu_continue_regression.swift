@@ -148,6 +148,25 @@ struct MenuContinueRegression {
         result.insert(.init(int32: -1), at: 3)
         result.insert(.init(int32: 13), at: 4)
         expect(manager.readTerminalWindowIDs() == [12, 13], "Window snapshots must retain live IDs and skip missing or invalid IDs")
+        let structuredResult = NSAppleEventDescriptor.list()
+        let firstItem = NSAppleEventDescriptor.list()
+        firstItem.insert(.init(int32: 12), at: 1)
+        firstItem.insert(.init(boolean: true), at: 2)
+        firstItem.insert(.init(boolean: false), at: 3)
+        let secondItem = NSAppleEventDescriptor.list()
+        secondItem.insert(.init(int32: 13), at: 1)
+        secondItem.insert(.init(boolean: false), at: 2)
+        secondItem.insert(.init(boolean: true), at: 3)
+        structuredResult.insert(firstItem, at: 1)
+        structuredResult.insert(secondItem, at: 2)
+        result = structuredResult
+        expect(
+            manager.readTerminalWindowStates() == [
+                .init(id: 12, visible: true, miniaturized: false),
+                .init(id: 13, visible: false, miniaturized: true)
+            ],
+            "Window snapshots must preserve visibility and miniaturized state for each live window"
+        )
         let snapshotScript = scripts.last ?? ""
         expect(snapshotScript.contains("if (count of tabs of currentWindow) > 0 then"), "Window snapshots must exclude closed zero-tab windows")
         expect(snapshotScript.contains("else if visible of currentWindow then") && snapshotScript.contains("set visible of currentWindow to false"), "Already-visible zero-tab windows must be hidden")
@@ -156,11 +175,22 @@ struct MenuContinueRegression {
         result = .list()
         expect(manager.readTerminalWindowIDs() == [], "An empty snapshot must not reserve any layout slots")
         result = .init(boolean: true)
-        expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)], nextWindowSize: CGSize(width: 500, height: 400)), "Layout script with next-window sizing must compile")
+        expect(manager.applyWindowLayout(windowIDs: [12, 13], frames: [CGRect(x: 0, y: 30, width: 500, height: 800), CGRect(x: 500, y: 30, width: 500, height: 800)]), "Multi-window layout script must compile")
         expect(scripts.last?.contains("try") == false, "Layout must not silently report success after per-window errors")
         expect(scripts.last?.contains("if (count of tabs of currentWindow) > 0 then") == true, "Layout must recheck tabs before showing a window that may have closed after the snapshot")
         expect(scripts.last?.contains("if not (visible of currentWindow) then") == true && scripts.last?.contains("if miniaturized of currentWindow then") == true, "Layout must not unconditionally re-show already-visible windows above frontmost apps")
-        expect(scripts.last?.contains("set number of columns of default settings to nextCols") == true && scripts.last?.contains("set number of rows of default settings to nextRows") == true, "Layout must pre-size default settings to the (N+1)th grid slot")
+        expect(scripts.last?.contains("default settings") == false, "Multi-window layout must never overwrite Terminal default settings")
+        expect(manager.applySingleWindowDefaultSize(windowID: 12, within: CGRect(x: 0, y: 30, width: 1200, height: 800), recenter: false), "Single-window default-size script must compile")
+        let singleWindowScript = scripts.last ?? ""
+        expect(
+            singleWindowScript.contains("set defaultCols to number of columns of default settings")
+                && singleWindowScript.contains("set defaultRows to number of rows of default settings")
+                && !singleWindowScript.contains("set number of columns of default settings")
+                && !singleWindowScript.contains("set targetBounds")
+                && !singleWindowScript.contains("try"),
+            "Single-window handling must read Terminal default settings without mutating them or maximizing to targetBounds"
+        )
+        singleWindowFixtures(singleWindowScript)
         error = [NSAppleScript.errorNumber: -1743, NSAppleScript.errorMessage: "Not authorized"]
         expect(!manager.applyWindowLayout(windowIDs: [12], frames: [.zero]), "Denied automation must fail layout")
         expect(!manager.automationAuthorized && manager.phase == .needsAutomationPermission, "Permission denial must expose the automation-settings route")
@@ -177,19 +207,30 @@ struct MenuContinueRegression {
         expect(manager.automationAuthorized, "A successful automation call must clear the permission-denied flag")
     }
 
+    private static func makeSnapshotDescriptor(_ windows: [TerminalManager.TerminalWindowState]) -> NSAppleEventDescriptor {
+        let result = NSAppleEventDescriptor.list()
+        for (index, window) in windows.enumerated() {
+            let item = NSAppleEventDescriptor.list()
+            item.insert(.init(int32: Int32(window.id)), at: 1)
+            item.insert(.init(boolean: window.visible), at: 2)
+            item.insert(.init(boolean: window.miniaturized), at: 3)
+            result.insert(item, at: index + 1)
+        }
+        return result
+    }
+
     @MainActor
     static func terminalLayoutSnapshots() {
-        var liveIDs = [12, 13]
+        var liveWindows: [TerminalManager.TerminalWindowState] = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false)
+        ]
         var candidateIDs: Set<Int>? = [12, 13]
         var layouts: [String] = []
         var layoutError: NSDictionary?
         let manager = TerminalManager(scriptExecutor: { source in
             if source.contains("return liveWindowIDs") {
-                let result = NSAppleEventDescriptor.list()
-                for (index, id) in liveIDs.enumerated() {
-                    result.insert(.init(int32: Int32(id)), at: index + 1)
-                }
-                return (result, nil)
+                return (makeSnapshotDescriptor(liveWindows), nil)
             }
             layouts.append(source)
             return (.init(boolean: true), layoutError)
@@ -203,77 +244,153 @@ struct MenuContinueRegression {
         expect(layouts.count == 1 && manager.terminalWindowCount == 2, "Two live windows must produce a two-window layout")
         let originalLayout = layouts.last
 
-        liveIDs = [12]
+        liveWindows = [.init(id: 12, visible: true, miniaturized: false)]
         for _ in 0..<15 { manager.tileTerminalWindows() }
         expect(layouts.count == 1 && manager.terminalWindowCount == 2, "Even after repeated retries, an incomplete snapshot must preserve the existing two-window layout instead of maximizing one window")
 
-        liveIDs = [12, 14]
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 14, visible: true, miniaturized: false)
+        ]
         manager.tileTerminalWindows()
         expect(layouts.count == 1, "Matching counts with different window IDs must not pass snapshot validation")
 
-        liveIDs = [13, 12]
+        liveWindows = [
+            .init(id: 13, visible: true, miniaturized: false),
+            .init(id: 12, visible: true, miniaturized: false)
+        ]
         manager.tileTerminalWindows()
         expect(layouts.count == 2 && layouts.last == originalLayout, "Recovery with the same Window Server candidates must restore both windows and preserve their original order")
 
+        // Minimizing window 13 keeps it minimized during passive polling while onscreen window 12 restores to default size.
+        liveWindows = [
+            .init(id: 13, visible: true, miniaturized: true),
+            .init(id: 12, visible: true, miniaturized: false)
+        ]
         candidateIDs = [12]
-        manager.tileTerminalWindows(force: false)
-        expect(layouts.count == 2 && manager.terminalWindowCount == 2, "Minimizing a window or changing Spaces must not force an unchanged set of live windows back onscreen")
+        manager.tileTerminalWindows(force: false, restoreMinimized: false)
+        expect(
+            layouts.count == 3
+                && manager.terminalWindowCount == 1
+                && layouts.last?.contains("set targetWindowIDs to {12}") == true
+                && layouts.last?.contains("set forceRecenter to true") == true
+                && layouts.last?.contains("set targetBounds") == false,
+            "Passive polling from 2 windows down to 1 onscreen window must restore default size and recenter instead of maximizing"
+        )
 
+        // With zero onscreen windows (e.g. another Space or all windows minimized), passive polling writes nothing.
         candidateIDs = []
-        liveIDs = [12]
-        manager.tileTerminalWindows(force: false)
-        expect(layouts.count == 2, "Passive polling with zero onscreen candidates must not maximize a partial or minimized window set")
-        liveIDs = [13, 12]
+        liveWindows = [.init(id: 12, visible: true, miniaturized: false)]
+        let layoutsBeforeEmpty = layouts.count
+        manager.tileTerminalWindows(force: false, restoreMinimized: false)
+        expect(layouts.count == layoutsBeforeEmpty && manager.terminalWindowCount == 0, "Passive polling with zero onscreen candidates must not move offscreen windows")
 
+        // Opening or showing a single window from zero onscreen windows preserves native default size without forcing recenter.
         candidateIDs = [12]
-        liveIDs = [12]
+        liveWindows = [.init(id: 12, visible: true, miniaturized: false)]
         manager.tileTerminalWindows()
-        expect(layouts.count == 3 && manager.terminalWindowCount == 1, "A genuinely closed window must allow the remaining window to fill the screen")
+        expect(
+            layouts.count == 4
+                && manager.terminalWindowCount == 1
+                && layouts.last?.contains("set forceRecenter to false") == true
+                && layouts.last?.contains("set targetBounds") == false,
+            "A single window opened from zero onscreen windows must keep default Terminal size without maximizing"
+        )
 
-        // A minimized/offscreen live Terminal still occupies a slot when the canvas is shown.
-        liveIDs = [12, 13]
+        // A genuinely minimized window is restored and included when the canvas is explicitly shown.
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: true)
+        ]
+        manager.tileTerminalWindows(force: true, restoreMinimized: true)
+        expect(
+            layouts.count == 5 && manager.terminalWindowCount == 2 && layouts.last?.contains("set targetWindowIDs to {12, 13}") == true,
+            "Explicit show/re-tile must restore minimized Terminal windows into the grid"
+        )
+
+        // Ghost / unmapped or other-Space windows (visible=true, miniaturized=false, not onscreen) must never reserve grid slots.
+        candidateIDs = [12, 13]
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false),
+            .init(id: 65, visible: true, miniaturized: false)
+        ]
         manager.tileTerminalWindows()
-        expect(layouts.count == 4 && manager.terminalWindowCount == 2, "Live offscreen or minimized windows must remain part of the layout")
+        expect(
+            layouts.count == 6 && manager.terminalWindowCount == 2 && layouts.last?.contains("65") == false && layouts.last?.contains("set targetWindowIDs to {12, 13}") == true,
+            "Two onscreen windows plus one ghost/other-Space window must still tile across the entire screen"
+        )
+
+        candidateIDs = [12, 13, 14]
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false),
+            .init(id: 14, visible: true, miniaturized: false),
+            .init(id: 65, visible: true, miniaturized: false)
+        ]
+        manager.tileTerminalWindows(force: false, restoreMinimized: false)
+        expect(
+            layouts.count == 7 && manager.terminalWindowCount == 3 && layouts.last?.contains("65") == false && layouts.last?.contains("set targetWindowIDs to {12, 13, 14}") == true,
+            "Three onscreen windows plus one ghost/other-Space window must tile as a full three-window grid"
+        )
+
+        // Clockwise hotkey rotation must rotate only the onscreen windows and preserve order across Space switches.
+        expect(manager.rotateVisibleOrderClockwise(), "Clockwise rotation must rotate onscreen windows when multiple windows are onscreen")
+        manager.tileTerminalWindows()
+        expect(
+            layouts.count == 8 && layouts.last?.contains("set targetWindowIDs to {14, 12, 13}") == true,
+            "Clockwise rotation must ignore ghost/other-Space windows"
+        )
+        candidateIDs = []
+        manager.tileTerminalWindows()
+        expect(layouts.count == 8 && manager.terminalWindowCount == 0, "Visiting a Space with no Terminal windows must not move windows on other Spaces")
+        candidateIDs = [12, 13, 14]
+        manager.tileTerminalWindows()
+        expect(
+            layouts.count == 9 && layouts.last?.contains("set targetWindowIDs to {14, 12, 13}") == true,
+            "Returning from another Space must preserve the rotated onscreen window order"
+        )
 
         candidateIDs = nil
-        liveIDs = [12]
+        liveWindows = [.init(id: 12, visible: true, miniaturized: false)]
         manager.tileTerminalWindows()
-        expect(layouts.count == 4 && manager.terminalWindowCount == 2, "An unavailable Window Server snapshot must not shrink the layout")
+        expect(layouts.count == 9 && manager.terminalWindowCount == 3, "An unavailable Window Server snapshot must not shrink the layout")
 
         candidateIDs = []
-        liveIDs = []
+        liveWindows = []
         manager.tileTerminalWindows()
-        expect(layouts.count == 4 && manager.terminalWindowCount == 0, "Closing all windows must clear the count without writing a layout")
+        expect(layouts.count == 9 && manager.terminalWindowCount == 0, "Closing all windows must clear the count without writing a layout")
 
         candidateIDs = [12]
-        liveIDs = [12]
+        liveWindows = [.init(id: 12, visible: true, miniaturized: false)]
         layoutError = [NSAppleScript.errorNumber: -10000, NSAppleScript.errorMessage: "Window write failed"]
         manager.tileTerminalWindows()
         expect(manager.phase == .error("Terminal 自动化失败：Window write failed"), "Snapshot validation must not hide actual layout write failures")
         layoutError = nil
         manager.tileTerminalWindows()
-        expect(manager.phase == .visible && layouts.count == 6, "A failed layout must remain retryable with unchanged window candidates")
+        expect(manager.phase == .visible && layouts.count == 11, "A failed layout must remain retryable with unchanged window candidates")
 
         layoutError = [NSAppleScript.errorNumber: -10000, NSAppleScript.errorMessage: "Window write failed again"]
         manager.tileTerminalWindows()
         layoutError = nil
-        expect(manager.tileTerminalWindows(force: false) && manager.phase == .visible && layouts.count == 8, "Polling must retry a failed forced layout even when the same windows were previously laid out successfully")
+        expect(manager.tileTerminalWindows(force: false) && manager.phase == .visible && layouts.count == 13, "Polling must retry a failed forced layout even when the same windows were previously laid out successfully")
     }
 
     @MainActor
     static func terminalPollingLifecycle() {
-        var liveIDs = [12, 13]
+        var liveWindows: [TerminalManager.TerminalWindowState] = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false)
+        ]
         var candidateIDs: Set<Int> = [12, 13]
         var layoutWrites = 0
+        var lastWrittenScript = ""
         let manager = TerminalManager(scriptExecutor: { source in
             if source.contains("return liveWindowIDs") {
-                let result = NSAppleEventDescriptor.list()
-                for (index, id) in liveIDs.enumerated() {
-                    result.insert(.init(int32: Int32(id)), at: index + 1)
-                }
-                return (result, nil)
+                return (makeSnapshotDescriptor(liveWindows), nil)
             }
             layoutWrites += 1
+            lastWrittenScript = source
             return (.init(boolean: true), nil)
         }, windowServerSnapshot: {
             candidateIDs
@@ -289,7 +406,11 @@ struct MenuContinueRegression {
 
         manager.pollTerminalWindows(isHidden: true, isActive: false)
         expect(manager.phase == .hidden, "Hiding Terminal must pause its canvas")
-        liveIDs = [12, 13, 14]
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false),
+            .init(id: 14, visible: true, miniaturized: false)
+        ]
         candidateIDs = [12, 13, 14]
         manager.pollTerminalWindows(isHidden: true, isActive: false)
         manager.pollTerminalWindows(isHidden: false, isActive: false)
@@ -298,23 +419,41 @@ struct MenuContinueRegression {
         manager.pollTerminalWindows(isHidden: false, isActive: true)
         expect(layoutWrites == 2 && manager.terminalWindowCount == 3 && manager.phase == .visible, "Returning normally and opening a window must resume automatic arrangement")
 
-        liveIDs = [12, 13]
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false)
+        ]
         candidateIDs = [12, 13]
         manager.pollTerminalWindows(isHidden: false, isActive: true)
         expect(layoutWrites == 3 && manager.terminalWindowCount == 2, "Closing a window after returning must automatically align the survivors")
 
         manager.pollTerminalWindows(isHidden: true, isActive: false)
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: true)
+        ]
         candidateIDs = [12]
         manager.pollTerminalWindows(isHidden: false, isActive: true)
-        expect(layoutWrites == 3 && manager.terminalWindowCount == 2, "Returning with unchanged live windows must preserve minimized windows instead of forcing a layout")
+        expect(
+            layoutWrites == 4 && manager.terminalWindowCount == 1 && lastWrittenScript.contains("set targetWindowIDs to {12}") && !lastWrittenScript.contains("13"),
+            "Returning passively with a minimized window must preserve its minimized state while re-tiling onscreen windows"
+        )
 
         manager.pollTerminalWindows(isHidden: true, isActive: false)
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false)
+        ]
         candidateIDs = [12, 13, 14]
         manager.pollTerminalWindows(isHidden: false, isActive: true)
-        expect(layoutWrites == 3, "Resuming with an incomplete AppleScript list must wait without enlarging a window")
-        liveIDs = [12, 13, 14]
+        expect(layoutWrites == 4, "Resuming with an incomplete AppleScript list must wait without enlarging a window")
+        liveWindows = [
+            .init(id: 12, visible: true, miniaturized: false),
+            .init(id: 13, visible: true, miniaturized: false),
+            .init(id: 14, visible: true, miniaturized: false)
+        ]
         manager.pollTerminalWindows(isHidden: false, isActive: true)
-        expect(layoutWrites == 4 && manager.terminalWindowCount == 3, "The same candidates must be retried after the resumed snapshot becomes complete")
+        expect(layoutWrites == 5 && manager.terminalWindowCount == 3, "The same candidates must be retried after the resumed snapshot becomes complete")
     }
 
     @MainActor
@@ -324,16 +463,19 @@ struct MenuContinueRegression {
             property fixtureID : 12
             property fixtureTabs : {1}
             property fixtureVisible : true
+            property fixtureMiniaturized : false
         end script
         script closedWindow
             property fixtureID : 13
             property fixtureTabs : {}
             property fixtureVisible : true
+            property fixtureMiniaturized : false
         end script
         script lastLiveWindow
             property fixtureID : 14
             property fixtureTabs : {1}
-            property fixtureVisible : true
+            property fixtureVisible : false
+            property fixtureMiniaturized : true
         end script
         script pendingWindow
             property fixtureID : missing value
@@ -355,12 +497,22 @@ struct MenuContinueRegression {
             .replacingOccurrences(of: "id of currentWindow", with: "fixtureID of currentWindow")
             .replacingOccurrences(of: "tabs of currentWindow", with: "fixtureTabs of currentWindow")
             .replacingOccurrences(of: "visible of currentWindow", with: "fixtureVisible of currentWindow")
+            .replacingOccurrences(of: "miniaturized of currentWindow", with: "fixtureMiniaturized of currentWindow")
             .replacingOccurrences(of: "return liveWindowIDs", with: "return {liveWindowIDs, fixtureVisible of closedWindow}")
         var error: NSDictionary?
         let result = NSAppleScript(source: fixture + "\n" + snapshot)!.executeAndReturnError(&error)
         expect(error == nil, "Stale window references must not abort a snapshot: \(error?.description ?? "")")
-        let ids = result.atIndex(1)
-        expect(ids?.numberOfItems == 2 && ids?.atIndex(1)?.int32Value == 12 && ids?.atIndex(2)?.int32Value == 14, "Snapshots must preserve live windows before and after stale, pending, nonnumeric, negative-ID and zero-tab windows")
+        let states = result.atIndex(1)
+        expect(
+            states?.numberOfItems == 2
+                && states?.atIndex(1)?.atIndex(1)?.int32Value == 12
+                && states?.atIndex(1)?.atIndex(2)?.booleanValue == true
+                && states?.atIndex(1)?.atIndex(3)?.booleanValue == false
+                && states?.atIndex(2)?.atIndex(1)?.int32Value == 14
+                && states?.atIndex(2)?.atIndex(2)?.booleanValue == false
+                && states?.atIndex(2)?.atIndex(3)?.booleanValue == true,
+            "Snapshots must preserve live windows and states before and after stale, pending, nonnumeric, negative-ID and zero-tab windows"
+        )
         expect(result.atIndex(2)?.booleanValue == false, "Snapshots must still hide zero-tab frames without closing live sessions")
 
         let indexRaceSnapshot = snapshot.replacingOccurrences(
@@ -377,6 +529,81 @@ struct MenuContinueRegression {
             _ = NSAppleScript(source: fixture + "\n" + failingSnapshot)!.executeAndReturnError(&error)
             expect((error?[NSAppleScript.errorNumber] as? NSNumber)?.intValue == number, "Snapshot filtering must propagate permission failures and unexpected AppleEvent errors (\(number))")
         }
+    }
+
+    @MainActor
+    static func singleWindowFixtures(_ source: String) {
+        func runFixture(cols: Int, rows: Int, bounds: [Int], visible: Bool = true, miniaturized: Bool = false, recenter: Bool = false) -> NSAppleEventDescriptor {
+            let boundsLiteral = "{\(bounds.map(String.init).joined(separator: ", "))}"
+            let fixture = """
+            script targetWindow
+                property fixtureTabs : {1}
+                property fixtureVisible : \(visible ? "true" : "false")
+                property fixtureMiniaturized : \(miniaturized ? "true" : "false")
+                property fixtureCols : \(cols)
+                property fixtureRows : \(rows)
+                property fixtureBounds : \(boundsLiteral)
+            end script
+            script windowSource
+                property fixtureDefaultCols : 120
+                property fixtureDefaultRows : 30
+                property fixtureTargetWindow : targetWindow
+            end script
+            """
+            let adapted = source
+                .replacingOccurrences(of: "set forceRecenter to false", with: "set forceRecenter to \(recenter ? "true" : "false")")
+                .replacingOccurrences(of: "tell application id \"com.apple.Terminal\"", with: "tell windowSource")
+                .replacingOccurrences(of: "number of columns of default settings", with: "fixtureDefaultCols of windowSource")
+                .replacingOccurrences(of: "number of rows of default settings", with: "fixtureDefaultRows of windowSource")
+                .replacingOccurrences(of: "first window whose id is currentID", with: "fixtureTargetWindow of windowSource")
+                .replacingOccurrences(of: "tabs of currentWindow", with: "fixtureTabs of currentWindow")
+                .replacingOccurrences(of: "miniaturized of currentWindow", with: "fixtureMiniaturized of currentWindow")
+                .replacingOccurrences(of: "visible of currentWindow", with: "fixtureVisible of currentWindow")
+                .replacingOccurrences(
+                    of: "set number of columns of selected tab of currentWindow to defaultCols",
+                    with: "set fixtureCols of currentWindow to defaultCols\nset fixtureBounds of currentWindow to {item 1 of (fixtureBounds of currentWindow), item 2 of (fixtureBounds of currentWindow), (item 1 of (fixtureBounds of currentWindow)) + defaultCols * 7 + 20, item 4 of (fixtureBounds of currentWindow)}"
+                )
+                .replacingOccurrences(
+                    of: "set number of rows of selected tab of currentWindow to defaultRows",
+                    with: "set fixtureRows of currentWindow to defaultRows\nset fixtureBounds of currentWindow to {item 1 of (fixtureBounds of currentWindow), item 2 of (fixtureBounds of currentWindow), item 3 of (fixtureBounds of currentWindow), (item 2 of (fixtureBounds of currentWindow)) + defaultRows * 16 + 40}"
+                )
+                .replacingOccurrences(of: "number of columns of selected tab of currentWindow", with: "fixtureCols of currentWindow")
+                .replacingOccurrences(of: "number of rows of selected tab of currentWindow", with: "fixtureRows of currentWindow")
+                .replacingOccurrences(of: "bounds of currentWindow", with: "fixtureBounds of currentWindow")
+                .replacingOccurrences(of: "return count of targetWindowIDs", with: "return {fixtureCols of targetWindow, fixtureRows of targetWindow, fixtureBounds of targetWindow, fixtureVisible of targetWindow, fixtureMiniaturized of targetWindow}")
+            var error: NSDictionary?
+            let result = NSAppleScript(source: fixture + "\n" + adapted)!.executeAndReturnError(&error)
+            expect(error == nil, "Single-window AppleScript fixture must execute cleanly: \(error?.description ?? "")")
+            return result
+        }
+
+        // Brand-new single window (0 -> 1) already at default 120x30 on screen keeps exact native bounds.
+        let untouched = runFixture(cols: 120, rows: 30, bounds: [180, 90, 1040, 610])
+        let untouchedBounds = untouched.atIndex(3)
+        expect(
+            untouched.atIndex(1)?.int32Value == 120
+                && untouched.atIndex(2)?.int32Value == 30
+                && untouchedBounds?.atIndex(1)?.int32Value == 180
+                && untouchedBounds?.atIndex(2)?.int32Value == 90
+                && untouchedBounds?.atIndex(3)?.int32Value == 1040
+                && untouchedBounds?.atIndex(4)?.int32Value == 610,
+            "A newly opened single window already at system default size must not be maximized or moved"
+        )
+
+        // Surviving single window after closing from 2 -> 1 restores to 120x30 and recenters within screenBounds {0, 30, 1200, 830}.
+        let restored = runFixture(cols: 97, rows: 45, bounds: [600, 30, 1200, 830], visible: false, miniaturized: true, recenter: true)
+        let restoredBounds = restored.atIndex(3)
+        expect(
+            restored.atIndex(1)?.int32Value == 120
+                && restored.atIndex(2)?.int32Value == 30
+                && restoredBounds?.atIndex(1)?.int32Value == 170
+                && restoredBounds?.atIndex(2)?.int32Value == 170
+                && restoredBounds?.atIndex(3)?.int32Value == 1030
+                && restoredBounds?.atIndex(4)?.int32Value == 690
+                && restored.atIndex(4)?.booleanValue == true
+                && restored.atIndex(5)?.booleanValue == false,
+            "Closing down to one window must restore default 120x30 dimensions and center instead of filling the screen"
+        )
     }
 
     @MainActor
