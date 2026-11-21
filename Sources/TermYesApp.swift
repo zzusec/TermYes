@@ -212,6 +212,11 @@ struct TermYesApp: App {
                         set: { $0 ? manager.showDashboard() : manager.hideDashboard() }
                     )
                 )
+                if manager.phase == .visible, manager.terminalWindowCount >= 2 {
+                    Text(MenuPresentation.title(manager.isLayoutAligned ? "实时检测：已对齐（\(manager.terminalWindowCount) 窗口）" : "实时检测：正在对齐…"))
+                } else if manager.phase == .visible, manager.terminalWindowCount == 1 {
+                    Text("实时检测：单窗口默认尺寸")
+                }
                 if !manager.automationAuthorized {
                     Divider()
                     Button("打开自动化设置…") {

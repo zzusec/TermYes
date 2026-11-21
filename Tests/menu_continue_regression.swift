@@ -1,4 +1,4 @@
-// swiftc Sources/{GridLayout,ContinueSchedule,TerminalManager,GlobalHotKeyController,ScheduledContinueController}.swift Tests/menu_continue_regression.swift -o /tmp/termyes-menu-regression
+// swiftc Sources/{GridLayout,WindowBadgeController,ContinueSchedule,TerminalManager,GlobalHotKeyController,ScheduledContinueController}.swift Tests/menu_continue_regression.swift -o /tmp/termyes-menu-regression
 // This suite compiles Terminal AppleScripts and executes snapshot fixtures against
 // in-memory script objects, never the user's Terminal. Agent processes and guard
 // management use executables in a temporary HOME, never installed user agents.
@@ -21,6 +21,7 @@ struct MenuContinueRegression {
         try terminalScripts()
         terminalLayoutSnapshots()
         terminalPollingLifecycle()
+        realtimeAlignmentAndBadges()
         shortcutFailures()
         try await scheduledContinue()
         try receiptValidation()
@@ -454,6 +455,163 @@ struct MenuContinueRegression {
         ]
         manager.pollTerminalWindows(isHidden: false, isActive: true)
         expect(layoutWrites == 5 && manager.terminalWindowCount == 3, "The same candidates must be retried after the resumed snapshot becomes complete")
+    }
+
+    @MainActor
+    static func realtimeAlignmentAndBadges() {
+        let liveWindows: [TerminalManager.TerminalWindowState] = [
+            .init(id: 21, visible: true, miniaturized: false),
+            .init(id: 22, visible: true, miniaturized: false),
+            .init(id: 23, visible: true, miniaturized: false)
+        ]
+        // Screen cocoa visibleFrame (0, 0, 1200, 800) with primaryScreenMaxY 830 -> top-left y in 30...830.
+        // 3-window clockwise slots: [0] top-left (0,30,600,400), [1] right (600,30,1200,800), [2] bottom-left (0,430,600,400).
+        var screenRect = CGRect(x: 0, y: 0, width: 1200, height: 800)
+        var boundsByID: [Int: CGRect] = [
+            21: CGRect(x: 0, y: 30, width: 595, height: 388),
+            22: CGRect(x: 600, y: 30, width: 595, height: 788),
+            23: CGRect(x: 0, y: 430, width: 595, height: 388)
+        ]
+        var obscuringByID: [Int: [CGRect]] = [:]
+        var mouseDown = false
+        var layoutWrites = 0
+        var lastWrittenScript = ""
+
+        let manager = TerminalManager(
+            scriptExecutor: { source in
+                if source.contains("return liveWindowIDs") {
+                    return (makeSnapshotDescriptor(liveWindows), nil)
+                }
+                layoutWrites += 1
+                lastWrittenScript = source
+                return (.init(boolean: true), nil)
+            },
+            windowServerDetails: {
+                .init(
+                    candidateIDs: Set(boundsByID.keys),
+                    onScreenIDs: Set(boundsByID.keys),
+                    boundsByID: boundsByID,
+                    obscuringBoundsByID: obscuringByID
+                )
+            },
+            visibleFrame: { screenRect },
+            primaryScreenMaxY: { 830 },
+            mouseButtonsPressed: { mouseDown },
+            layoutSettleGraceInterval: 0
+        )
+
+        // Initial arrangement assigns ①, ②, ③ and settles without rewriting aligned frames.
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 1 && manager.terminalWindowCount == 3, "Initial three-window grid must write layout once")
+        expect(manager.badgeNumber(for: 21) == 1 && manager.badgeNumber(for: 22) == 2 && manager.badgeNumber(for: 23) == 3,
+               "Windows 21, 22, 23 must receive permanent badges ①, ②, ③")
+        expect(manager.activeBadgePlacements.map(\.label) == ["①", "②", "③"], "All three badges must be visible initially")
+
+        // Subsequent passive polls settle baseline and do not rewrite already-aligned Terminal windows.
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(layoutWrites == 1 && manager.isLayoutAligned, "Settled character-snapped Terminal windows must report aligned without redundant rewrites")
+
+        // Scroller style change / font zoom shrinks widths by 18pt without changing window IDs -> real-time detector heals!
+        boundsByID[21] = CGRect(x: 0, y: 30, width: 577, height: 388)
+        boundsByID[22] = CGRect(x: 600, y: 30, width: 577, height: 788)
+        boundsByID[23] = CGRect(x: 0, y: 430, width: 577, height: 388)
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(layoutWrites == 2, "Shrinkage of existing windows must automatically trigger re-tiling even when window IDs are unchanged")
+        // Simulate Terminal expanding back to fill slots after re-tile.
+        boundsByID[21] = CGRect(x: 0, y: 30, width: 596, height: 388)
+        boundsByID[22] = CGRect(x: 600, y: 30, width: 596, height: 788)
+        boundsByID[23] = CGRect(x: 0, y: 430, width: 596, height: 388)
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(layoutWrites == 2 && manager.isLayoutAligned, "Re-expanded windows must lock new settled baseline and report aligned")
+
+        // Dragging a window while mouse button is held must NOT fight the user's cursor; badge follows dragged window.
+        mouseDown = true
+        boundsByID[21] = CGRect(x: 85, y: 70, width: 596, height: 388)
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 2 && !manager.isLayoutAligned, "While mouse button is pressed, drift is detected without fighting the drag")
+        expect(manager.activeBadgePlacements.first(where: { $0.windowID == 21 })?.topLeftFrame.minX == 653,
+               "Badge ① must follow dragged window 21 in real time")
+
+        // Releasing mouse button snaps window 21 back into its grid slot.
+        mouseDown = false
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(layoutWrites == 3, "Releasing mouse after dragging a tiled window must snap it back to the grid")
+        boundsByID[21] = CGRect(x: 0, y: 30, width: 596, height: 388)
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(manager.isLayoutAligned && layoutWrites == 3, "Snapped window must return to aligned state")
+
+        // Dock height or display scaling changes visibleFrame -> real-time detector re-tiles automatically.
+        screenRect = CGRect(x: 0, y: 0, width: 1440, height: 820)
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(layoutWrites == 4 && lastWrittenScript.contains("720"), "Screen/Dock visibleFrame change must re-tile to new dimensions")
+        boundsByID[21] = CGRect(x: 0, y: 10, width: 716, height: 398)
+        boundsByID[22] = CGRect(x: 720, y: 10, width: 716, height: 808)
+        boundsByID[23] = CGRect(x: 0, y: 420, width: 716, height: 398)
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(manager.isLayoutAligned && layoutWrites == 4, "Updated screen layout must settle cleanly")
+
+        // Physical minimum width convergence: if huge font prevents shrinking below 800pt, stop retrying after 2 unchanged attempts.
+        boundsByID[21] = CGRect(x: 0, y: 10, width: 800, height: 398)
+        manager.pollTerminalWindows(isHidden: false, isActive: false) // attempt 1 -> writes 5
+        manager.pollTerminalWindows(isHidden: false, isActive: false) // attempt 2 -> writes 6
+        manager.pollTerminalWindows(isHidden: false, isActive: false) // converges -> no write!
+        manager.pollTerminalWindows(isHidden: false, isActive: false) // remains converged!
+        expect(layoutWrites == 6 && manager.isLayoutAligned, "Unchangeable physical window limits must converge instead of looping")
+
+        // Clockwise rotation moves positions (23 -> top-left, 21 -> right, 22 -> bottom-left) while keeping ①, ②, ③ unchanged!
+        expect(manager.rotateVisibleOrderClockwise(), "Clockwise rotation must succeed for 3 windows")
+        manager.tileTerminalWindows()
+        boundsByID[23] = CGRect(x: 0, y: 10, width: 716, height: 398)
+        boundsByID[21] = CGRect(x: 720, y: 10, width: 716, height: 808)
+        boundsByID[22] = CGRect(x: 0, y: 420, width: 716, height: 398)
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(manager.badgeNumber(for: 21) == 1 && manager.badgeNumber(for: 22) == 2 && manager.badgeNumber(for: 23) == 3,
+               "Clockwise rotation must never alter window badge numbers")
+        let placements = manager.activeBadgePlacements
+        expect(placements.map(\.label) == ["③", "①", "②"], "Rotated slots must display ③ at top-left, ① at right, ② at bottom-left")
+        expect(placements[1].windowID == 21 && placements[1].topLeftFrame.minX > 1400, "Badge ① must travel with window 21 to the right column")
+
+        // Covering window 21's corner with Finder hides ① without hiding ③ or ②.
+        obscuringByID = [21: [CGRect(x: 1200, y: 0, width: 240, height: 300)]]
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(manager.activeBadgePlacements.map(\.label) == ["③", "②"], "Finder covering window 21's corner must hide ①")
+        obscuringByID = [:]
+        manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(manager.activeBadgePlacements.map(\.label) == ["③", "①", "②"], "Uncovering window 21 must restore ①")
+
+        // Hiding Terminal clears visible badges while preserving badge assignments on return.
+        manager.pollTerminalWindows(isHidden: true, isActive: false)
+        expect(manager.activeBadgePlacements.isEmpty, "Hiding Terminal must hide all floating badges")
+        expect(manager.badgeNumber(for: 21) == 1 && manager.badgeNumber(for: 23) == 3, "Hiding must preserve badge identity")
+
+        // Verify character-cell snap packing inside applyWindowLayout closes inter-column and inter-row remainder seams.
+        var packScripts: [String] = []
+        let packManager = TerminalManager(scriptExecutor: { source in
+            packScripts.append(source)
+            let list = NSAppleEventDescriptor.list()
+            // Simulate Terminal snapping 3 windows with 4pt horizontal and 12pt vertical cell remainders on first pass.
+            let rows: [[Int32]] = packScripts.count == 1
+                ? [[0, 33, 731, 440], [735, 33, 1466, 856], [0, 451, 731, 858]]
+                : [[4, 33, 735, 440], [735, 33, 1466, 856], [4, 440, 735, 847]]
+            for (index, rect) in rows.enumerated() {
+                let item = NSAppleEventDescriptor.list()
+                for (sub, value) in rect.enumerated() {
+                    item.insert(.init(int32: value), at: sub + 1)
+                }
+                list.insert(item, at: index + 1)
+            }
+            return (list, nil)
+        })
+        let slots = [
+            CGRect(x: 0, y: 33, width: 735, height: 418),
+            CGRect(x: 735, y: 33, width: 735, height: 837),
+            CGRect(x: 0, y: 451, width: 735, height: 419)
+        ]
+        expect(packManager.applyWindowLayout(windowIDs: [21, 22, 23], frames: slots, within: CGRect(x: 0, y: 33, width: 1470, height: 837)),
+               "Snap-packed layout must succeed")
+        expect(packScripts.count == 2 && packScripts[1].contains("{4, 33, 735, 440}, {735, 33, 1466, 856}, {4, 440, 735, 847}"),
+               "Second pass must pack snapped Terminal windows edge-to-edge with zero vertical and horizontal seams")
     }
 
     @MainActor

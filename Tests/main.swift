@@ -107,4 +107,38 @@ let afterClose = GridLayout.frames(count: 3, within: bounds, gap: 10)
 expect(afterClose.count == 3, "closing a window should yield a complete three-window layout")
 expect(afterClose[2].height > afterClose[0].height, "remaining right window should span the full height after close")
 
-print("GridLayout tests passed (1, 3, 4, 5, and 6 window cases plus clockwise advancement).")
+// Character-cell snap packing eliminates inter-column and inter-row remainder seams.
+let topLeftScreen = CGRect(x: 0, y: 33, width: 1470, height: 837)
+let threeSlots = [
+    CGRect(x: 0, y: 33, width: 735, height: 418),
+    CGRect(x: 735, y: 33, width: 735, height: 837),
+    CGRect(x: 0, y: 451, width: 735, height: 419)
+]
+let threeSnapped = [
+    CGRect(x: 0, y: 33, width: 731, height: 407),
+    CGRect(x: 735, y: 33, width: 731, height: 823),
+    CGRect(x: 0, y: 451, width: 731, height: 407)
+]
+let threePacked = GridLayout.packTopLeftSnappedFrames(snapped: threeSnapped, slots: threeSlots, within: topLeftScreen)
+expect(threePacked[0].maxX == threePacked[1].minX, "Packed 3-window columns must touch with zero horizontal gap")
+expect(threePacked[2].maxX == threePacked[1].minX, "Bottom-left window must share the exact vertical seam")
+expect(threePacked[0].maxY == threePacked[2].minY, "Packed left-column windows must touch with zero vertical gap")
+expect(threePacked.indices.allSatisfy { threePacked[$0].size == threeSnapped[$0].size }, "Packing must preserve Terminal character-snapped sizes")
+
+let fourSlots = [
+    CGRect(x: 0, y: 30, width: 720, height: 395),
+    CGRect(x: 720, y: 30, width: 720, height: 395),
+    CGRect(x: 720, y: 425, width: 720, height: 394),
+    CGRect(x: 0, y: 425, width: 720, height: 394)
+]
+let fourSnapped = [
+    CGRect(x: 0, y: 30, width: 716, height: 379),
+    CGRect(x: 720, y: 30, width: 716, height: 379),
+    CGRect(x: 720, y: 425, width: 716, height: 379),
+    CGRect(x: 0, y: 425, width: 716, height: 379)
+]
+let fourPacked = GridLayout.packTopLeftSnappedFrames(snapped: fourSnapped, slots: fourSlots, within: CGRect(x: 0, y: 30, width: 1440, height: 789))
+expect(fourPacked[0].maxX == fourPacked[1].minX && fourPacked[3].maxX == fourPacked[2].minX, "Packed 2x2 columns must touch seamlessly")
+expect(fourPacked[0].maxY == fourPacked[3].minY && fourPacked[1].maxY == fourPacked[2].minY, "Packed 2x2 rows must touch seamlessly")
+
+print("GridLayout tests passed (1, 3, 4, 5, and 6 window cases plus clockwise advancement and character-cell snap packing).")

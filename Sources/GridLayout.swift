@@ -120,4 +120,136 @@ struct GridLayout {
         return result
     }
 
+    /// Packs Terminal windows that snapped downward to integer character cells so neighboring
+    /// columns and rows touch with zero gap while preserving each window's snapped cell size.
+    static func packTopLeftSnappedFrames(
+        snapped: [CGRect],
+        slots: [CGRect],
+        within screenBounds: CGRect
+    ) -> [CGRect] {
+        let count = snapped.count
+        guard count > 1,
+              slots.count == count,
+              screenBounds.width > 0,
+              screenBounds.height > 0 else { return snapped }
+
+        var packed = snapped
+        let usesTwoColumnOddLayout = !count.isMultiple(of: 2)
+
+        if usesTwoColumnOddLayout {
+            let minSlotX = slots.map(\.minX).min() ?? screenBounds.minX
+            let maxSlotX = slots.map(\.minX).max() ?? screenBounds.maxX
+            let splitX = (minSlotX + maxSlotX) / 2
+
+            let leftIndices = slots.indices
+                .filter { slots[$0].minX <= splitX }
+                .sorted { slots[$0].minY < slots[$1].minY }
+            let rightIndices = slots.indices
+                .filter { slots[$0].minX > splitX }
+                .sorted { slots[$0].minY < slots[$1].minY }
+
+            guard !leftIndices.isEmpty, !rightIndices.isEmpty else { return snapped }
+
+            let leftWidth = leftIndices.map { snapped[$0].width.rounded() }.max() ?? 0
+            let rightWidth = rightIndices.map { snapped[$0].width.rounded() }.max() ?? 0
+            let totalWidth = leftWidth + rightWidth
+            let startX = max(
+                screenBounds.minX.rounded(),
+                (screenBounds.minX + floor((screenBounds.width - totalWidth) / 2)).rounded()
+            )
+            let seamX = startX + leftWidth
+
+            var currentLeftY = screenBounds.minY.rounded()
+            for index in leftIndices {
+                let w = snapped[index].width.rounded()
+                let h = snapped[index].height.rounded()
+                packed[index] = CGRect(x: seamX - w, y: currentLeftY, width: w, height: h)
+                currentLeftY += h
+            }
+
+            var currentRightY = screenBounds.minY.rounded()
+            for index in rightIndices {
+                let w = snapped[index].width.rounded()
+                let h = snapped[index].height.rounded()
+                packed[index] = CGRect(x: seamX, y: currentRightY, width: w, height: h)
+                currentRightY += h
+            }
+            return packed
+        }
+
+        // Even counts use row-major bands; group indices into top-to-bottom rows by slot minY.
+        let sortedByY = slots.indices.sorted {
+            abs(slots[$0].minY - slots[$1].minY) > 1.5
+                ? slots[$0].minY < slots[$1].minY
+                : slots[$0].minX < slots[$1].minX
+        }
+        var rows: [[Int]] = []
+        for index in sortedByY {
+            if let lastRow = rows.last,
+               let sample = lastRow.first,
+               abs(slots[sample].minY - slots[index].minY) <= 1.5 {
+                rows[rows.count - 1].append(index)
+            } else {
+                rows.append([index])
+            }
+        }
+        guard !rows.isEmpty else { return snapped }
+
+        let firstRowCount = rows[0].count
+        let uniformColumns = firstRowCount > 0 && rows.allSatisfy { $0.count == firstRowCount }
+
+        if uniformColumns {
+            let colWidths: [CGFloat] = (0..<firstRowCount).map { col in
+                rows.map { snapped[$0[col]].width.rounded() }.max() ?? 0
+            }
+            let totalWidth = colWidths.reduce(0, +)
+            let startX = max(
+                screenBounds.minX.rounded(),
+                (screenBounds.minX + floor((screenBounds.width - totalWidth) / 2)).rounded()
+            )
+            var colOrigins: [CGFloat] = []
+            var runningX = startX
+            for width in colWidths {
+                colOrigins.append(runningX)
+                runningX += width
+            }
+
+            var currentY = screenBounds.minY.rounded()
+            for row in rows {
+                let rowHeight = row.map { snapped[$0].height.rounded() }.max() ?? 0
+                for (col, index) in row.enumerated() {
+                    let w = snapped[index].width.rounded()
+                    let h = snapped[index].height.rounded()
+                    let x: CGFloat
+                    if firstRowCount == 2 && col == 0 {
+                        x = colOrigins[1] - w
+                    } else {
+                        x = colOrigins[col]
+                    }
+                    packed[index] = CGRect(x: x, y: currentY, width: w, height: h)
+                }
+                currentY += rowHeight
+            }
+            return packed
+        }
+
+        var currentY = screenBounds.minY.rounded()
+        for row in rows {
+            let rowHeight = row.map { snapped[$0].height.rounded() }.max() ?? 0
+            let rowWidth = row.map { snapped[$0].width.rounded() }.reduce(0, +)
+            var runningX = max(
+                screenBounds.minX.rounded(),
+                (screenBounds.minX + floor((screenBounds.width - rowWidth) / 2)).rounded()
+            )
+            for index in row {
+                let w = snapped[index].width.rounded()
+                let h = snapped[index].height.rounded()
+                packed[index] = CGRect(x: runningX, y: currentY, width: w, height: h)
+                runningX += w
+            }
+            currentY += rowHeight
+        }
+        return packed
+    }
+
 }

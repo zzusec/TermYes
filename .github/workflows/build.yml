@@ -19,6 +19,8 @@ jobs:
         run: |
           swiftc Sources/GridLayout.swift Tests/main.swift -o /tmp/termosaic-grid-tests
           /tmp/termosaic-grid-tests
+          swiftc Sources/WindowBadgeController.swift Tests/WindowBadgeTests.swift -o /tmp/termyes-window-badge-tests
+          /tmp/termyes-window-badge-tests
       - name: Test semantic versions
         run: |
           swiftc Sources/SemanticVersion.swift Tests/VersionTests.swift -o /tmp/termosaic-version-tests
@@ -60,7 +62,7 @@ jobs:
           node Tests/test_guard_plugins.mjs
           swiftc Sources/ContinueSchedule.swift Tests/ContinueScheduleTests.swift -o /tmp/termosaic-continue-tests
           /tmp/termosaic-continue-tests
-          swiftc Sources/{GridLayout,ContinueSchedule,TerminalManager,GlobalHotKeyController,ScheduledContinueController}.swift Tests/menu_continue_regression.swift -o /tmp/termyes-menu-continue
+          swiftc Sources/{GridLayout,WindowBadgeController,ContinueSchedule,TerminalManager,GlobalHotKeyController,ScheduledContinueController}.swift Tests/menu_continue_regression.swift -o /tmp/termyes-menu-continue
           /tmp/termyes-menu-continue
       - name: Build universal app
         run: SKIP_INSTALL=1 ./build.sh

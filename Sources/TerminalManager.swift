@@ -18,44 +18,101 @@ final class TerminalManager: NSObject, ObservableObject {
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var terminalWindowCount = 0
     @Published private(set) var automationAuthorized = true
+    @Published private(set) var isLayoutAligned = true
 
     private let terminalBundleIdentifier = "com.apple.Terminal"
     private let logger = Logger(subsystem: "io.github.zzusec.termosaic", category: "TerminalManager")
     private let pollInterval: TimeInterval = 0.2
     private var pollTimer: Timer?
     private var menuTrackingObservers: [NSObjectProtocol] = []
+    private var environmentObservers: [NSObjectProtocol] = []
+
     struct TerminalWindowState: Equatable {
         let id: Int
         let visible: Bool
         let miniaturized: Bool
     }
 
-    private struct WindowServerSnapshot {
+    struct WindowServerSnapshot: Equatable {
         let candidateIDs: Set<Int>
         let onScreenIDs: Set<Int>
+        let boundsByID: [Int: CGRect]
+        let obscuringBoundsByID: [Int: [CGRect]]
+
+        init(
+            candidateIDs: Set<Int>,
+            onScreenIDs: Set<Int>? = nil,
+            boundsByID: [Int: CGRect] = [:],
+            obscuringBoundsByID: [Int: [CGRect]] = [:]
+        ) {
+            self.candidateIDs = candidateIDs
+            self.onScreenIDs = onScreenIDs ?? candidateIDs
+            self.boundsByID = boundsByID
+            self.obscuringBoundsByID = obscuringBoundsByID
+        }
+    }
+
+    private struct DriftSignature: Equatable {
+        let windowIDs: [Int]
+        let actualFrames: [CGRect]
+        let screenFrame: CGRect
     }
 
     private var continueWindowIDs: [ContinueAgent: Int] = [:]
     private var lastTiledWindowIDs: [Int] = []
     private var lastWindowServerCandidateIDs: Set<Int>?
+    private var lastTiledScreenFrame: CGRect?
+    private var expectedPackedBounds: [Int: CGRect] = [:]
+    private var settledTiledBounds: [Int: CGRect] = [:]
+    private var lastAttemptedDriftSignature: DriftSignature?
+    private var consecutiveUnchangedDriftAttempts = 0
+    private var lastLayoutWriteTime: Date = .distantPast
+    private var needsEnvironmentRetile = false
     private var orderedWindowIDs: [Int] = []
     private var targetScreen: NSScreen?
     private var started = false
     private var dashboardRequested = false
 
+    private let badgeController: WindowBadgeController
+    private let layoutSettleGraceInterval: TimeInterval
     private let scriptExecutor: ((String) -> (NSAppleEventDescriptor, NSDictionary?))?
     private let windowServerSnapshot: (() -> Set<Int>?)?
+    private let windowServerDetails: (() -> WindowServerSnapshot?)?
     private let visibleFrame: (() -> CGRect?)?
+    private let primaryScreenMaxY: (() -> CGFloat?)?
+    private let mouseButtonsPressed: (() -> Bool)?
 
     init(
         scriptExecutor: ((String) -> (NSAppleEventDescriptor, NSDictionary?))? = nil,
         windowServerSnapshot: (() -> Set<Int>?)? = nil,
-        visibleFrame: (() -> CGRect?)? = nil
+        windowServerDetails: (() -> WindowServerSnapshot?)? = nil,
+        visibleFrame: (() -> CGRect?)? = nil,
+        primaryScreenMaxY: (() -> CGFloat?)? = nil,
+        mouseButtonsPressed: (() -> Bool)? = nil,
+        layoutSettleGraceInterval: TimeInterval? = nil,
+        rendersBadges: Bool? = nil
     ) {
+        let isInjectedTestInstance = scriptExecutor != nil
+            || windowServerSnapshot != nil
+            || windowServerDetails != nil
+            || visibleFrame != nil
         self.scriptExecutor = scriptExecutor
         self.windowServerSnapshot = windowServerSnapshot
+        self.windowServerDetails = windowServerDetails
         self.visibleFrame = visibleFrame
+        self.primaryScreenMaxY = primaryScreenMaxY
+        self.mouseButtonsPressed = mouseButtonsPressed
+        self.layoutSettleGraceInterval = layoutSettleGraceInterval ?? (isInjectedTestInstance ? 0 : 0.24)
+        self.badgeController = WindowBadgeController(rendersPanels: rendersBadges ?? !isInjectedTestInstance)
         super.init()
+    }
+
+    var activeBadgePlacements: [WindowBadgePlacement] {
+        badgeController.activePlacements
+    }
+
+    func badgeNumber(for windowID: Int) -> Int? {
+        badgeController.badgeNumber(for: windowID)
     }
 
     /// Publishing identical values would rebuild the menu on every poll tick, which closes it
@@ -72,10 +129,15 @@ final class TerminalManager: NSObject, ObservableObject {
         if automationAuthorized != value { automationAuthorized = value }
     }
 
+    private func updateAlignmentState(_ aligned: Bool) {
+        if isLayoutAligned != aligned { isLayoutAligned = aligned }
+    }
+
     func start() {
         guard !started else { return }
         started = true
         observeMenuTracking()
+        observeEnvironmentChanges()
         startPolling()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
@@ -97,6 +159,7 @@ final class TerminalManager: NSObject, ObservableObject {
     func showDashboard() {
         dashboardRequested = true
         lastWindowServerCandidateIDs = nil
+        resetAlignmentBaseline()
         targetScreen = screenUnderPointer() ?? NSScreen.main
 
         if let terminal = terminalApplication() {
@@ -143,6 +206,7 @@ final class TerminalManager: NSObject, ObservableObject {
             return rotatedTarget[rotatedIndex]
         }
         lastTiledWindowIDs = []
+        resetAlignmentBaseline()
         return true
     }
 
@@ -163,6 +227,8 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func hideDashboard(activateManager: Bool = true) {
         dashboardRequested = false
+        badgeController.clearVisibleBadges()
+        resetAlignmentBaseline()
         if let terminal = terminalApplication(), !terminal.isHidden && !terminal.hide() {
             updatePhase(.error("无法隐藏 Terminal"))
             return
@@ -242,6 +308,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func prepareForTermination() {
         stopPolling()
+        badgeController.resetAll()
     }
 
     private func startPolling() {
@@ -267,6 +334,42 @@ final class TerminalManager: NSObject, ObservableObject {
         ]
     }
 
+    private func observeEnvironmentChanges() {
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSApplication.didChangeScreenParametersNotification,
+            NSScroller.preferredScrollerStyleDidChangeNotification
+        ]
+        environmentObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in
+                    TerminalManager.shared.noteEnvironmentGeometryChanged()
+                }
+            }
+        }
+    }
+
+    func noteEnvironmentGeometryChanged() {
+        needsEnvironmentRetile = true
+        settledTiledBounds = [:]
+        lastAttemptedDriftSignature = nil
+        consecutiveUnchangedDriftAttempts = 0
+        if pollTimer != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                guard let self, self.pollTimer != nil else { return }
+                self.pollTerminalState()
+            }
+        }
+    }
+
+    private func resetAlignmentBaseline() {
+        expectedPackedBounds = [:]
+        settledTiledBounds = [:]
+        lastAttemptedDriftSignature = nil
+        consecutiveUnchangedDriftAttempts = 0
+        updateAlignmentState(true)
+    }
+
     private func stopPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
@@ -282,6 +385,8 @@ final class TerminalManager: NSObject, ObservableObject {
         guard let terminal = terminalApplication() else {
             updateWindowCount(0)
             lastTiledWindowIDs = []
+            resetAlignmentBaseline()
+            badgeController.resetAll()
             if dashboardRequested { updatePhase(.terminalNotRunning) }
             return
         }
@@ -292,6 +397,8 @@ final class TerminalManager: NSObject, ObservableObject {
     func pollTerminalWindows(isHidden: Bool, isActive: Bool) {
         if isHidden {
             dashboardRequested = false
+            badgeController.clearVisibleBadges()
+            resetAlignmentBaseline()
             updatePhase(.hidden)
             return
         }
@@ -301,27 +408,204 @@ final class TerminalManager: NSObject, ObservableObject {
         if isActive && !dashboardRequested {
             dashboardRequested = true
             lastWindowServerCandidateIDs = nil
+            resetAlignmentBaseline()
             targetScreen = activeScreen()
             updatePhase(.visible)
         }
 
-        guard dashboardRequested else { return }
+        guard dashboardRequested else {
+            badgeController.clearVisibleBadges()
+            return
+        }
 
-        guard let snapshot = readWindowServerSnapshot(),
-              snapshot.candidateIDs != lastWindowServerCandidateIDs else { return }
-        guard tileTerminalWindows(force: false, restoreMinimized: false) else {
-            if pollTimer != nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    guard let self, self.dashboardRequested, self.pollTimer != nil else { return }
-                    _ = self.tileTerminalWindows(force: false, restoreMinimized: false)
+        guard let snapshot = readWindowServerSnapshot() else { return }
+
+        if snapshot.candidateIDs != lastWindowServerCandidateIDs {
+            needsEnvironmentRetile = false
+            guard tileTerminalWindows(force: false, restoreMinimized: false) else {
+                if pollTimer != nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                        guard let self, self.dashboardRequested, self.pollTimer != nil else { return }
+                        _ = self.tileTerminalWindows(force: false, restoreMinimized: false)
+                    }
+                }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                guard let self, self.dashboardRequested else { return }
+                self.tileTerminalWindows(force: true, restoreMinimized: false)
+            }
+            return
+        }
+
+        refreshVisibleBadges(with: snapshot)
+        evaluateAlignmentAndHealIfNeeded(snapshot: snapshot)
+    }
+
+    private func refreshVisibleBadges(with snapshot: WindowServerSnapshot) {
+        guard dashboardRequested, !lastTiledWindowIDs.isEmpty else {
+            badgeController.clearVisibleBadges()
+            return
+        }
+        guard !snapshot.boundsByID.isEmpty else { return }
+        let excluded = Set(continueWindowIDs.values)
+        let visibleIDs = lastTiledWindowIDs.filter {
+            snapshot.onScreenIDs.contains($0) && !excluded.contains($0)
+        }
+        badgeController.updateVisibleBadges(
+            targetWindowIDs: visibleIDs,
+            boundsByID: snapshot.boundsByID,
+            obscuringBoundsByID: snapshot.obscuringBoundsByID
+        )
+    }
+
+    private func evaluateAlignmentAndHealIfNeeded(snapshot: WindowServerSnapshot) {
+        guard dashboardRequested, !lastTiledWindowIDs.isEmpty else {
+            updateAlignmentState(true)
+            return
+        }
+
+        let currentScreenFrame = currentTargetVisibleFrame()
+        let screenChanged: Bool
+        if let currentScreenFrame, let lastTiledScreenFrame {
+            screenChanged = !Self.framesMatch(currentScreenFrame, lastTiledScreenFrame, tolerance: 0.5)
+        } else {
+            screenChanged = false
+        }
+
+        if needsEnvironmentRetile || screenChanged {
+            if isMouseButtonPressed() {
+                needsEnvironmentRetile = true
+                if lastTiledWindowIDs.count >= 2 { updateAlignmentState(false) }
+                return
+            }
+            needsEnvironmentRetile = false
+            if lastTiledWindowIDs.count >= 2 || screenChanged {
+                settledTiledBounds = [:]
+                if tileTerminalWindows(force: true, restoreMinimized: false),
+                   let refreshed = readWindowServerSnapshot() {
+                    refreshVisibleBadges(with: refreshed)
                 }
             }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
-            guard let self, self.dashboardRequested else { return }
-            self.tileTerminalWindows(force: true, restoreMinimized: false)
+
+        guard lastTiledWindowIDs.count >= 2 else {
+            updateAlignmentState(true)
+            return
         }
+        guard !snapshot.boundsByID.isEmpty, let screenFrame = currentScreenFrame else {
+            updateAlignmentState(true)
+            return
+        }
+
+        let count = lastTiledWindowIDs.count
+        let actualFrames = lastTiledWindowIDs.compactMap { snapshot.boundsByID[$0] }
+        guard actualFrames.count == count else { return }
+
+        let slotFrames = GridLayout.clockwiseFrames(count: count, within: screenFrame, gap: 0)
+            .map(accessibilityFrame(from:))
+        guard slotFrames.count == count else { return }
+
+        let settledComplete = lastTiledWindowIDs.allSatisfy { settledTiledBounds[$0] != nil }
+        if !settledComplete {
+            let allMatchExpected = lastTiledWindowIDs.enumerated().allSatisfy { index, id in
+                let actual = actualFrames[index]
+                if let packed = expectedPackedBounds[id] {
+                    return Self.framesMatch(actual, packed, tolerance: 2.0)
+                }
+                return Self.matchesGridSlot(actual: actual, slot: slotFrames[index])
+            }
+            if allMatchExpected {
+                for (id, actual) in zip(lastTiledWindowIDs, actualFrames) {
+                    settledTiledBounds[id] = actual
+                }
+                consecutiveUnchangedDriftAttempts = 0
+                lastAttemptedDriftSignature = nil
+                updateAlignmentState(true)
+                return
+            }
+            if Date().timeIntervalSince(lastLayoutWriteTime) < layoutSettleGraceInterval {
+                return
+            }
+        } else {
+            let staysSettled = lastTiledWindowIDs.enumerated().allSatisfy { index, id in
+                guard let settled = settledTiledBounds[id] else { return false }
+                let actual = actualFrames[index]
+                let expectedOrigin = expectedPackedBounds[id]?.origin ?? slotFrames[index].origin
+                return Self.framesMatch(actual, settled, tolerance: 1.5)
+                    && abs(actual.minX - expectedOrigin.x) <= 2.0
+                    && abs(actual.minY - expectedOrigin.y) <= 2.0
+            }
+            if staysSettled {
+                consecutiveUnchangedDriftAttempts = 0
+                lastAttemptedDriftSignature = nil
+                updateAlignmentState(true)
+                return
+            }
+        }
+
+        updateAlignmentState(false)
+        guard !isMouseButtonPressed() else { return }
+
+        let signature = DriftSignature(
+            windowIDs: lastTiledWindowIDs,
+            actualFrames: actualFrames,
+            screenFrame: screenFrame
+        )
+        if signature == lastAttemptedDriftSignature {
+            consecutiveUnchangedDriftAttempts += 1
+            if consecutiveUnchangedDriftAttempts >= 2 {
+                // Window reached a physical Terminal cell/font-size limit that cannot fit closer;
+                // lock current bounds to prevent endless AppleScript rewrites.
+                for (id, actual) in zip(lastTiledWindowIDs, actualFrames) {
+                    settledTiledBounds[id] = actual
+                }
+                updateAlignmentState(true)
+                return
+            }
+        } else {
+            consecutiveUnchangedDriftAttempts = 0
+            lastAttemptedDriftSignature = signature
+        }
+
+        settledTiledBounds = [:]
+        if tileTerminalWindows(force: true, restoreMinimized: false),
+           let refreshed = readWindowServerSnapshot() {
+            refreshVisibleBadges(with: refreshed)
+        }
+    }
+
+    private static func matchesGridSlot(actual: CGRect, slot: CGRect) -> Bool {
+        let originAligned = abs(actual.minX - slot.minX) <= 2.0 && abs(actual.minY - slot.minY) <= 2.0
+        // Terminal snaps window width/height downward to integer character cells; allow up to one
+        // generous cell margin below the slot while rejecting legacy-scroller or tab-bar shrinkage
+        // once a tighter baseline has been recorded, and rejecting overflow into neighbor tiles.
+        let fitsWithinSlot = actual.width <= slot.width + 2.0 && actual.height <= slot.height + 2.0
+        let fillsSlotReasonably = actual.width >= max(120, slot.width - 28.0)
+            && actual.height >= max(80, slot.height - 36.0)
+        return originAligned && fitsWithinSlot && fillsSlotReasonably
+    }
+
+    private static func framesMatch(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat) -> Bool {
+        abs(lhs.minX - rhs.minX) <= tolerance
+            && abs(lhs.minY - rhs.minY) <= tolerance
+            && abs(lhs.width - rhs.width) <= tolerance
+            && abs(lhs.height - rhs.height) <= tolerance
+    }
+
+    private func isMouseButtonPressed() -> Bool {
+        if let mouseButtonsPressed {
+            return mouseButtonsPressed()
+        }
+        return NSEvent.pressedMouseButtons != 0
+    }
+
+    private func currentTargetVisibleFrame() -> CGRect? {
+        if let visibleFrame {
+            return visibleFrame()
+        }
+        return activeScreen()?.visibleFrame
     }
 
     private func launchTerminal() {
@@ -361,6 +645,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     private func scheduleTilePasses(afterUnhide: Bool = false) {
         lastTiledWindowIDs = []
+        resetAlignmentBaseline()
         let passes: [(delay: TimeInterval, restoreMinimized: Bool)]
         if afterUnhide {
             passes = [(0.12, true), (0.35, false), (0.90, false)]
@@ -396,26 +681,28 @@ final class TerminalManager: NSObject, ObservableObject {
             restoreMinimized: restoreMinimized
         )
         let windowIDs = stableWindowOrder(targetIDs: targetIDs, allLiveIDs: allLiveIDs)
+        badgeController.synchronizeIdentity(
+            liveWindowIDs: orderedWindowIDs,
+            excludedWindowIDs: Set(continueWindowIDs.values)
+        )
         let count = windowIDs.count
         updateWindowCount(count)
 
         if !force && windowIDs == lastTiledWindowIDs {
             lastWindowServerCandidateIDs = snapshot.candidateIDs
+            refreshVisibleBadges(with: snapshot)
             return false
         }
         guard count > 0 else {
             lastTiledWindowIDs = []
             lastWindowServerCandidateIDs = snapshot.candidateIDs
+            lastTiledScreenFrame = nil
+            resetAlignmentBaseline()
+            badgeController.clearVisibleBadges()
             updatePhase(.visible)
             return false
         }
-        let screenFrame: CGRect?
-        if let visibleFrame {
-            screenFrame = visibleFrame()
-        } else {
-            screenFrame = activeScreen()?.visibleFrame
-        }
-        guard let screenFrame else {
+        guard let screenFrame = currentTargetVisibleFrame() else {
             updatePhase(.error("找不到可用显示器"))
             return false
         }
@@ -434,23 +721,63 @@ final class TerminalManager: NSObject, ObservableObject {
             }
             lastTiledWindowIDs = windowIDs
             lastWindowServerCandidateIDs = snapshot.candidateIDs
+            lastTiledScreenFrame = screenFrame
+            lastLayoutWriteTime = Date()
+            resetAlignmentBaseline()
+            schedulePostLayoutBadgeSync(fallbackSnapshot: snapshot)
             updatePhase(.visible)
             return true
         }
 
+        let accessibilityScreen = accessibilityFrame(from: screenFrame)
         let frames = GridLayout.clockwiseFrames(count: count, within: screenFrame, gap: 0)
             .map(accessibilityFrame(from:))
         guard frames.count == count else { return false }
 
-        guard applyWindowLayout(windowIDs: windowIDs, frames: frames) else {
+        guard applyWindowLayout(windowIDs: windowIDs, frames: frames, within: accessibilityScreen) else {
             lastTiledWindowIDs = []
             lastWindowServerCandidateIDs = nil
             return false
         }
         lastTiledWindowIDs = windowIDs
         lastWindowServerCandidateIDs = snapshot.candidateIDs
+        lastTiledScreenFrame = screenFrame
+        lastLayoutWriteTime = Date()
+        settledTiledBounds = [:]
+        updateAlignmentState(true)
+        let badgeFallbackFrames = windowIDs.enumerated().map { index, id in
+            (id, expectedPackedBounds[id] ?? frames[index])
+        }
+        schedulePostLayoutBadgeSync(fallbackSnapshot: snapshot, fallbackFrames: badgeFallbackFrames)
         updatePhase(.visible)
         return true
+    }
+
+    private func schedulePostLayoutBadgeSync<S: Sequence>(
+        fallbackSnapshot: WindowServerSnapshot,
+        fallbackFrames: S? = Optional<[(Int, CGRect)]>.none
+    ) where S.Element == (Int, CGRect) {
+        if let latest = readWindowServerSnapshot(), !latest.boundsByID.isEmpty {
+            refreshVisibleBadges(with: latest)
+        } else if let fallbackFrames {
+            var map = fallbackSnapshot.boundsByID
+            for (id, frame) in fallbackFrames {
+                map[id] = frame
+            }
+            let excluded = Set(continueWindowIDs.values)
+            let visibleIDs = lastTiledWindowIDs.filter { !excluded.contains($0) }
+            badgeController.updateVisibleBadges(
+                targetWindowIDs: visibleIDs,
+                boundsByID: map,
+                obscuringBoundsByID: fallbackSnapshot.obscuringBoundsByID
+            )
+        }
+        if pollTimer != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                guard let self, self.dashboardRequested, let snapshot = self.readWindowServerSnapshot() else { return }
+                self.refreshVisibleBadges(with: snapshot)
+            }
+        }
     }
 
     func applySingleWindowDefaultSize(windowID: Int, within screenBounds: CGRect, recenter: Bool = false) -> Bool {
@@ -544,7 +871,41 @@ final class TerminalManager: NSObject, ObservableObject {
         return executeAppleScript(source) != nil
     }
 
-    func applyWindowLayout(windowIDs: [Int], frames: [CGRect]) -> Bool {
+    func applyWindowLayout(windowIDs: [Int], frames: [CGRect], within screenBounds: CGRect? = nil) -> Bool {
+        guard let initialResult = executeWindowBoundsWrite(windowIDs: windowIDs, frames: frames) else {
+            expectedPackedBounds = [:]
+            return false
+        }
+
+        guard let screenBounds,
+              let snappedFrames = Self.parseAppliedBounds(initialResult, expectedCount: windowIDs.count) else {
+            expectedPackedBounds = [:]
+            return true
+        }
+
+        let packedFrames = GridLayout.packTopLeftSnappedFrames(
+            snapped: snappedFrames,
+            slots: frames,
+            within: screenBounds
+        )
+        let needsPackPass = zip(snappedFrames, packedFrames).contains { snapped, packed in
+            !Self.framesMatch(snapped, packed, tolerance: 0.5)
+        }
+
+        if needsPackPass {
+            guard let packedResult = executeWindowBoundsWrite(windowIDs: windowIDs, frames: packedFrames) else {
+                expectedPackedBounds = [:]
+                return false
+            }
+            let finalFrames = Self.parseAppliedBounds(packedResult, expectedCount: windowIDs.count) ?? packedFrames
+            expectedPackedBounds = Dictionary(uniqueKeysWithValues: zip(windowIDs, finalFrames))
+        } else {
+            expectedPackedBounds = Dictionary(uniqueKeysWithValues: zip(windowIDs, snappedFrames))
+        }
+        return true
+    }
+
+    private func executeWindowBoundsWrite(windowIDs: [Int], frames: [CGRect]) -> NSAppleEventDescriptor? {
         let windowIDList = windowIDs.map(String.init).joined(separator: ", ")
         let boundsList = frames.map { frame in
             let left = Int(frame.minX.rounded())
@@ -557,6 +918,7 @@ final class TerminalManager: NSObject, ObservableObject {
         let source = """
         set targetWindowIDs to {\(windowIDList)}
         set targetBounds to {\(boundsList)}
+        set appliedBounds to {}
         tell application id "com.apple.Terminal"
             repeat with i from 1 to count of targetWindowIDs
                 set currentID to item i of targetWindowIDs
@@ -569,15 +931,44 @@ final class TerminalManager: NSObject, ObservableObject {
                         set visible of currentWindow to true
                     end if
                     set bounds of currentWindow to item i of targetBounds
+                    set end of appliedBounds to bounds of currentWindow
                 else if visible of currentWindow then
                     set visible of currentWindow to false
                 end if
             end repeat
         end tell
-        return count of targetBounds
+        return appliedBounds
         """
 
-        return executeAppleScript(source) != nil
+        return executeAppleScript(source)
+    }
+
+    private static func parseAppliedBounds(_ descriptor: NSAppleEventDescriptor, expectedCount: Int) -> [CGRect]? {
+        guard expectedCount > 0,
+              descriptor.descriptorType == typeAEList,
+              descriptor.numberOfItems == expectedCount else { return nil }
+        var rects: [CGRect] = []
+        rects.reserveCapacity(expectedCount)
+        for index in 1...expectedCount {
+            guard let item = descriptor.atIndex(index),
+                  item.descriptorType == typeAEList,
+                  item.numberOfItems >= 4,
+                  let left = item.atIndex(1)?.int32Value,
+                  let top = item.atIndex(2)?.int32Value,
+                  let right = item.atIndex(3)?.int32Value,
+                  let bottom = item.atIndex(4)?.int32Value,
+                  right > left,
+                  bottom > top else { return nil }
+            rects.append(
+                CGRect(
+                    x: CGFloat(left),
+                    y: CGFloat(top),
+                    width: CGFloat(right - left),
+                    height: CGFloat(bottom - top)
+                )
+            )
+        }
+        return rects
     }
 
     private func activeScreen() -> NSScreen? {
@@ -589,6 +980,9 @@ final class TerminalManager: NSObject, ObservableObject {
     }
 
     private func readWindowServerSnapshot() -> WindowServerSnapshot? {
+        if let windowServerDetails {
+            return windowServerDetails()
+        }
         if let windowServerSnapshot {
             guard let ids = windowServerSnapshot() else { return nil }
             return WindowServerSnapshot(candidateIDs: ids, onScreenIDs: ids)
@@ -609,23 +1003,55 @@ final class TerminalManager: NSObject, ObservableObject {
             kCGNullWindowID
         ) as? [[String: Any]] else { return nil }
 
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         var candidateIDs = Set<Int>()
         var onScreenIDs = Set<Int>()
+        var boundsByID: [Int: CGRect] = [:]
+        var obscuringBoundsByID: [Int: [CGRect]] = [:]
+        var higherNormalWindowRects: [CGRect] = []
+
         for window in windows {
-            guard (window[kCGWindowOwnerPID as String] as? Int32) == pid,
-                  (window[kCGWindowLayer as String] as? Int) == 0,
+            guard (window[kCGWindowLayer as String] as? Int) == 0,
+                  let ownerPID = (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  ownerPID != ownPID,
                   let windowNumber = (window[kCGWindowNumber as String] as? NSNumber)?.intValue,
                   let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let x = (bounds["X"] as? NSNumber)?.doubleValue,
+                  let y = (bounds["Y"] as? NSNumber)?.doubleValue,
                   let width = (bounds["Width"] as? NSNumber)?.doubleValue,
                   let height = (bounds["Height"] as? NSNumber)?.doubleValue,
                   width > 0,
                   height > 0 else { continue }
-            onScreenIDs.insert(windowNumber)
-            if width >= 290, height >= 145 {
-                candidateIDs.insert(windowNumber)
+
+            let alpha = (window[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+            guard alpha > 0.01 else { continue }
+
+            let rect = CGRect(
+                x: x.rounded(),
+                y: y.rounded(),
+                width: width.rounded(),
+                height: height.rounded()
+            )
+
+            if ownerPID == pid {
+                obscuringBoundsByID[windowNumber] = higherNormalWindowRects
+                boundsByID[windowNumber] = rect
+                onScreenIDs.insert(windowNumber)
+                if width >= 290, height >= 145 {
+                    candidateIDs.insert(windowNumber)
+                }
+            }
+
+            if width >= 40, height >= 40 {
+                higherNormalWindowRects.append(rect)
             }
         }
-        return WindowServerSnapshot(candidateIDs: candidateIDs, onScreenIDs: onScreenIDs)
+        return WindowServerSnapshot(
+            candidateIDs: candidateIDs,
+            onScreenIDs: onScreenIDs,
+            boundsByID: boundsByID,
+            obscuringBoundsByID: obscuringBoundsByID
+        )
     }
 
     func readTerminalWindowIDs() -> [Int]? {
@@ -753,10 +1179,11 @@ final class TerminalManager: NSObject, ObservableObject {
     }
 
     private func accessibilityFrame(from cocoaFrame: CGRect) -> CGRect {
-        guard let primaryScreen = NSScreen.screens.first else { return cocoaFrame }
+        let maxY = primaryScreenMaxY?() ?? NSScreen.screens.first?.frame.maxY
+        guard let maxY else { return cocoaFrame }
         return CGRect(
             x: cocoaFrame.minX,
-            y: primaryScreen.frame.maxY - cocoaFrame.maxY,
+            y: maxY - cocoaFrame.maxY,
             width: cocoaFrame.width,
             height: cocoaFrame.height
         )

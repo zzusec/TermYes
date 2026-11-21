@@ -16,6 +16,7 @@ def main():
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
     suites = [
         ('grid', ['Sources/GridLayout.swift', 'Tests/main.swift']),
+        ('window-badges', ['Sources/WindowBadgeController.swift', 'Tests/WindowBadgeTests.swift']),
         ('versions', ['Sources/SemanticVersion.swift', 'Tests/VersionTests.swift']),
         ('release-locations', ['Sources/SemanticVersion.swift', 'Sources/GitHubReleaseLocation.swift', 'Tests/ReleaseLocationTests.swift']),
         ('private-release-cli', ['Sources/GitHubCLI.swift', 'Tests/GitHubCLITests.swift']),
@@ -25,7 +26,7 @@ def main():
         ('login-items', ['Sources/LaunchAtLoginController.swift', 'Tests/LoginItemTests.swift']),
         ('agent-update-report', ['Sources/AgentAutoUpdateController.swift', 'Tests/AgentUpdateReportTests.swift']),
         ('menu-presentation', ['Sources/MenuPresentation.swift', 'Tests/MenuPresentationTests.swift']),
-        ('menu-continue', ['Sources/GridLayout.swift', 'Sources/ContinueSchedule.swift', 'Sources/TerminalManager.swift', 'Sources/GlobalHotKeyController.swift', 'Sources/ScheduledContinueController.swift', 'Tests/menu_continue_regression.swift']),
+        ('menu-continue', ['Sources/GridLayout.swift', 'Sources/WindowBadgeController.swift', 'Sources/ContinueSchedule.swift', 'Sources/TerminalManager.swift', 'Sources/GlobalHotKeyController.swift', 'Sources/ScheduledContinueController.swift', 'Tests/menu_continue_regression.swift']),
     ]
     commands = []
     with tempfile.TemporaryDirectory(prefix='termyes-regression-') as temp:

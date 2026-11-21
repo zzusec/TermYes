@@ -38,6 +38,7 @@ sources=(
   "$ROOT/Sources/GitHubReleaseLocation.swift"
   "$ROOT/Sources/GitHubCLI.swift"
   "$ROOT/Sources/GridLayout.swift"
+  "$ROOT/Sources/WindowBadgeController.swift"
   "$ROOT/Sources/ContinueSchedule.swift"
   "$ROOT/Sources/AgentGuardController.swift"
   "$ROOT/Sources/AgentAutoUpdateController.swift"

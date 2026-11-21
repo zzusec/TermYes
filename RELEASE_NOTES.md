@@ -1,3 +1,19 @@
+# TermYes v1.6.42
+
+## 简体中文
+
+- 实时对齐检测与后台自动对齐：直接通过 Window Server 在屏窗口边界与监听显示器/Dock 可用区域变化、鼠标/触控板滚动条样式切换（`NSPreferredScrollerStyleDidChangeNotification`），实时检测多窗口网格是否发生收缩、溢出或移位；鼠标按住拖拽时不抢光标，松开后及尺寸漂移后自动重排回正，不抢占当前前台应用焦点，并对终端最小字号物理尺寸下限自动收敛防循环。
+- 紧凑贴合消除字符网格取整细缝：多窗口排布写入后读取 `Terminal.app` 向下吸附至整数字符行列的实际尺寸，自动将相邻列与相邻行边缘零间隙贴合居中，消除字符取整留下的桌面壁纸细缝。
+- 固定窗口圆圈角标（`①`、`②`、`③`…）：为每个用户终端窗口标题栏右上角分配绑定窗口 ID 的鼠标穿透圆圈数字角标；顺时针轮转切换窗口位置或关闭相邻窗口时，各窗口的原有角标保持不变；当访达等上层窗口遮挡角标区域或隐藏终端时自动隐身，不遮挡其他应用。
+- 新增窗口角标生命周期、顺时针轮转跟随、Z-order 遮挡裁剪、字符网格紧凑贴合及实时漂移自愈回归测试。
+
+## English
+
+- Real-time alignment detection and non-activating self-healing: monitor live Window Server bounds alongside display/Dock `visibleFrame` and scroller-style transitions (`NSPreferredScrollerStyleDidChangeNotification`) to detect shrinkage, overflow, or drift even when window IDs do not change; defer while mouse buttons are held, snap windows back on release without stealing frontmost app focus, and converge cleanly at physical cell-size limits.
+- Zero-gap character-cell snap packing: read `Terminal.app`'s post-snap integer-cell dimensions during multi-window layout and pack adjacent columns and rows edge-to-edge to eliminate sub-cell wallpaper seams.
+- Stable circled window badges (`①`, `②`, `③`…): render click-through, non-activating circled number badges in each Terminal window's top-right titlebar tied to permanent window identity so badges stay unchanged when rotating positions clockwise or closing neighbors, while automatically hiding any badge obscured by higher Z-order windows.
+- Add automated regressions for badge identity invariance, clockwise rotation tracking, Z-order occlusion, character-cell snap packing, and real-time alignment recovery.
+
 # TermYes v1.6.41
 
 ## 简体中文
