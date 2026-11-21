@@ -1,7 +1,18 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RELEASE_NOTES - TermYes</title><style>
 body{max-width:960px;margin:40px auto;padding:0 24px;color:#202124;background:#fff;font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#075ab5}img{max-width:100%}pre{padding:16px;background:#f2f4f6;overflow:auto}code{font-size:.9em}table{border-collapse:collapse;width:100%;margin:20px 0}th,td{padding:8px 12px;border:1px solid #cdd2d8;text-align:left}h1,h2,h3{line-height:1.3}blockquote{margin-left:0;padding-left:20px;border-left:3px solid #adb5bd}@media print{body{max-width:none;margin:0;padding:0;font-size:11pt}pre{white-space:pre-wrap}a{color:inherit}h1,h2,h3{break-after:avoid}tr,img,pre{break-inside:avoid}}
-</style></head><body><h1>TermYes v1.6.42</h1>
+</style></head><body><h1>TermYes v1.6.43</h1>
+<h2>简体中文</h2>
+<ul>
+<li>当前激活窗口角标高亮为绿色：当 <code>Terminal.app</code> 处于前台操作状态时，根据 Window Server Z-order 与工作区应用切换通知实时识别当前拥有焦点的终端窗口，将其右上角圆圈角标（<code>①</code>、<code>②</code>、<code>③</code>…）高亮为绿色，其余非焦点窗口与切换到其他应用时保持深灰底色，直观标示当前正在操作的终端窗口。</li>
+<li>新增激活窗口绿色角标切换、顺时针轮转焦点跟随及跨应用失焦状态回归测试。</li>
+</ul>
+<h2>English</h2>
+<ul>
+<li>Highlight the active Terminal window's badge in green: track the frontmost focused Terminal window via Window Server Z-order and workspace activation notifications, rendering its circled badge (<code>①</code>, <code>②</code>, <code>③</code>…) in emerald green while inactive windows and unfocused states remain dark gray so the currently operated terminal is immediately clear.</li>
+<li>Add automated regressions for active-window green badge highlighting across focus switches, clockwise rotations, and app deactivation.</li>
+</ul>
+<h1>TermYes v1.6.42</h1>
 <h2>简体中文</h2>
 <ul>
 <li>实时对齐检测与后台自动对齐：直接通过 Window Server 在屏窗口边界与监听显示器/Dock 可用区域变化、鼠标/触控板滚动条样式切换（<code>NSPreferredScrollerStyleDidChangeNotification</code>），实时检测多窗口网格是否发生收缩、溢出或移位；鼠标按住拖拽时不抢光标，松开后及尺寸漂移后自动重排回正，不抢占当前前台应用焦点，并对终端最小字号物理尺寸下限自动收敛防循环。</li>

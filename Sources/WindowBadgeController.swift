@@ -7,6 +7,21 @@ struct WindowBadgePlacement: Equatable {
     let number: Int
     let label: String
     let topLeftFrame: CGRect
+    let isActive: Bool
+
+    init(
+        windowID: Int,
+        number: Int,
+        label: String,
+        topLeftFrame: CGRect,
+        isActive: Bool = false
+    ) {
+        self.windowID = windowID
+        self.number = number
+        self.label = label
+        self.topLeftFrame = topLeftFrame
+        self.isActive = isActive
+    }
 }
 
 struct WindowBadgeTracker: Equatable {
@@ -89,7 +104,8 @@ struct WindowBadgeTracker: Equatable {
     func visiblePlacements(
         targetWindowIDs: [Int],
         boundsByID: [Int: CGRect],
-        obscuringBoundsByID: [Int: [CGRect]] = [:]
+        obscuringBoundsByID: [Int: [CGRect]] = [:],
+        activeWindowID: Int? = nil
     ) -> [WindowBadgePlacement] {
         var seen = Set<Int>()
         var placements: [WindowBadgePlacement] = []
@@ -104,7 +120,8 @@ struct WindowBadgeTracker: Equatable {
                     windowID: id,
                     number: number,
                     label: Self.circledLabel(for: number),
-                    topLeftFrame: frame
+                    topLeftFrame: frame,
+                    isActive: id == activeWindowID
                 )
             )
         }
@@ -117,7 +134,16 @@ private final class WindowBadgeView: NSView {
     var number: Int = 1 {
         didSet {
             if oldValue != number {
-                setAccessibilityLabel("窗口 \(WindowBadgeTracker.circledLabel(for: number))")
+                refreshAccessibilityLabel()
+                needsDisplay = true
+            }
+        }
+    }
+
+    var isActive: Bool = false {
+        didSet {
+            if oldValue != isActive {
+                refreshAccessibilityLabel()
                 needsDisplay = true
             }
         }
@@ -129,12 +155,17 @@ private final class WindowBadgeView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
-        setAccessibilityLabel("窗口 ①")
+        refreshAccessibilityLabel()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func refreshAccessibilityLabel() {
+        let symbol = WindowBadgeTracker.circledLabel(for: number)
+        setAccessibilityLabel(isActive ? "窗口 \(symbol)（当前激活）" : "窗口 \(symbol)")
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -144,18 +175,36 @@ private final class WindowBadgeView: NSView {
         let radius = outerRect.height / 2
         let path = NSBezierPath(roundedRect: outerRect, xRadius: radius, yRadius: radius)
 
-        NSColor(calibratedRed: 0.11, green: 0.13, blue: 0.17, alpha: 0.90).setFill()
-        path.fill()
+        if isActive {
+            NSColor(calibratedRed: 0.08, green: 0.67, blue: 0.30, alpha: 0.96).setFill()
+            path.fill()
 
-        NSColor(calibratedWhite: 0.96, alpha: 0.92).setStroke()
-        path.lineWidth = 1.35
-        path.stroke()
+            NSColor(calibratedRed: 0.04, green: 0.38, blue: 0.16, alpha: 0.65).setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+
+            let innerRingRect = outerRect.insetBy(dx: 1.15, dy: 1.15)
+            if innerRingRect.width > 2, innerRingRect.height > 2 {
+                let innerRadius = innerRingRect.height / 2
+                let innerRing = NSBezierPath(roundedRect: innerRingRect, xRadius: innerRadius, yRadius: innerRadius)
+                NSColor(calibratedRed: 0.90, green: 1.0, blue: 0.93, alpha: 0.92).setStroke()
+                innerRing.lineWidth = 1.1
+                innerRing.stroke()
+            }
+        } else {
+            NSColor(calibratedRed: 0.14, green: 0.16, blue: 0.20, alpha: 0.88).setFill()
+            path.fill()
+
+            NSColor(calibratedWhite: 0.95, alpha: 0.86).setStroke()
+            path.lineWidth = 1.3
+            path.stroke()
+        }
 
         let text = "\(number)" as NSString
         let font = NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .bold)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor(calibratedWhite: 0.99, alpha: 1.0)
+            .foregroundColor: NSColor(calibratedWhite: 1.0, alpha: 1.0)
         ]
         let textSize = text.size(withAttributes: attributes)
         let textOrigin = CGPoint(
@@ -170,9 +219,10 @@ private final class WindowBadgeView: NSView {
 private final class WindowBadgePanel: NSPanel {
     let badgeView: WindowBadgeView
 
-    init(frame: NSRect, number: Int) {
+    init(frame: NSRect, number: Int, isActive: Bool) {
         self.badgeView = WindowBadgeView(frame: NSRect(origin: .zero, size: frame.size))
         self.badgeView.number = number
+        self.badgeView.isActive = isActive
         super.init(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -223,12 +273,14 @@ final class WindowBadgeController {
     func updateVisibleBadges(
         targetWindowIDs: [Int],
         boundsByID: [Int: CGRect],
-        obscuringBoundsByID: [Int: [CGRect]] = [:]
+        obscuringBoundsByID: [Int: [CGRect]] = [:],
+        activeWindowID: Int? = nil
     ) {
         let placements = tracker.visiblePlacements(
             targetWindowIDs: targetWindowIDs,
             boundsByID: boundsByID,
-            obscuringBoundsByID: obscuringBoundsByID
+            obscuringBoundsByID: obscuringBoundsByID,
+            activeWindowID: activeWindowID
         )
         activePlacements = placements
 
@@ -250,6 +302,7 @@ final class WindowBadgeController {
             )
             if let existing = panels[placement.windowID] {
                 existing.badgeView.number = placement.number
+                existing.badgeView.isActive = placement.isActive
                 if existing.frame != cocoaRect {
                     existing.setFrame(cocoaRect, display: true)
                     existing.badgeView.frame = NSRect(origin: .zero, size: cocoaRect.size)
@@ -258,7 +311,11 @@ final class WindowBadgeController {
                     existing.orderFrontRegardless()
                 }
             } else {
-                let panel = WindowBadgePanel(frame: cocoaRect, number: placement.number)
+                let panel = WindowBadgePanel(
+                    frame: cocoaRect,
+                    number: placement.number,
+                    isActive: placement.isActive
+                )
                 panels[placement.windowID] = panel
                 panel.orderFrontRegardless()
             }

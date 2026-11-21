@@ -1,3 +1,15 @@
+# TermYes v1.6.43
+
+## 简体中文
+
+- 当前激活窗口角标高亮为绿色：当 `Terminal.app` 处于前台操作状态时，根据 Window Server Z-order 与工作区应用切换通知实时识别当前拥有焦点的终端窗口，将其右上角圆圈角标（`①`、`②`、`③`…）高亮为绿色，其余非焦点窗口与切换到其他应用时保持深灰底色，直观标示当前正在操作的终端窗口。
+- 新增激活窗口绿色角标切换、顺时针轮转焦点跟随及跨应用失焦状态回归测试。
+
+## English
+
+- Highlight the active Terminal window's badge in green: track the frontmost focused Terminal window via Window Server Z-order and workspace activation notifications, rendering its circled badge (`①`, `②`, `③`…) in emerald green while inactive windows and unfocused states remain dark gray so the currently operated terminal is immediately clear.
+- Add automated regressions for active-window green badge highlighting across focus switches, clockwise rotations, and app deactivation.
+
 # TermYes v1.6.42
 
 ## 简体中文

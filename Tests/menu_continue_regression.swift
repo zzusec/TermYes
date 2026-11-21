@@ -473,6 +473,7 @@ struct MenuContinueRegression {
             23: CGRect(x: 0, y: 430, width: 595, height: 388)
         ]
         var obscuringByID: [Int: [CGRect]] = [:]
+        var frontmostWindowID: Int? = 21
         var mouseDown = false
         var layoutWrites = 0
         var lastWrittenScript = ""
@@ -491,7 +492,8 @@ struct MenuContinueRegression {
                     candidateIDs: Set(boundsByID.keys),
                     onScreenIDs: Set(boundsByID.keys),
                     boundsByID: boundsByID,
-                    obscuringBoundsByID: obscuringByID
+                    obscuringBoundsByID: obscuringByID,
+                    frontmostCandidateID: frontmostWindowID
                 )
             },
             visibleFrame: { screenRect },
@@ -500,15 +502,25 @@ struct MenuContinueRegression {
             layoutSettleGraceInterval: 0
         )
 
-        // Initial arrangement assigns ①, ②, ③ and settles without rewriting aligned frames.
+        // Initial arrangement assigns ①, ②, ③, highlights active window 21 (①) green, and settles without rewriting aligned frames.
         manager.pollTerminalWindows(isHidden: false, isActive: true)
         expect(layoutWrites == 1 && manager.terminalWindowCount == 3, "Initial three-window grid must write layout once")
         expect(manager.badgeNumber(for: 21) == 1 && manager.badgeNumber(for: 22) == 2 && manager.badgeNumber(for: 23) == 3,
                "Windows 21, 22, 23 must receive permanent badges ①, ②, ③")
         expect(manager.activeBadgePlacements.map(\.label) == ["①", "②", "③"], "All three badges must be visible initially")
+        expect(manager.activeBadgePlacements.map(\.isActive) == [true, false, false],
+               "Active frontmost Terminal window 21 must show a green active badge ① while others remain inactive")
+
+        // Switching user focus to window 23 turns ③ green; switching to Finder (isActive: false) clears all green highlights.
+        frontmostWindowID = 23
+        manager.pollTerminalWindows(isHidden: false, isActive: true)
+        expect(manager.activeBadgePlacements.map(\.isActive) == [false, false, true],
+               "Clicking window 23 must move the green active highlight to badge ③")
 
         // Subsequent passive polls settle baseline and do not rewrite already-aligned Terminal windows.
         manager.pollTerminalWindows(isHidden: false, isActive: false)
+        expect(manager.activeBadgePlacements.allSatisfy { !$0.isActive },
+               "Deactivating Terminal must turn all window badges back to inactive state")
         manager.pollTerminalWindows(isHidden: false, isActive: false)
         expect(layoutWrites == 1 && manager.isLayoutAligned, "Settled character-snapped Terminal windows must report aligned without redundant rewrites")
 

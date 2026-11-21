@@ -43,44 +43,67 @@ struct WindowBadgeTests {
         tracker.synchronize(liveWindowIDs: [103, 101, 104, 999], excludedWindowIDs: [999])
         expect(tracker.number(for: 999) == nil, "Temporary continue windows must not receive user badges")
 
-        // 5. Placement follows window bounds as slots swap, and hides when an upper window obscures the badge corner.
+        // 5. Placement follows window bounds as slots swap, highlights the active window in green,
+        // and hides when an upper window obscures the badge corner.
         let leftTopSlot = CGRect(x: 0, y: 30, width: 720, height: 390)
         let rightFullSlot = CGRect(x: 720, y: 30, width: 720, height: 780)
         let leftBottomSlot = CGRect(x: 0, y: 420, width: 720, height: 390)
 
         let beforeRotate = tracker.visiblePlacements(
             targetWindowIDs: [101, 104, 103],
-            boundsByID: [101: leftTopSlot, 104: rightFullSlot, 103: leftBottomSlot]
+            boundsByID: [101: leftTopSlot, 104: rightFullSlot, 103: leftBottomSlot],
+            activeWindowID: 101
         )
         expect(beforeRotate.map(\.label) == ["①", "②", "③"], "All three unobscured windows must show ①, ②, ③")
+        expect(beforeRotate.map(\.isActive) == [true, false, false],
+               "Only the active focused window (101 / ①) must highlight green")
         expect(beforeRotate[0].topLeftFrame == CGRect(x: 692, y: 34, width: 20, height: 20),
                "Top-left window badge must anchor inside top-right of its titlebar")
 
         let afterRotate = tracker.visiblePlacements(
             targetWindowIDs: [103, 101, 104],
-            boundsByID: [103: leftTopSlot, 101: rightFullSlot, 104: leftBottomSlot]
+            boundsByID: [103: leftTopSlot, 101: rightFullSlot, 104: leftBottomSlot],
+            activeWindowID: 101
         )
         expect(afterRotate.map(\.windowID) == [103, 101, 104] && afterRotate.map(\.label) == ["③", "①", "②"],
                "After clockwise rotation, ③ moves to top-left, ① moves to right, and ② moves to bottom-left")
+        expect(afterRotate.map(\.isActive) == [false, true, false],
+               "Active highlight must stay with active window ① after clockwise rotation")
         expect(afterRotate[0].topLeftFrame == CGRect(x: 692, y: 34, width: 20, height: 20),
                "③ must now appear at the top-left slot's titlebar corner")
         expect(afterRotate[1].topLeftFrame == CGRect(x: 1412, y: 34, width: 20, height: 20),
                "① must now appear at the right slot's titlebar corner")
+
+        // Switching focus to window 103 moves the green active state to ③; deactivating Terminal clears all green states.
+        let switchedFocus = tracker.visiblePlacements(
+            targetWindowIDs: [103, 101, 104],
+            boundsByID: [103: leftTopSlot, 101: rightFullSlot, 104: leftBottomSlot],
+            activeWindowID: 103
+        )
+        expect(switchedFocus.map(\.isActive) == [true, false, false], "Focusing window 103 must turn ③ green and ① inactive")
+
+        let inactiveApp = tracker.visiblePlacements(
+            targetWindowIDs: [103, 101, 104],
+            boundsByID: [103: leftTopSlot, 101: rightFullSlot, 104: leftBottomSlot],
+            activeWindowID: nil
+        )
+        expect(inactiveApp.allSatisfy { !$0.isActive }, "When Terminal is not the active app, no badge should highlight green")
 
         // Finder window covering the right window's top-right corner hides only ① while keeping ③ and ② visible.
         let finderOverRight = CGRect(x: 1000, y: 20, width: 440, height: 500)
         let partiallyObscured = tracker.visiblePlacements(
             targetWindowIDs: [103, 101, 104],
             boundsByID: [103: leftTopSlot, 101: rightFullSlot, 104: leftBottomSlot],
-            obscuringBoundsByID: [101: [finderOverRight]]
+            obscuringBoundsByID: [101: [finderOverRight]],
+            activeWindowID: 103
         )
-        expect(partiallyObscured.map(\.label) == ["③", "②"],
+        expect(partiallyObscured.map(\.label) == ["③", "②"] && partiallyObscured.map(\.isActive) == [true, false],
                "An upper window covering a terminal's badge corner must hide only that obscured badge")
 
         // Coordinate conversion round-trip with Top-Left screen space.
         let cocoa = WindowBadgeTracker.cocoaFrame(fromTopLeft: CGRect(x: 692, y: 34, width: 20, height: 20), primaryScreenMaxY: 900)
         expect(cocoa == CGRect(x: 692, y: 846, width: 20, height: 20), "Top-left to AppKit frame conversion must place badge inside titlebar")
 
-        print("Window badge tests passed (stable ①②③ assignment, rotation invariance, gap reuse, continue exclusion, Z-order occlusion, coordinate mapping).")
+        print("Window badge tests passed (stable ①②③ assignment, green active focus state, rotation invariance, gap reuse, continue exclusion, Z-order occlusion, coordinate mapping).")
     }
 }

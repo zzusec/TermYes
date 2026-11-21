@@ -26,6 +26,7 @@ final class TerminalManager: NSObject, ObservableObject {
     private var pollTimer: Timer?
     private var menuTrackingObservers: [NSObjectProtocol] = []
     private var environmentObservers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     struct TerminalWindowState: Equatable {
         let id: Int
@@ -38,17 +39,20 @@ final class TerminalManager: NSObject, ObservableObject {
         let onScreenIDs: Set<Int>
         let boundsByID: [Int: CGRect]
         let obscuringBoundsByID: [Int: [CGRect]]
+        let frontmostCandidateID: Int?
 
         init(
             candidateIDs: Set<Int>,
             onScreenIDs: Set<Int>? = nil,
             boundsByID: [Int: CGRect] = [:],
-            obscuringBoundsByID: [Int: [CGRect]] = [:]
+            obscuringBoundsByID: [Int: [CGRect]] = [:],
+            frontmostCandidateID: Int? = nil
         ) {
             self.candidateIDs = candidateIDs
             self.onScreenIDs = onScreenIDs ?? candidateIDs
             self.boundsByID = boundsByID
             self.obscuringBoundsByID = obscuringBoundsByID
+            self.frontmostCandidateID = frontmostCandidateID
         }
     }
 
@@ -72,6 +76,7 @@ final class TerminalManager: NSObject, ObservableObject {
     private var targetScreen: NSScreen?
     private var started = false
     private var dashboardRequested = false
+    private var isTerminalCurrentlyActive = false
 
     private let badgeController: WindowBadgeController
     private let layoutSettleGraceInterval: TimeInterval
@@ -175,6 +180,7 @@ final class TerminalManager: NSObject, ObservableObject {
                 updatePhase(.error("无法激活 Terminal"))
                 return
             }
+            isTerminalCurrentlyActive = true
             updatePhase(.visible)
             scheduleTilePasses(afterUnhide: wasHidden)
         } else {
@@ -227,6 +233,7 @@ final class TerminalManager: NSObject, ObservableObject {
 
     func hideDashboard(activateManager: Bool = true) {
         dashboardRequested = false
+        isTerminalCurrentlyActive = false
         badgeController.clearVisibleBadges()
         resetAlignmentBaseline()
         if let terminal = terminalApplication(), !terminal.isHidden && !terminal.hide() {
@@ -347,6 +354,23 @@ final class TerminalManager: NSObject, ObservableObject {
                 }
             }
         }
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        let appSwitchNames: [Notification.Name] = [
+            NSWorkspace.didActivateApplicationNotification,
+            NSWorkspace.didDeactivateApplicationNotification
+        ]
+        workspaceObservers = appSwitchNames.map { name in
+            wsCenter.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in
+                    guard TerminalManager.shared.pollTimer != nil else { return }
+                    TerminalManager.shared.pollTerminalState()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        guard TerminalManager.shared.pollTimer != nil else { return }
+                        TerminalManager.shared.pollTerminalState()
+                    }
+                }
+            }
+        }
     }
 
     func noteEnvironmentGeometryChanged() {
@@ -385,6 +409,7 @@ final class TerminalManager: NSObject, ObservableObject {
         guard let terminal = terminalApplication() else {
             updateWindowCount(0)
             lastTiledWindowIDs = []
+            isTerminalCurrentlyActive = false
             resetAlignmentBaseline()
             badgeController.resetAll()
             if dashboardRequested { updatePhase(.terminalNotRunning) }
@@ -395,6 +420,8 @@ final class TerminalManager: NSObject, ObservableObject {
     }
 
     func pollTerminalWindows(isHidden: Bool, isActive: Bool) {
+        isTerminalCurrentlyActive = !isHidden && isActive
+
         if isHidden {
             dashboardRequested = false
             badgeController.clearVisibleBadges()
@@ -452,11 +479,25 @@ final class TerminalManager: NSObject, ObservableObject {
         let visibleIDs = lastTiledWindowIDs.filter {
             snapshot.onScreenIDs.contains($0) && !excluded.contains($0)
         }
+        let activeID = activeTerminalBadgeWindowID(from: snapshot, visibleWindowIDs: visibleIDs)
         badgeController.updateVisibleBadges(
             targetWindowIDs: visibleIDs,
             boundsByID: snapshot.boundsByID,
-            obscuringBoundsByID: snapshot.obscuringBoundsByID
+            obscuringBoundsByID: snapshot.obscuringBoundsByID,
+            activeWindowID: activeID
         )
+    }
+
+    private func activeTerminalBadgeWindowID(
+        from snapshot: WindowServerSnapshot,
+        visibleWindowIDs: [Int]
+    ) -> Int? {
+        guard isTerminalCurrentlyActive,
+              let frontmostID = snapshot.frontmostCandidateID,
+              visibleWindowIDs.contains(frontmostID) else {
+            return nil
+        }
+        return frontmostID
     }
 
     private func evaluateAlignmentAndHealIfNeeded(snapshot: WindowServerSnapshot) {
@@ -638,6 +679,7 @@ final class TerminalManager: NSObject, ObservableObject {
                     return
                 }
                 self.updatePhase(.visible)
+                self.isTerminalCurrentlyActive = true
                 self.scheduleTilePasses()
             }
         }
@@ -766,10 +808,12 @@ final class TerminalManager: NSObject, ObservableObject {
             }
             let excluded = Set(continueWindowIDs.values)
             let visibleIDs = lastTiledWindowIDs.filter { !excluded.contains($0) }
+            let activeID = activeTerminalBadgeWindowID(from: fallbackSnapshot, visibleWindowIDs: visibleIDs)
             badgeController.updateVisibleBadges(
                 targetWindowIDs: visibleIDs,
                 boundsByID: map,
-                obscuringBoundsByID: fallbackSnapshot.obscuringBoundsByID
+                obscuringBoundsByID: fallbackSnapshot.obscuringBoundsByID,
+                activeWindowID: activeID
             )
         }
         if pollTimer != nil {
@@ -1009,6 +1053,7 @@ final class TerminalManager: NSObject, ObservableObject {
         var boundsByID: [Int: CGRect] = [:]
         var obscuringBoundsByID: [Int: [CGRect]] = [:]
         var higherNormalWindowRects: [CGRect] = []
+        var frontmostCandidateID: Int?
 
         for window in windows {
             guard (window[kCGWindowLayer as String] as? Int) == 0,
@@ -1039,6 +1084,9 @@ final class TerminalManager: NSObject, ObservableObject {
                 onScreenIDs.insert(windowNumber)
                 if width >= 290, height >= 145 {
                     candidateIDs.insert(windowNumber)
+                    if frontmostCandidateID == nil {
+                        frontmostCandidateID = windowNumber
+                    }
                 }
             }
 
@@ -1050,7 +1098,8 @@ final class TerminalManager: NSObject, ObservableObject {
             candidateIDs: candidateIDs,
             onScreenIDs: onScreenIDs,
             boundsByID: boundsByID,
-            obscuringBoundsByID: obscuringBoundsByID
+            obscuringBoundsByID: obscuringBoundsByID,
+            frontmostCandidateID: frontmostCandidateID
         )
     }
 
